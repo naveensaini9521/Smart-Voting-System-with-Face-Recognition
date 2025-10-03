@@ -1,0 +1,484 @@
+/* RegisterPage.css */
+
+.register-page-wrapper {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e7ec 100%);
+  background-attachment: fixed;
+}
+
+.register-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+}
+
+.registration-card {
+  border: none;
+  border-radius: 20px;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+}
+
+.registration-header {
+  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+  color: white;
+  border-bottom: none;
+  padding: 2rem 1rem;
+  position: relative;
+}
+
+.registration-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 100" fill="rgba(255,255,255,0.1)"><polygon points="1000,100 1000,0 0,100"/></svg>');
+  background-size: cover;
+}
+
+.header-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.9;
+}
+
+.header-icon svg {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.registration-header h2 {
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.registration-body {
+  padding: 2.5rem;
+}
+
+/* Registration Stepper */
+.registration-stepper {
+  margin-top: 2rem;
+}
+
+.stepper-progress {
+  margin-bottom: 3rem;
+}
+
+.stepper-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.stepper-progress-bar .progress-bar {
+  background: linear-gradient(90deg, #27ae60, #2ecc71);
+  transition: width 0.5s ease;
+}
+
+.step-item {
+  flex: 1;
+  z-index: 2;
+}
+
+.step-indicator {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: 3px solid rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 0.5rem;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.step-indicator.active {
+  background: #ffffff;
+  border-color: #27ae60;
+  transform: scale(1.1);
+  box-shadow: 0 0 0 4px rgba(39, 174, 96, 0.3);
+}
+
+.step-indicator.completed {
+  background: #27ae60;
+  border-color: #2ecc71;
+}
+
+.step-icon {
+  font-size: 1.5rem;
+  color: white;
+}
+
+.step-indicator.active .step-icon {
+  color: #27ae60;
+}
+
+.step-number {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #e74c3c;
+  color: white;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.step-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Step Content */
+.step-content {
+  animation: fadeInUp 0.5s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.step-title {
+  color: #2c3e50;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #ecf0f1;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.step-title svg {
+  color: #27ae60;
+}
+
+/* Form Styles */
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-label {
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+}
+
+.form-label svg {
+  color: #27ae60;
+  margin-right: 0.5rem;
+}
+
+.form-control, .form-select {
+  border: 2px solid #ecf0f1;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: #27ae60;
+  box-shadow: 0 0 0 0.2rem rgba(39, 174, 96, 0.25);
+}
+
+/* Tabs */
+.nav-tabs {
+  border-bottom: 2px solid #ecf0f1;
+  margin-bottom: 1.5rem;
+}
+
+.nav-tabs .nav-link {
+  border: none;
+  color: #7f8c8d;
+  font-weight: 600;
+  padding: 1rem 1.5rem;
+  border-radius: 10px 10px 0 0;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+}
+
+.nav-tabs .nav-link:hover {
+  border: none;
+  color: #27ae60;
+  background-color: rgba(39, 174, 96, 0.1);
+}
+
+.nav-tabs .nav-link.active {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+  color: white;
+  border: none;
+}
+
+/* Alert */
+.alert-custom {
+  border-radius: 10px;
+  border: none;
+  padding: 1rem 1.5rem;
+  margin-bottom: 2rem;
+  animation: slideInDown 0.5s ease;
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Buttons */
+.btn {
+  border-radius: 10px;
+  padding: 0.75rem 2rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+  box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(39, 174, 96, 0.4);
+}
+
+.btn-success {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+  box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+}
+
+.btn-success:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(39, 174, 96, 0.4);
+}
+
+.btn-outline-secondary {
+  border: 2px solid #bdc3c7;
+  color: #7f8c8d;
+}
+
+.btn-outline-secondary:hover {
+  background-color: #bdc3c7;
+  border-color: #bdc3c7;
+  color: white;
+}
+
+/* Face Capture Container */
+.face-capture-container {
+  background: #f8f9fa;
+  border-radius: 15px;
+  padding: 2rem;
+  border: 2px dashed #dee2e6;
+  text-align: center;
+}
+
+/* Success Animation */
+.success-animation {
+  margin-bottom: 2rem;
+}
+
+.success-icon {
+  font-size: 5rem;
+  color: #27ae60;
+  animation: bounceIn 1s ease;
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Voter ID Badge */
+.voter-id-badge {
+  margin: 2rem 0;
+}
+
+.voter-id {
+  font-size: 1.5rem;
+  padding: 1rem 2rem;
+  border-radius: 25px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(39, 174, 96, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(39, 174, 96, 0);
+  }
+}
+
+/* Completion Details */
+.completion-details {
+  background: #f8f9fa;
+  border-radius: 15px;
+  padding: 2rem;
+  margin: 2rem 0;
+}
+
+.verification-status ul li {
+  padding: 0.5rem 0;
+  display: flex;
+  align-items: center;
+  color: #2c3e50;
+}
+
+/* Navigation Buttons */
+.navigation-buttons {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 2px solid #ecf0f1;
+}
+
+/* Modal */
+.modal-content {
+  border-radius: 15px;
+  border: none;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+  color: white;
+  border-radius: 15px 15px 0 0;
+  border: none;
+}
+
+.modal-title {
+  font-weight: 600;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .registration-body {
+    padding: 1.5rem;
+  }
+  
+  .step-indicator {
+    width: 45px;
+    height: 45px;
+  }
+  
+  .step-icon {
+    font-size: 1.2rem;
+  }
+  
+  .step-label {
+    font-size: 0.8rem;
+  }
+  
+  .btn {
+    padding: 0.6rem 1.5rem;
+  }
+  
+  .registration-header {
+    padding: 1.5rem 1rem;
+  }
+  
+  .header-icon {
+    font-size: 2.5rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .register-page {
+    padding: 1rem;
+  }
+  
+  .registration-card {
+    border-radius: 15px;
+  }
+  
+  .step-indicator {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .step-number {
+    width: 20px;
+    height: 20px;
+    font-size: 0.7rem;
+  }
+  
+  .navigation-buttons .btn {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+  
+  .navigation-buttons .d-flex {
+    flex-direction: column;
+  }
+}
+
+/* Loading States */
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Custom Scrollbar */
+.registration-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.registration-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.registration-body::-webkit-scrollbar-thumb {
+  background: #27ae60;
+  border-radius: 3px;
+}
+
+.registration-body::-webkit-scrollbar-thumb:hover {
+  background: #2ecc71;
+}

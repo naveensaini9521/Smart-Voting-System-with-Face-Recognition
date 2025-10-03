@@ -1,0 +1,179 @@
+/* Header.css */
+.custom-navbar {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
+  transition: all 0.3s ease;
+  padding: 0.8rem 0;
+}
+
+.custom-navbar.scrolled {
+  background: rgba(26, 26, 46, 0.95) !important;
+  backdrop-filter: blur(10px);
+  padding: 0.5rem 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+}
+
+.brand-logo {
+  text-decoration: none;
+}
+
+.brand-text {
+  font-size: 1.5rem;
+  background: linear-gradient(45deg, #4cc9f0, #4361ee);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.brand-subtitle {
+  font-size: 0.7rem;
+  color: #8b9dc3;
+  letter-spacing: 0.5px;
+}
+
+.logo-icon {
+  font-size: 2rem;
+  filter: drop-shadow(0 2px 4px rgba(76, 201, 240, 0.3));
+}
+
+.navbar-toggler-icon-custom {
+  display: inline-block;
+  width: 1.5em;
+  height: 1.5em;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%2876, 201, 240, 0.8%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+}
+
+.nav-link-custom {
+  color: #e3f2fd !important;
+  margin: 0 0.5rem;
+  padding: 0.8rem 1rem !important;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  font-weight: 500;
+  position: relative;
+}
+
+.nav-link-custom:hover {
+  color: #4cc9f0 !important;
+  background: rgba(76, 201, 240, 0.1);
+  transform: translateY(-1px);
+}
+
+.nav-link-custom.active {
+  color: #4cc9f0 !important;
+  background: rgba(76, 201, 240, 0.15);
+}
+
+.nav-link-custom.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30px;
+  height: 2px;
+  background: #4cc9f0;
+  border-radius: 2px;
+}
+
+.user-dropdown-toggle {
+  border: 1px solid rgba(76, 201, 240, 0.3) !important;
+  padding: 0.5rem 1rem;
+  border-radius: 50px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  transition: all 0.3s ease;
+}
+
+.user-dropdown-toggle:hover {
+  border-color: #4cc9f0 !important;
+  background: rgba(76, 201, 240, 0.1) !important;
+  transform: translateY(-1px);
+}
+
+.user-avatar {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #4cc9f0, #4361ee);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: white;
+  font-size: 0.9rem;
+}
+
+.dropdown-menu-custom {
+  background: rgba(26, 26, 46, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(76, 201, 240, 0.2);
+  border-radius: 12px;
+  margin-top: 10px !important;
+}
+
+.dropdown-item-custom {
+  color: #e3f2fd !important;
+  padding: 0.75rem 1.5rem !important;
+  transition: all 0.3s ease;
+  border-radius: 6px;
+  margin: 0.1rem 0.5rem;
+  width: auto;
+}
+
+.dropdown-item-custom:hover {
+  background: rgba(76, 201, 240, 0.1) !important;
+  color: #4cc9f0 !important;
+  transform: translateX(5px);
+}
+
+.btn-custom, .btn-primary-custom {
+  border-radius: 25px !important;
+  padding: 0.5rem 1.5rem !important;
+  font-weight: 600;
+  transition: all 0.3s ease !important;
+  border-width: 2px;
+}
+
+.btn-custom {
+  border-color: #4cc9f0;
+  color: #4cc9f0;
+}
+
+.btn-custom:hover {
+  background: rgba(76, 201, 240, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(76, 201, 240, 0.3);
+}
+
+.btn-primary-custom {
+  background: linear-gradient(45deg, #4cc9f0, #4361ee);
+  border: none;
+}
+
+.btn-primary-custom:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(76, 201, 240, 0.4);
+  background: linear-gradient(45deg, #4361ee, #4cc9f0);
+}
+
+/* Responsive adjustments */
+@media (max-width: 991.98px) {
+  .nav-link-custom {
+    margin: 0.2rem 0;
+    text-align: center;
+  }
+  
+  .navbar-nav .dropdown-menu {
+    border: none;
+    background: transparent;
+    text-align: center;
+  }
+  
+  .btn-custom, .btn-primary-custom {
+    width: 100%;
+    margin: 0.2rem 0;
+  }
+}
+
+.x-small {
+  font-size: 0.75rem;
+}
