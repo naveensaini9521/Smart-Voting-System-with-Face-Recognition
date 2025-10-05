@@ -1,9 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.extensions import db
-from app.models.user import User
-from app.models.voter import Voter
-from app.services.face_recognition import face_service
+from smart_app.backend.extensions import db
+from smart_app.backend.models import User, Voter
+from smart_app.backend.services.face_recognition import face_service
 import cloudinary
 import cloudinary.uploader
 from PIL import Image

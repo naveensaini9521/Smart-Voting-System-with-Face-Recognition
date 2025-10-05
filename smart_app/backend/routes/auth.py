@@ -1,9 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-from app.extensions import db
-from app.models.user import User
-from app.models.voter import Voter
-from app.utils.validators import validate_email, validate_password
+from smart_app.backend.extensions import db
+from smart_app.backend.models import User,Voter
+from smart_app.backend.utils.validators import validate_email, validate_password
 from datetime import datetime
 import re
 

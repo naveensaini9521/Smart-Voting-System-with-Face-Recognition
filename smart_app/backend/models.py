@@ -1,4 +1,4 @@
-from app.extensions import db
+from smart_app.backend.extensions import db
 from bcrypt import hashpw, gensalt, checkpw
 from datetime import datetime
 import json
@@ -185,3 +185,4 @@ class Vote(db.Model):
             'election_id': self.election_id,
             'candidate_id': self.candidate_id,
             'timestamp': self.timestamp.isoformat()
+        }

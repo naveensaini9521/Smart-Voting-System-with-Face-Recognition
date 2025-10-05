@@ -1,9 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from backend.extensions import db
-from backend.models.user import User
-from backend.models.election import Election
-from backend.models.candidate import Candidate
+from smart_app.backend.extensions import db
+from smart_app.backend.models import User, Election, Candidate
+
 
 admin_bp = Blueprint('admin', __name__)
 

@@ -1,14 +1,12 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.extensions import db
-from app.models.voter import Voter
-from app.models.vote import Vote
-from app.models.election import Election
-from app.models.candidate import Candidate
+from smart_app.backend.extensions import db
+from smart_app.backend.models import Voter, Vote, Election, Candidate
 
-voters_bp = Blueprint('voters', __name__)
 
-@voters_bp.route('/vote', methods=['POST'])
+voting_bp = Blueprint('voters', __name__)
+
+@voting_bp.route('/vote', methods=['POST'])
 @jwt_required()
 def cast_vote():
     try:
@@ -87,7 +85,7 @@ def cast_vote():
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@voters_bp.route('/voting-history', methods=['GET'])
+@voting_bp.route('/voting-history', methods=['GET'])
 @jwt_required()
 def get_voting_history():
     try:
@@ -118,7 +116,7 @@ def get_voting_history():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@voters_bp.route('/elections', methods=['GET'])
+@voting_bp.route('/elections', methods=['GET'])
 @jwt_required()
 def get_available_elections():
     try:
