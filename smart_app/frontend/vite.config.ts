@@ -16,13 +16,20 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    assetsDir: 'assets'
+    assetsDir: 'assets',
+     // Add this for proper routing in production
+    rollupOptions: {
+      external: []
+    }
   },
   optimizeDeps: {
     esbuildOptions: {
       loader: {
         '.js': 'jsx',
+        '.ts': 'tsx',
       },
     },
   },
+  // Base Configuration
+  base: './'
 })

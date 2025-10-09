@@ -1,21 +1,98 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Container, Row, Col, Card, Button, Badge, Modal, Accordion } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Badge, Modal, Accordion, Spinner, Alert } from 'react-bootstrap';
+import homeAPI from '../services/homeAPI.js';
 
 const HomePage = () => {
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
+  const [backendStats, setBackendStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [systemInfo, setSystemInfo] = useState(null);
+  const [dynamicFeatures, setDynamicFeatures] = useState([]);
+  const [dynamicTestimonials, setDynamicTestimonials] = useState([]);
+  const [apiError, setApiError] = useState("");
 
   useEffect(() => {
     // Auto rotate features
     const interval = setInterval(() => {
       setActiveFeature((prev) => (prev + 1) % features.length);
     }, 5000);
+
+    // Fetch data from Flask backend
+    fetchBackendData();
+
     return () => clearInterval(interval);
   }, []);
 
-  // Simple data arrays
-  const features = [
+  const fetchBackendData = async () => {
+    try {
+      setLoading(true);
+      setApiError("");
+      
+      console.log('Fetching backend data...');
+      
+      // Test connection first
+      try {
+        const testResponse = await fetch('http://localhost:5000/api/home/test');
+        const testData = await testResponse.json();
+        console.log('Test connection:', testData);
+      } catch (testError) {
+        console.log('Test connection failed, continuing with other endpoints...');
+      }
+
+      // Fetch all home data in parallel
+      const [statsResponse, featuresResponse, testimonialsResponse, systemInfoResponse] = await Promise.all([
+        homeAPI.getStats(),
+        homeAPI.getFeatures(),
+        homeAPI.getTestimonials(),
+        homeAPI.getSystemInfo()
+      ]);
+
+      console.log('API Responses:', {
+        stats: statsResponse,
+        features: featuresResponse,
+        testimonials: testimonialsResponse,
+        systemInfo: systemInfoResponse
+      });
+
+      if (statsResponse.success) {
+        setBackendStats(statsResponse.stats);
+      } else {
+        throw new Error(statsResponse.message || 'Failed to fetch stats');
+      }
+
+      if (featuresResponse.success) {
+        setDynamicFeatures(featuresResponse.features);
+      }
+
+      if (testimonialsResponse.success) {
+        setDynamicTestimonials(testimonialsResponse.testimonials);
+      }
+
+      if (systemInfoResponse.success) {
+        setSystemInfo(systemInfoResponse.system_info);
+      }
+
+    } catch (error) {
+      console.error('Failed to fetch backend data:', error);
+      setApiError(`Backend connection failed: ${error.message}. Make sure Flask server is running on port 5000.`);
+      
+      // Fallback to default data
+      setBackendStats({
+        total_users: 0,
+        total_elections: 0,
+        active_elections: 0,
+        total_votes: 0,
+        system_status: 'Demo'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Use dynamic data or fallback to static data
+  const features = dynamicFeatures.length > 0 ? dynamicFeatures : [
     {
       icon: '👤',
       title: 'Face Recognition',
@@ -42,21 +119,7 @@ const HomePage = () => {
     }
   ];
 
- const stats = [
-    { number: '0', label: 'Live Deployments', icon: '🌐' },
-    { number: 'Demo', label: 'Version', icon: '🔧' },
-    { number: 'Academic', label: 'Purpose', icon: '🎓' },
-    { number: 'Prototype', label: 'Status', icon: '🚧' }
-  ];
-
-  const processSteps = [
-    { step: 1, title: 'Register', description: 'Create your account', icon: '📝' },
-    { step: 2, title: 'Verify', description: 'Face verification', icon: '✅' },
-    { step: 3, title: 'Vote', description: 'Cast your vote', icon: '🗳️' },
-    { step: 4, title: 'Confirm', description: 'Get confirmation', icon: '📨' }
-  ];
-
-  const testimonials = [
+  const testimonials = dynamicTestimonials.length > 0 ? dynamicTestimonials : [
     {
       name: "Student User 1",
       role: "University Student",
@@ -77,15 +140,48 @@ const HomePage = () => {
     }
   ];
 
+  // Dynamic stats based on backend data
+  const stats = backendStats ? [
+    { number: backendStats.total_users || '0', label: 'Registered Users', icon: '👥' },
+    { number: backendStats.active_elections || '0', label: 'Active Elections', icon: '🗳️' },
+    { number: backendStats.total_votes || '0', label: 'Votes Cast', icon: '✅' },
+    { number: backendStats.system_status || 'Demo', label: 'System Status', icon: '🔧' }
+  ] : [
+    { number: '0', label: 'Registered Users', icon: '👥' },
+    { number: '0', label: 'Active Elections', icon: '🗳️' },
+    { number: '0', label: 'Votes Cast', icon: '✅' },
+    { number: 'Demo', label: 'System Status', icon: '🔧' }
+  ];
+
+  const processSteps = [
+    { step: 1, title: 'Register', description: 'Create your account', icon: '📝' },
+    { step: 2, title: 'Verify', description: 'Face verification', icon: '✅' },
+    { step: 3, title: 'Vote', description: 'Cast your vote', icon: '🗳️' },
+    { step: 4, title: 'Confirm', description: 'Get confirmation', icon: '📨' }
+  ];
+
   return (
     <div style={styles.homePage}>
+      {/* API Error Alert */}
+      {apiError && (
+        <Alert variant="warning" style={styles.alert}>
+          <strong>Connection Issue:</strong> {apiError}
+          <div>
+            <Button variant="outline-danger" size="sm" onClick={fetchBackendData} className="mt-2">
+              Retry Connection
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       {/* Hero Section */}
       <section style={styles.heroSection}>
         <Container>
           <Row className="align-items-center" style={styles.heroRow}>
             <Col lg={6} style={styles.heroText}>
               <div style={styles.projectBadge}>
-              
+                {systemInfo ? `${systemInfo.name} v${systemInfo.version}` : 'Smart Voting System v1.0'}
+                {apiError && ' (Offline Mode)'}
               </div>
               <h1 style={styles.heroTitle}>
                 Smart Voting System
@@ -99,7 +195,9 @@ const HomePage = () => {
                 <Row>
                   {stats.map((stat, index) => (
                     <Col key={index} className="text-center">
-                      <div style={styles.statNumber}>{stat.number}</div>
+                      <div style={styles.statNumber}>
+                        {loading ? <Spinner animation="border" size="sm" /> : stat.number}
+                      </div>
                       <div style={styles.statLabel}>
                         <span style={styles.statIcon}>{stat.icon}</span>
                         {stat.label}
@@ -175,7 +273,7 @@ const HomePage = () => {
                   boxShadow: activeFeature === index ? '0 10px 25px rgba(0,0,0,0.15)' : '0 5px 15px rgba(0,0,0,0.08)'
                 }}>
                   <Card.Body style={styles.featureCardBody}>
-                    <div style={{...styles.featureIcon, backgroundColor: `${feature.color}20`}}>
+                    <div style={{...styles.featureIcon, backgroundColor: `${feature.color || '#667eea'}20`}}>
                       {feature.icon}
                     </div>
                     <Card.Title style={styles.featureTitle}>{feature.title}</Card.Title>
@@ -338,7 +436,7 @@ const HomePage = () => {
               </div>
               <div style={styles.projectInfo}>
                 <p>Final Year Project • Computer Science • 2024</p>
-                <p>Developed by Student Name | Guided by Professor Name</p>
+                <p>Developed by {systemInfo?.developers?.[0] || 'Your Name'} | Guided by Professor Name</p>
               </div>
             </Col>
           </Row>
@@ -380,6 +478,13 @@ const HomePage = () => {
 const styles = {
   homePage: {
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
+  },
+  
+  alert: {
+    margin: 0,
+    borderRadius: 0,
+    textAlign: 'center',
+    padding: '15px'
   },
   
   // Hero Section Styles
@@ -429,7 +534,11 @@ const styles = {
   statNumber: {
     fontSize: '1.8rem',
     fontWeight: 'bold',
-    marginBottom: '5px'
+    marginBottom: '5px',
+    minHeight: '45px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   
   statLabel: {

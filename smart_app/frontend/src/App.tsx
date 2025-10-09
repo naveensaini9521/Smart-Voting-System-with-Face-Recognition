@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Container, Spinner } from 'react-bootstrap';
 
 // Import Components
 import Header from './components/common/Header.jsx';
-import Footer from './components/common/footer.jsx';
+import Footer from './components/common/Footer.jsx';
 
 // Import Pages
 import HomePage from './pages/HomePage.jsx';

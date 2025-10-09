@@ -1,136 +1,71 @@
-import axios from 'axios';
+import axios from "axios";
 
-// Create axios instance with base configuration
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+// Detect if running in development or production
+const BASE_URL =
+  process.env.NODE_ENV === "development" ? "http://localhost:5000/api" : "/api";
+
+// Create Axios instance
+const API = axios.create({
+  baseURL: BASE_URL,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
+  timeout: 10000,
 });
 
-// Request interceptor to add auth token if available
-api.interceptors.request.use(
+// Request interceptor to attach JWT token
+API.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('authToken');
+    const token = localStorage.getItem("authToken");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle common errors
-api.interceptors.response.use(
+// Response interceptor for error handling
+API.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('authToken');
-      window.location.href = '/login';
+      localStorage.removeItem("authToken");
+      window.location.href = "/login";
     }
     return Promise.reject(error);
   }
 );
 
-// Voter API methods
+// Auth API
+export const authAPI = {
+  login: (credentials) => API.post("/auth/login", credentials).then((res) => res.data),
+  register: (userData) => API.post("/auth/register", userData).then((res) => res.data),
+  logout: () => API.post("/auth/logout").then((res) => res.data),
+  getProfile: () => API.get("/auth/profile").then((res) => res.data),
+};
+
+// Voter API
 export const voterAPI = {
-  // Register new voter
-  register: async (voterData) => {
-    const response = await api.post('/voters/register', voterData);
-    return response.data;
-  },
-
-  // Login voter
-  login: async (credentials) => {
-    const response = await api.post('/voters/login', credentials);
-    return response.data;
-  },
-
-  // Verify face
-  verifyFace: async (faceData, voterId) => {
-    const response = await api.post('/voters/verify-face', {
-      face_data: faceData,
-      voter_id: voterId
-    });
-    return response.data;
-  },
-
-  // Register face
-  registerFace: async (faceData, voterId) => {
-    const response = await api.post('/voters/register-face', {
-      face_data: faceData,
-      voter_id: voterId
-    });
-    return response.data;
-  },
-
-  // Get voter profile
-  getProfile: async (voterId) => {
-    const response = await api.get(`/voters/profile/${voterId}`);
-    return response.data;
-  },
-
-  // Update voter profile
-  updateProfile: async (voterId, updateData) => {
-    const response = await api.put(`/voters/profile/${voterId}`, updateData);
-    return response.data;
-  }
+  register: (data) => API.post("/voter/register", data).then((res) => res.data),
+  sendOTP: (type, value) => API.post("/otp/send", { type, value }).then((res) => res.data),
+  verifyOTP: (value, otp) => API.post("/otp/verify", { value, otp }).then((res) => res.data),
+  registerFace: (voterId, image) => API.post("/face/register", { voter_id: voterId, image }).then((res) => res.data),
+  getElections: () => API.get("/voter/elections").then((res) => res.data),
+  castVote: (voteData) => API.post("/voter/vote", voteData).then((res) => res.data),
 };
 
-// Election API methods
-export const electionAPI = {
-  // Get all elections
-  getElections: async () => {
-    const response = await api.get('/elections');
-    return response.data;
-  },
-
-  // Get specific election
-  getElection: async (electionId) => {
-    const response = await api.get(`/elections/${electionId}`);
-    return response.data;
-  },
-
-  // Cast vote
-  castVote: async (voteData) => {
-    const response = await api.post('/elections/vote', voteData);
-    return response.data;
-  },
-
-  // Get election results
-  getResults: async (electionId) => {
-    const response = await api.get(`/elections/results/${electionId}`);
-    return response.data;
-  }
-};
-
-// Admin API methods
+// Admin API
 export const adminAPI = {
-  // Admin login
-  login: async (credentials) => {
-    const response = await api.post('/admin/login', credentials);
-    return response.data;
-  },
-
-  // Create election
-  createElection: async (electionData) => {
-    const response = await api.post('/admin/elections', electionData);
-    return response.data;
-  },
-
-  // Get all voters
-  getVoters: async () => {
-    const response = await api.get('/admin/voters');
-    return response.data;
-  },
-
-  // Get election statistics
-  getStats: async () => {
-    const response = await api.get('/admin/stats');
-    return response.data;
-  }
+  createElection: (electionData) => API.post("/admin/elections", electionData).then((res) => res.data),
+  getStats: () => API.get("/admin/stats").then((res) => res.data),
+  getUsers: () => API.get("/admin/users").then((res) => res.data),
 };
 
-export default api;
+// OTP API (optional, can also use voterAPI)
+export const otpAPI = {
+  sendOTP: (type, value) => API.post("/otp/send", { type, value }).then((res) => res.data),
+  verifyOTP: (value, otp) => API.post("/otp/verify", { value, otp }).then((res) => res.data),
+};
+
+export default API;

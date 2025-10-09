@@ -7,7 +7,7 @@ import {
 import { 
   FaUser, FaIdCard, FaCamera, FaCheckCircle, 
   FaPhone, FaEnvelope, FaMapMarkerAlt, FaShieldAlt,
-  FaFingerprint, FaGlobe, FaCity, FaHome
+  FaFingerprint, FaGlobe, FaCity, FaHome, FaBirthdayCake
 } from 'react-icons/fa';
 import FaceCapture from '../components/auth/facecapture.jsx';
 import IDUpload from '../components/auth/id-upload.jsx';
@@ -65,6 +65,25 @@ const RegisterPage = () => {
   const [showOTPModal, setShowOTPModal] = useState(false);
   const [otpType, setOtpType] = useState('');
   const [uploadedID, setUploadedID] = useState(null);
+
+  // Age validation function
+  const validateAge = (dateString) => {
+    if (!dateString) return { isValid: false, age: 0 };
+    
+    const birthDate = new Date(dateString);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    
+    return { 
+      isValid: age >= 18, 
+      age: age 
+    };
+  };
 
   // Enhanced stepper with icons
   const RegistrationStepper = ({ currentStep }) => {
@@ -153,6 +172,10 @@ const RegisterPage = () => {
         if (!voterData.full_name.trim()) errors.push('Full name is required');
         if (!voterData.father_name.trim()) errors.push("Father's name is required");
         if (!voterData.date_of_birth) errors.push('Date of birth is required');
+        else {
+          const ageValidation = validateAge(voterData.date_of_birth);
+          if (!ageValidation.isValid) errors.push('You must be 18 years or older to register');
+        }
         if (!voterData.gender) errors.push('Gender is required');
         break;
       
@@ -219,6 +242,9 @@ const RegisterPage = () => {
     }
   };
 
+  // Get age validation result
+  const ageValidation = voterData.date_of_birth ? validateAge(voterData.date_of_birth) : { isValid: false, age: 0 };
+
   return (
     <div className="register-page-wrapper">
       <Container className="register-page py-5">
@@ -244,93 +270,129 @@ const RegisterPage = () => {
                 {/* Step 1: Personal Information */}
                 {step === 1 && (
                   <div className="step-content">
-                    <h4 className="step-title">
+                    <h4 className="step-title text-center">
                       <FaUser className="me-2" />
                       Personal Information
                     </h4>
                     
-                    <Row>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>
-                            <FaUser className="me-2" />
-                            Full Name *
-                          </Form.Label>
-                          <Form.Control
-                            type="text"
-                            name="full_name"
-                            value={voterData.full_name}
-                            onChange={handleInputChange}
-                            placeholder="Enter your full name"
-                            required
-                          />
-                        </Form.Group>
-                      </Col>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>Gender *</Form.Label>
-                          <Form.Select name="gender" value={voterData.gender} onChange={handleInputChange} required>
-                            <option value="">Select Gender</option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                            <option value="other">Other</option>
-                          </Form.Select>
-                        </Form.Group>
-                      </Col>
-                    </Row>
+                    <Row className="justify-content-center">
+                      <Col lg={8}>
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>
+                                <FaUser className="me-2" />
+                                Full Name *
+                              </Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="full_name"
+                                value={voterData.full_name}
+                                onChange={handleInputChange}
+                                placeholder="Enter your full name"
+                                required
+                                className="form-control-custom"
+                              />
+                            </Form.Group>
+                          </Col>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Gender *</Form.Label>
+                              <Form.Select 
+                                name="gender" 
+                                value={voterData.gender} 
+                                onChange={handleInputChange} 
+                                required
+                                className="form-control-custom"
+                              >
+                                <option value="">Select Gender</option>
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                                <option value="other">Other</option>
+                              </Form.Select>
+                            </Form.Group>
+                          </Col>
+                        </Row>
 
-                    <Row>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>Father's Name *</Form.Label>
-                          <Form.Control
-                            type="text"
-                            name="father_name"
-                            value={voterData.father_name}
-                            onChange={handleInputChange}
-                            placeholder="Enter father's name"
-                            required
-                          />
-                        </Form.Group>
-                      </Col>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>Mother's Name</Form.Label>
-                          <Form.Control
-                            type="text"
-                            name="mother_name"
-                            value={voterData.mother_name}
-                            onChange={handleInputChange}
-                            placeholder="Enter mother's name"
-                          />
-                        </Form.Group>
-                      </Col>
-                    </Row>
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Father's Name *</Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="father_name"
+                                value={voterData.father_name}
+                                onChange={handleInputChange}
+                                placeholder="Enter father's name"
+                                required
+                                className="form-control-custom"
+                              />
+                            </Form.Group>
+                          </Col>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Mother's Name</Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="mother_name"
+                                value={voterData.mother_name}
+                                onChange={handleInputChange}
+                                placeholder="Enter mother's name"
+                                className="form-control-custom"
+                              />
+                            </Form.Group>
+                          </Col>
+                        </Row>
 
-                    <Row>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>Date of Birth *</Form.Label>
-                          <Form.Control
-                            type="date"
-                            name="date_of_birth"
-                            value={voterData.date_of_birth}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </Form.Group>
-                      </Col>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>Place of Birth</Form.Label>
-                          <Form.Control
-                            type="text"
-                            name="place_of_birth"
-                            value={voterData.place_of_birth}
-                            onChange={handleInputChange}
-                            placeholder="City/Town of birth"
-                          />
-                        </Form.Group>
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>
+                                <FaBirthdayCake className="me-2" />
+                                Date of Birth *
+                              </Form.Label>
+                              <Form.Control
+                                type="date"
+                                name="date_of_birth"
+                                value={voterData.date_of_birth}
+                                onChange={(e) => {
+                                  handleInputChange(e);
+                                  // Real-time age validation feedback is handled in the UI below
+                                }}
+                                max={new Date().toISOString().split('T')[0]}
+                                required
+                                className="form-control-custom"
+                              />
+                              {voterData.date_of_birth && (
+                                <div className={`age-validation ${ageValidation.isValid ? 'valid' : 'invalid'}`}>
+                                  {ageValidation.isValid ? (
+                                    <span className="age-valid">
+                                      <FaCheckCircle className="me-1" />
+                                      Age: {ageValidation.age} years ✓ Eligible
+                                    </span>
+                                  ) : (
+                                    <span className="age-invalid">
+                                      ❌ Age: {ageValidation.age} years - Must be 18 or older to register
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </Form.Group>
+                          </Col>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Place of Birth</Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="place_of_birth"
+                                value={voterData.place_of_birth}
+                                onChange={handleInputChange}
+                                placeholder="City/Town of birth"
+                                className="form-control-custom"
+                              />
+                            </Form.Group>
+                          </Col>
+                        </Row>
                       </Col>
                     </Row>
                   </div>
@@ -339,199 +401,223 @@ const RegisterPage = () => {
                 {/* Step 2: Contact & Address Information */}
                 {step === 2 && (
                   <div className="step-content">
-                    <h4 className="step-title">
+                    <h4 className="step-title text-center">
                       <FaMapMarkerAlt className="me-2" />
                       Contact & Address Information
                     </h4>
 
-                    <Tabs defaultActiveKey="contact" className="mb-4">
-                      <Tab eventKey="contact" title={
-                        <span><FaPhone className="me-1" />Contact</span>
-                      }>
-                        <Row>
-                          <Col md={6}>
-                            <Form.Group className="mb-3">
-                              <Form.Label>
-                                <FaEnvelope className="me-2" />
-                                Email Address *
-                              </Form.Label>
-                              <div className="d-flex">
+                    <div className="form-tabs-container">
+                      <Tabs defaultActiveKey="contact" className="mb-4 justify-content-center">
+                        <Tab eventKey="contact" title={
+                          <span className="tab-title"><FaPhone className="me-1" />Contact</span>
+                        }>
+                          <Row className="justify-content-center">
+                            <Col lg={8}>
+                              <Row>
+                                <Col md={6}>
+                                  <Form.Group className="mb-3">
+                                    <Form.Label>
+                                      <FaEnvelope className="me-2" />
+                                      Email Address *
+                                    </Form.Label>
+                                    <div className="d-flex">
+                                      <Form.Control
+                                        type="email"
+                                        name="email"
+                                        value={voterData.email}
+                                        onChange={handleInputChange}
+                                        placeholder="your@email.com"
+                                        required
+                                        className="form-control-custom"
+                                      />
+                                      <Button 
+                                        variant={voterData.email_verified ? "success" : "outline-primary"}
+                                        className="ms-2 verify-btn"
+                                        onClick={() => handleSendOTP('email')}
+                                        disabled={!voterData.email}
+                                      >
+                                        {voterData.email_verified ? <FaCheckCircle /> : "Verify"}
+                                      </Button>
+                                    </div>
+                                  </Form.Group>
+                                </Col>
+                                <Col md={6}>
+                                  <Form.Group className="mb-3">
+                                    <Form.Label>
+                                      <FaPhone className="me-2" />
+                                      Phone Number *
+                                    </Form.Label>
+                                    <div className="d-flex">
+                                      <Form.Control
+                                        type="tel"
+                                        name="phone"
+                                        value={voterData.phone}
+                                        onChange={handleInputChange}
+                                        placeholder="+91 XXXXXXXXXX"
+                                        required
+                                        className="form-control-custom"
+                                      />
+                                      <Button 
+                                        variant={voterData.phone_verified ? "success" : "outline-primary"}
+                                        className="ms-2 verify-btn"
+                                        onClick={() => handleSendOTP('phone')}
+                                        disabled={!voterData.phone}
+                                      >
+                                        {voterData.phone_verified ? <FaCheckCircle /> : "Verify"}
+                                      </Button>
+                                    </div>
+                                  </Form.Group>
+                                </Col>
+                              </Row>
+                            </Col>
+                          </Row>
+                        </Tab>
+
+                        <Tab eventKey="address" title={
+                          <span className="tab-title"><FaHome className="me-1" />Address</span>
+                        }>
+                          <Row className="justify-content-center">
+                            <Col lg={8}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Address Line 1 *</Form.Label>
                                 <Form.Control
-                                  type="email"
-                                  name="email"
-                                  value={voterData.email}
+                                  type="text"
+                                  name="address_line1"
+                                  value={voterData.address_line1}
                                   onChange={handleInputChange}
-                                  placeholder="your@email.com"
+                                  placeholder="Street address, P.O. Box"
                                   required
+                                  className="form-control-custom"
                                 />
-                                <Button 
-                                  variant={voterData.email_verified ? "success" : "outline-primary"}
-                                  className="ms-2"
-                                  onClick={() => handleSendOTP('email')}
-                                  disabled={!voterData.email}
-                                >
-                                  {voterData.email_verified ? <FaCheckCircle /> : "Verify"}
-                                </Button>
-                              </div>
-                            </Form.Group>
-                          </Col>
-                          <Col md={6}>
-                            <Form.Group className="mb-3">
-                              <Form.Label>
-                                <FaPhone className="me-2" />
-                                Phone Number *
-                              </Form.Label>
-                              <div className="d-flex">
+                              </Form.Group>
+
+                              <Form.Group className="mb-3">
+                                <Form.Label>Address Line 2</Form.Label>
                                 <Form.Control
-                                  type="tel"
-                                  name="phone"
-                                  value={voterData.phone}
+                                  type="text"
+                                  name="address_line2"
+                                  value={voterData.address_line2}
                                   onChange={handleInputChange}
-                                  placeholder="+91 XXXXXXXXXX"
-                                  required
+                                  placeholder="Apartment, suite, unit"
+                                  className="form-control-custom"
                                 />
-                                <Button 
-                                  variant={voterData.phone_verified ? "success" : "outline-primary"}
-                                  className="ms-2"
-                                  onClick={() => handleSendOTP('phone')}
-                                  disabled={!voterData.phone}
-                                >
-                                  {voterData.phone_verified ? <FaCheckCircle /> : "Verify"}
-                                </Button>
-                              </div>
-                            </Form.Group>
-                          </Col>
-                        </Row>
-                      </Tab>
+                              </Form.Group>
 
-                      <Tab eventKey="address" title={
-                        <span><FaHome className="me-1" />Address</span>
-                      }>
-                        <Form.Group className="mb-3">
-                          <Form.Label>Address Line 1 *</Form.Label>
-                          <Form.Control
-                            type="text"
-                            name="address_line1"
-                            value={voterData.address_line1}
-                            onChange={handleInputChange}
-                            placeholder="Street address, P.O. Box"
-                            required
-                          />
-                        </Form.Group>
+                              <Row>
+                                <Col md={3}>
+                                  <Form.Group className="mb-3">
+                                    <Form.Label>Pincode *</Form.Label>
+                                    <Form.Control
+                                      type="text"
+                                      name="pincode"
+                                      value={voterData.pincode}
+                                      onChange={handleInputChange}
+                                      required
+                                      className="form-control-custom"
+                                    />
+                                  </Form.Group>
+                                </Col>
+                                <Col md={9}>
+                                  <Form.Group className="mb-3">
+                                    <Form.Label>Village/City *</Form.Label>
+                                    <Form.Control
+                                      type="text"
+                                      name="village_city"
+                                      value={voterData.village_city}
+                                      onChange={handleInputChange}
+                                      required
+                                      className="form-control-custom"
+                                    />
+                                  </Form.Group>
+                                </Col>
+                              </Row>
 
-                        <Form.Group className="mb-3">
-                          <Form.Label>Address Line 2</Form.Label>
-                          <Form.Control
-                            type="text"
-                            name="address_line2"
-                            value={voterData.address_line2}
-                            onChange={handleInputChange}
-                            placeholder="Apartment, suite, unit"
-                          />
-                        </Form.Group>
-
-                        <Row>
-                          <Col md={3}>
-                            <Form.Group className="mb-3">
-                              <Form.Label>Pincode *</Form.Label>
-                              <Form.Control
-                                type="text"
-                                name="pincode"
-                                value={voterData.pincode}
-                                onChange={handleInputChange}
-                                required
-                              />
-                            </Form.Group>
-                          </Col>
-                          <Col md={9}>
-                            <Form.Group className="mb-3">
-                              <Form.Label>Village/City *</Form.Label>
-                              <Form.Control
-                                type="text"
-                                name="village_city"
-                                value={voterData.village_city}
-                                onChange={handleInputChange}
-                                required
-                              />
-                            </Form.Group>
-                          </Col>
-                        </Row>
-
-                        <Row>
-                          <Col md={6}>
-                            <Form.Group className="mb-3">
-                              <Form.Label>District *</Form.Label>
-                              <Form.Control
-                                type="text"
-                                name="district"
-                                value={voterData.district}
-                                onChange={handleInputChange}
-                                required
-                              />
-                            </Form.Group>
-                          </Col>
-                          <Col md={6}>
-                            <Form.Group className="mb-3">
-                              <Form.Label>State *</Form.Label>
-                              <Form.Control
-                                type="text"
-                                name="state"
-                                value={voterData.state}
-                                onChange={handleInputChange}
-                                required
-                              />
-                            </Form.Group>
-                          </Col>
-                        </Row>
-                      </Tab>
-                    </Tabs>
+                              <Row>
+                                <Col md={6}>
+                                  <Form.Group className="mb-3">
+                                    <Form.Label>District *</Form.Label>
+                                    <Form.Control
+                                      type="text"
+                                      name="district"
+                                      value={voterData.district}
+                                      onChange={handleInputChange}
+                                      required
+                                      className="form-control-custom"
+                                    />
+                                  </Form.Group>
+                                </Col>
+                                <Col md={6}>
+                                  <Form.Group className="mb-3">
+                                    <Form.Label>State *</Form.Label>
+                                    <Form.Control
+                                      type="text"
+                                      name="state"
+                                      value={voterData.state}
+                                      onChange={handleInputChange}
+                                      required
+                                      className="form-control-custom"
+                                    />
+                                  </Form.Group>
+                                </Col>
+                              </Row>
+                            </Col>
+                          </Row>
+                        </Tab>
+                      </Tabs>
+                    </div>
                   </div>
                 )}
 
                 {/* Step 3: ID Verification */}
                 {step === 3 && (
                   <div className="step-content">
-                    <h4 className="step-title">
+                    <h4 className="step-title text-center">
                       <FaIdCard className="me-2" />
                       Identity Verification
                     </h4>
 
-                    <Row>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>ID Type *</Form.Label>
-                          <Form.Select 
-                            name="national_id_type" 
-                            value={voterData.national_id_type} 
-                            onChange={handleInputChange}
-                          >
-                            <option value="aadhar">Aadhar Card</option>
-                            <option value="passport">Passport</option>
-                            <option value="driving">Driving License</option>
-                            <option value="voter">Voter ID</option>
-                            <option value="other">Other National ID</option>
-                          </Form.Select>
-                        </Form.Group>
+                    <Row className="justify-content-center">
+                      <Col lg={8}>
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>ID Type *</Form.Label>
+                              <Form.Select 
+                                name="national_id_type" 
+                                value={voterData.national_id_type} 
+                                onChange={handleInputChange}
+                                className="form-control-custom"
+                              >
+                                <option value="aadhar">Aadhar Card</option>
+                                <option value="passport">Passport</option>
+                                <option value="driving">Driving License</option>
+                                <option value="voter">Voter ID</option>
+                                <option value="other">Other National ID</option>
+                              </Form.Select>
+                            </Form.Group>
 
-                        <Form.Group className="mb-3">
-                          <Form.Label>ID Number *</Form.Label>
-                          <Form.Control
-                            type="text"
-                            name="national_id_number"
-                            value={voterData.national_id_number}
-                            onChange={handleInputChange}
-                            placeholder={`Enter ${voterData.national_id_type} number`}
-                            required
-                          />
-                        </Form.Group>
-                      </Col>
-                      
-                      <Col md={6}>
-                        <IDUpload 
-                          onUpload={handleFileUpload}
-                          uploadedFile={uploadedID}
-                          idType={voterData.national_id_type}
-                        />
+                            <Form.Group className="mb-3">
+                              <Form.Label>ID Number *</Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="national_id_number"
+                                value={voterData.national_id_number}
+                                onChange={handleInputChange}
+                                placeholder={`Enter ${voterData.national_id_type} number`}
+                                required
+                                className="form-control-custom"
+                              />
+                            </Form.Group>
+                          </Col>
+                          
+                          <Col md={6}>
+                            <IDUpload 
+                              onUpload={handleFileUpload}
+                              uploadedFile={uploadedID}
+                              idType={voterData.national_id_type}
+                            />
+                          </Col>
+                        </Row>
                       </Col>
                     </Row>
                   </div>
@@ -540,11 +626,11 @@ const RegisterPage = () => {
                 {/* Step 4: Face Capture */}
                 {step === 4 && (
                   <div className="step-content">
-                    <h4 className="step-title">
+                    <h4 className="step-title text-center">
                       <FaCamera className="me-2" />
                       Biometric Verification
                     </h4>
-                    <div className="face-capture-container">
+                    <div className="face-capture-container text-center">
                       <FaceCapture 
                         onCapture={handleFaceCapture}
                         mode="register"
@@ -556,7 +642,7 @@ const RegisterPage = () => {
 
                 {/* Step 5: Completion */}
                 {step === 5 && (
-                  <div className="step-content text-center">
+                  <div className="step-content text-center completion-content">
                     <div className="success-animation">
                       <FaCheckCircle className="success-icon" />
                     </div>
@@ -589,6 +675,7 @@ const RegisterPage = () => {
                         variant="outline-secondary" 
                         onClick={prevStep}
                         disabled={step === 1}
+                        className="nav-btn"
                       >
                         Previous
                       </Button>
@@ -598,11 +685,12 @@ const RegisterPage = () => {
                           variant="primary"
                           onClick={submitRegistration}
                           disabled={!voterData.face_verified || isSubmitting}
+                          className="nav-btn"
                         >
                           {isSubmitting ? 'Finalizing...' : 'Complete Registration'}
                         </Button>
                       ) : (
-                        <Button variant="primary" onClick={nextStep}>
+                        <Button variant="primary" onClick={nextStep} className="nav-btn">
                           Continue
                         </Button>
                       )}
@@ -616,6 +704,7 @@ const RegisterPage = () => {
                       variant="success" 
                       size="lg"
                       onClick={() => navigate('/login')}
+                      className="proceed-btn"
                     >
                       Proceed to Login
                     </Button>
@@ -628,7 +717,7 @@ const RegisterPage = () => {
       </Container>
 
       {/* OTP Verification Modal */}
-      <Modal show={showOTPModal} onHide={() => setShowOTPModal(false)}>
+      <Modal show={showOTPModal} onHide={() => setShowOTPModal(false)} centered>
         <Modal.Header closeButton>
           <Modal.Title>Verify {otpType.toUpperCase()}</Modal.Title>
         </Modal.Header>
