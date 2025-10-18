@@ -38,22 +38,51 @@ API.interceptors.response.use(
 );
 
 // Auth API
-export const authAPI = {
-  login: (credentials) => API.post("/auth/login", credentials).then((res) => res.data),
-  register: (userData) => API.post("/auth/register", userData).then((res) => res.data),
-  logout: () => API.post("/auth/logout").then((res) => res.data),
-  getProfile: () => API.get("/auth/profile").then((res) => res.data),
-};
+// export const authAPI = {
+//   login: (credentials) => API.post("/auth/login", credentials).then((res) => res.data),
+//   register: (userData) => API.post("/auth/register", userData).then((res) => res.data),
+//   logout: () => API.post("/auth/logout").then((res) => res.data),
+//   getProfile: () => API.get("/auth/profile").then((res) => res.data),
+// };
 
 // Voter API
 export const voterAPI = {
-  register: (data) => API.post("/voter/register", data).then((res) => res.data),
-  sendOTP: (type, value) => API.post("/otp/send", { type, value }).then((res) => res.data),
-  verifyOTP: (value, otp) => API.post("/otp/verify", { value, otp }).then((res) => res.data),
-  registerFace: (voterId, image) => API.post("/face/register", { voter_id: voterId, image }).then((res) => res.data),
-  getElections: () => API.get("/voter/elections").then((res) => res.data),
-  castVote: (voteData) => API.post("/voter/vote", voteData).then((res) => res.data),
+  // Registration endpoints
+  register: async (voterData) => {
+    console.log('Sending registration data:', voterData);
+    const response = await api.post('/register/register', voterData);
+    return response.data;
+  },
+  
+  uploadID: async (formData) => {
+    const response = await api.post('/register/upload-id', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return response.data;
+  },
+  
+  registerFace: async (faceData) => {
+    const response = await api.post('/register/register-face', faceData);
+    return response.data;
+  },
+  
+  completeRegistration: async (voterId) => {
+    const response = await api.post(`/register/complete-registration/${voterId}`);
+    return response.data;
+  },
+  
+  // OTP endpoints
+  sendOTP: async (otpData) => {
+    const response = await api.post('/otp/send', otpData);
+    return response.data;
+  },
+  
+  verifyOTP: async (otpData) => {
+    const response = await api.post('/otp/verify', otpData);
+    return response.data;
+  },
 };
+
 
 // Admin API
 export const adminAPI = {
@@ -63,9 +92,9 @@ export const adminAPI = {
 };
 
 // OTP API (optional, can also use voterAPI)
-export const otpAPI = {
-  sendOTP: (type, value) => API.post("/otp/send", { type, value }).then((res) => res.data),
-  verifyOTP: (value, otp) => API.post("/otp/verify", { value, otp }).then((res) => res.data),
-};
+// export const otpAPI = {
+//   sendOTP: (type, value) => API.post("/otp/send", { type, value }).then((res) => res.data),
+//   verifyOTP: (value, otp) => API.post("/otp/verify", { value, otp }).then((res) => res.data),
+// };
 
 export default API;
