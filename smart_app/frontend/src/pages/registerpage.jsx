@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Container, Row, Col, Card, Form, Button, Alert, 
-  ProgressBar, Modal, Tab, Tabs, Badge
+  ProgressBar, Modal, Tab, Tabs, Badge, Spinner
 } from 'react-bootstrap';
 import { 
   FaUser, FaIdCard, FaCamera, FaCheckCircle, 
   FaPhone, FaEnvelope, FaMapMarkerAlt, FaShieldAlt,
-  FaFingerprint, FaGlobe, FaCity, FaHome, FaBirthdayCake
+  FaFingerprint, FaGlobe, FaCity, FaHome, FaBirthdayCake,
+  FaExclamationTriangle, FaCopy
 } from 'react-icons/fa';
 import FaceCapture from '../components/auth/facecapture.jsx';
 import IDUpload from '../components/auth/id-upload.jsx';
@@ -65,6 +66,20 @@ const RegisterPage = () => {
   const [showOTPModal, setShowOTPModal] = useState(false);
   const [otpType, setOtpType] = useState('');
   const [uploadedID, setUploadedID] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [registrationProgress, setRegistrationProgress] = useState({
+    personal: false,
+    contact: false,
+    id: false,
+    face: false
+  });
+
+  // Debug useEffect
+  useEffect(() => {
+    console.log('Current voterId:', voterId);
+    console.log('Current step:', step);
+    console.log('Registration progress:', registrationProgress);
+  }, [voterId, step, registrationProgress]);
 
   // Age validation function
   const validateAge = (dateString) => {
@@ -88,10 +103,10 @@ const RegisterPage = () => {
   // Enhanced stepper with icons
   const RegistrationStepper = ({ currentStep }) => {
     const steps = [
-      { number: 1, label: 'Personal Info', icon: FaUser },
-      { number: 2, label: 'Contact & Address', icon: FaMapMarkerAlt },
-      { number: 3, label: 'ID Verification', icon: FaIdCard },
-      { number: 4, label: 'Face Capture', icon: FaCamera },
+      { number: 1, label: 'Personal Info', icon: FaUser, completed: registrationProgress.personal },
+      { number: 2, label: 'Contact & Address', icon: FaMapMarkerAlt, completed: registrationProgress.contact },
+      { number: 3, label: 'ID Verification', icon: FaIdCard, completed: registrationProgress.id },
+      { number: 4, label: 'Face Capture', icon: FaCamera, completed: registrationProgress.face },
       { number: 5, label: 'Complete', icon: FaCheckCircle }
     ];
 
@@ -106,7 +121,7 @@ const RegisterPage = () => {
         <div className="d-flex justify-content-between position-relative">
           {steps.map((stepItem, index) => {
             const IconComponent = stepItem.icon;
-            const isCompleted = stepItem.number < currentStep;
+            const isCompleted = stepItem.completed || stepItem.number < currentStep;
             const isActive = stepItem.number === currentStep;
             
             return (
@@ -138,29 +153,115 @@ const RegisterPage = () => {
   };
 
   // Handle file upload
-  const handleFileUpload = (file, type) => {
-    setVoterData(prev => ({
-      ...prev,
-      id_document: file
-    }));
-    setUploadedID(URL.createObjectURL(file));
+  const handleFileUpload = async (file, type) => {
+    if (!voterId) {
+      setMessage({ type: 'danger', text: 'Please complete personal information first' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('id_document', file);
+      formData.append('voter_id', voterId);
+
+      const response = await voterAPI.uploadID(formData);
+      
+      if (response.success) {
+        setVoterData(prev => ({
+          ...prev,
+          id_document: file,
+          id_verified: true
+        }));
+        setUploadedID(URL.createObjectURL(file));
+        setRegistrationProgress(prev => ({ ...prev, id: true }));
+        setMessage({ type: 'success', text: 'ID document uploaded successfully!' });
+        
+        // Auto-proceed to next step after successful upload
+        setTimeout(() => {
+          setStep(4);
+        }, 1000);
+      } else {
+        setMessage({ type: 'danger', text: response.message || 'ID upload failed' });
+      }
+    } catch (error) {
+      console.error('ID upload error:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to upload ID document. Please try again.';
+      setMessage({ type: 'danger', text: errorMessage });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // OTP Verification handlers
-  const handleSendOTP = (type) => {
-    setOtpType(type);
-    setShowOTPModal(true);
-    // API call to send OTP would go here
+  const handleSendOTP = async (type) => {
+    if (!voterData[type]) {
+      setMessage({ type: 'danger', text: `Please enter your ${type} first` });
+      return;
+    }
+
+    if (!voterId) {
+      setMessage({ type: 'danger', text: 'Please complete personal information first' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await voterAPI.sendOTP({
+        [type]: voterData[type],
+        purpose: 'registration',
+        voter_id: voterId
+      });
+
+      if (response.success) {
+        setOtpType(type);
+        setShowOTPModal(true);
+        setMessage({ type: 'success', text: `OTP sent to your ${type}` });
+      } else {
+        setMessage({ type: 'danger', text: response.message || `Failed to send OTP to ${type}` });
+      }
+    } catch (error) {
+      console.error('OTP send error:', error);
+      const errorMessage = error.response?.data?.message || `Failed to send OTP to ${type}`;
+      setMessage({ type: 'danger', text: errorMessage });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleVerifyOTP = (otp) => {
-    // API call to verify OTP would go here
-    setVoterData(prev => ({
-      ...prev,
-      [`${otpType}_verified`]: true
-    }));
-    setShowOTPModal(false);
-    setMessage({ type: 'success', text: `${otpType.toUpperCase()} verified successfully!` });
+  const handleVerifyOTP = async (otp) => {
+    setLoading(true);
+    try {
+      const response = await voterAPI.verifyOTP({
+        voter_id: voterId,
+        otp_code: otp,
+        purpose: 'registration',
+        [otpType]: voterData[otpType]
+      });
+
+      if (response.success) {
+        setVoterData(prev => ({
+          ...prev,
+          [`${otpType}_verified`]: true
+        }));
+        
+        // Update registration progress
+        if (otpType === 'email' || otpType === 'phone') {
+          setRegistrationProgress(prev => ({ ...prev, contact: true }));
+        }
+        
+        setShowOTPModal(false);
+        setMessage({ type: 'success', text: `${otpType.toUpperCase()} verified successfully!` });
+      } else {
+        setMessage({ type: 'danger', text: response.message || 'Invalid OTP' });
+      }
+    } catch (error) {
+      console.error('OTP verification error:', error);
+      const errorMessage = error.response?.data?.message || 'OTP verification failed';
+      setMessage({ type: 'danger', text: errorMessage });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Validation functions
@@ -181,14 +282,25 @@ const RegisterPage = () => {
       
       case 2:
         if (!voterData.email.trim()) errors.push('Email is required');
+        else if (!/\S+@\S+\.\S+/.test(voterData.email)) errors.push('Email is invalid');
+        
         if (!voterData.phone.trim()) errors.push('Phone number is required');
+        else if (!/^\d{10}$/.test(voterData.phone.replace(/\D/g, ''))) errors.push('Phone number must be 10 digits');
+        
         if (!voterData.address_line1.trim()) errors.push('Address is required');
         if (!voterData.pincode.trim()) errors.push('Pincode is required');
+        if (!voterData.village_city.trim()) errors.push('City/Village is required');
+        if (!voterData.district.trim()) errors.push('District is required');
+        if (!voterData.state.trim()) errors.push('State is required');
         break;
       
       case 3:
         if (!voterData.national_id_number.trim()) errors.push('National ID number is required');
         if (!voterData.id_document) errors.push('ID document upload is required');
+        break;
+
+      case 4:
+        if (!voterData.face_verified) errors.push('Face verification is required');
         break;
     }
 
@@ -199,11 +311,57 @@ const RegisterPage = () => {
     return true;
   };
 
+  // Save personal information and get voter ID
+  const savePersonalInfo = async () => {
+    setLoading(true);
+    setMessage({ type: 'info', text: 'Saving your information...' });
+    
+    try {
+      console.log('Sending voter data to backend:', voterData);
+      
+      const response = await voterAPI.register(voterData);
+      
+      if (response.success) {
+        setVoterId(response.voter_id);
+        setRegistrationProgress(prev => ({ ...prev, personal: true }));
+        setMessage({ 
+          type: 'success', 
+          text: `Personal information saved successfully! Your Voter ID: ${response.voter_id}` 
+        });
+        return true;
+      } else {
+        setMessage({ 
+          type: 'danger', 
+          text: response.message || 'Failed to save personal information' 
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      const errorMessage = error.response?.data?.message || 
+                          error.message || 
+                          'Registration failed. Please check your connection and try again.';
+      setMessage({ type: 'danger', text: errorMessage });
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Navigation between steps
-  const nextStep = () => {
+  const nextStep = async () => {
     if (validateStep(step)) {
-      setStep(prev => prev + 1);
-      setMessage({ type: '', text: '' });
+      if (step === 1) {
+        // For step 1, save data to backend first to get voter ID
+        const success = await savePersonalInfo();
+        if (success) {
+          setStep(prev => prev + 1);
+          setMessage({ type: '', text: '' });
+        }
+      } else {
+        setStep(prev => prev + 1);
+        setMessage({ type: '', text: '' });
+      }
     }
   };
 
@@ -214,17 +372,40 @@ const RegisterPage = () => {
 
   // Submit registration
   const submitRegistration = async () => {
+    if (!validateStep(4)) return;
+    
     setIsSubmitting(true);
+    setMessage({ type: 'info', text: 'Finalizing your registration...' });
     
     try {
-      const response = await voterAPI.register(voterData);
-      setVoterId(response.voter_id);
-      setStep(5);
-      setMessage({ type: 'success', text: 'Registration completed successfully!' });
+      const response = await voterAPI.completeRegistration(voterId);
+      
+      if (response.success) {
+        // Use the voter_id from the response to ensure we have the latest
+        const finalVoterId = response.voter_data?.voter_id || voterId;
+        setVoterId(finalVoterId);
+        setStep(5);
+        setMessage({ 
+          type: 'success', 
+          text: 'Registration completed successfully!' 
+        });
+        
+        // Store voter ID in local storage for login
+        localStorage.setItem('voterId', finalVoterId);
+        localStorage.setItem('voterData', JSON.stringify(response.voter_data));
+      } else {
+        setMessage({ 
+          type: 'danger', 
+          text: response.message || 'Registration completion failed.' 
+        });
+      }
     } catch (error) {
+      console.error('Complete registration error:', error);
+      const errorMessage = error.response?.data?.message || 
+                          'Registration failed. Please try again.';
       setMessage({ 
         type: 'danger', 
-        text: error.response?.data?.message || 'Registration failed. Please try again.' 
+        text: errorMessage 
       });
     } finally {
       setIsSubmitting(false);
@@ -232,13 +413,48 @@ const RegisterPage = () => {
   };
 
   // Handle face capture
-  const handleFaceCapture = (imageData, success) => {
-    if (success) {
-      setVoterData(prev => ({ ...prev, face_verified: true }));
-      setMessage({ type: 'success', text: 'Face registration successful!' });
-      setTimeout(nextStep, 1000);
+  const handleFaceCapture = async (imageData, success) => {
+    if (success && voterId) {
+      setLoading(true);
+      try {
+        const response = await voterAPI.registerFace({
+          voter_id: voterId,
+          image_data: imageData
+        });
+
+        if (response.success) {
+          setVoterData(prev => ({ ...prev, face_verified: true }));
+          setRegistrationProgress(prev => ({ ...prev, face: true }));
+          setMessage({ type: 'success', text: 'Face registration successful!' });
+          
+          // Auto-proceed to complete registration after face verification
+          setTimeout(() => {
+            submitRegistration();
+          }, 1500);
+        } else {
+          setMessage({ type: 'danger', text: response.message || 'Face registration failed' });
+        }
+      } catch (error) {
+        console.error('Face registration error:', error);
+        const errorMessage = error.response?.data?.message || 'Face registration failed. Please try again.';
+        setMessage({ type: 'danger', text: errorMessage });
+      } finally {
+        setLoading(false);
+      }
     } else {
       setMessage({ type: 'danger', text: 'Face registration failed. Please try again.' });
+    }
+  };
+
+  // Copy voter ID to clipboard
+  const copyVoterId = async () => {
+    if (voterId) {
+      try {
+        await navigator.clipboard.writeText(voterId);
+        setMessage({ type: 'success', text: 'Voter ID copied to clipboard!' });
+      } catch (err) {
+        setMessage({ type: 'danger', text: 'Failed to copy Voter ID' });
+      }
     }
   };
 
@@ -264,6 +480,24 @@ const RegisterPage = () => {
                 {message.text && (
                   <Alert variant={message.type} className="alert-custom">
                     {message.text}
+                    {loading && <Spinner animation="border" size="sm" className="ms-2" />}
+                  </Alert>
+                )}
+
+                {/* Display Voter ID once generated */}
+                {voterId && step > 1 && step < 5 && (
+                  <Alert variant="info" className="text-center">
+                    <strong>Your Voter ID: </strong>
+                    <Badge bg="primary" className="ms-2 fs-6">{voterId}</Badge>
+                    <Button 
+                      variant="outline-primary" 
+                      size="sm" 
+                      className="ms-2"
+                      onClick={copyVoterId}
+                    >
+                      <FaCopy className="me-1" />
+                      Copy
+                    </Button>
                   </Alert>
                 )}
 
@@ -292,6 +526,7 @@ const RegisterPage = () => {
                                 placeholder="Enter your full name"
                                 required
                                 className="form-control-custom"
+                                disabled={loading}
                               />
                             </Form.Group>
                           </Col>
@@ -304,6 +539,7 @@ const RegisterPage = () => {
                                 onChange={handleInputChange} 
                                 required
                                 className="form-control-custom"
+                                disabled={loading}
                               >
                                 <option value="">Select Gender</option>
                                 <option value="male">Male</option>
@@ -326,6 +562,7 @@ const RegisterPage = () => {
                                 placeholder="Enter father's name"
                                 required
                                 className="form-control-custom"
+                                disabled={loading}
                               />
                             </Form.Group>
                           </Col>
@@ -339,6 +576,7 @@ const RegisterPage = () => {
                                 onChange={handleInputChange}
                                 placeholder="Enter mother's name"
                                 className="form-control-custom"
+                                disabled={loading}
                               />
                             </Form.Group>
                           </Col>
@@ -357,11 +595,11 @@ const RegisterPage = () => {
                                 value={voterData.date_of_birth}
                                 onChange={(e) => {
                                   handleInputChange(e);
-                                  // Real-time age validation feedback is handled in the UI below
                                 }}
                                 max={new Date().toISOString().split('T')[0]}
                                 required
                                 className="form-control-custom"
+                                disabled={loading}
                               />
                               {voterData.date_of_birth && (
                                 <div className={`age-validation ${ageValidation.isValid ? 'valid' : 'invalid'}`}>
@@ -372,7 +610,8 @@ const RegisterPage = () => {
                                     </span>
                                   ) : (
                                     <span className="age-invalid">
-                                      ❌ Age: {ageValidation.age} years - Must be 18 or older to register
+                                      <FaExclamationTriangle className="me-1" />
+                                      Age: {ageValidation.age} years - Must be 18 or older to register
                                     </span>
                                   )}
                                 </div>
@@ -389,6 +628,7 @@ const RegisterPage = () => {
                                 onChange={handleInputChange}
                                 placeholder="City/Town of birth"
                                 className="form-control-custom"
+                                disabled={loading}
                               />
                             </Form.Group>
                           </Col>
@@ -429,16 +669,24 @@ const RegisterPage = () => {
                                         placeholder="your@email.com"
                                         required
                                         className="form-control-custom"
+                                        disabled={loading || voterData.email_verified}
                                       />
                                       <Button 
                                         variant={voterData.email_verified ? "success" : "outline-primary"}
                                         className="ms-2 verify-btn"
                                         onClick={() => handleSendOTP('email')}
-                                        disabled={!voterData.email}
+                                        disabled={!voterData.email || loading || voterData.email_verified}
                                       >
-                                        {voterData.email_verified ? <FaCheckCircle /> : "Verify"}
+                                        {loading ? <Spinner animation="border" size="sm" /> : 
+                                         voterData.email_verified ? <FaCheckCircle /> : "Verify"}
                                       </Button>
                                     </div>
+                                    {voterData.email_verified && (
+                                      <Form.Text className="text-success">
+                                        <FaCheckCircle className="me-1" />
+                                        Email verified
+                                      </Form.Text>
+                                    )}
                                   </Form.Group>
                                 </Col>
                                 <Col md={6}>
@@ -456,16 +704,24 @@ const RegisterPage = () => {
                                         placeholder="+91 XXXXXXXXXX"
                                         required
                                         className="form-control-custom"
+                                        disabled={loading || voterData.phone_verified}
                                       />
                                       <Button 
                                         variant={voterData.phone_verified ? "success" : "outline-primary"}
                                         className="ms-2 verify-btn"
                                         onClick={() => handleSendOTP('phone')}
-                                        disabled={!voterData.phone}
+                                        disabled={!voterData.phone || loading || voterData.phone_verified}
                                       >
-                                        {voterData.phone_verified ? <FaCheckCircle /> : "Verify"}
+                                        {loading ? <Spinner animation="border" size="sm" /> : 
+                                         voterData.phone_verified ? <FaCheckCircle /> : "Verify"}
                                       </Button>
                                     </div>
+                                    {voterData.phone_verified && (
+                                      <Form.Text className="text-success">
+                                        <FaCheckCircle className="me-1" />
+                                        Phone verified
+                                      </Form.Text>
+                                    )}
                                   </Form.Group>
                                 </Col>
                               </Row>
@@ -488,6 +744,7 @@ const RegisterPage = () => {
                                   placeholder="Street address, P.O. Box"
                                   required
                                   className="form-control-custom"
+                                  disabled={loading}
                                 />
                               </Form.Group>
 
@@ -500,6 +757,7 @@ const RegisterPage = () => {
                                   onChange={handleInputChange}
                                   placeholder="Apartment, suite, unit"
                                   className="form-control-custom"
+                                  disabled={loading}
                                 />
                               </Form.Group>
 
@@ -514,6 +772,7 @@ const RegisterPage = () => {
                                       onChange={handleInputChange}
                                       required
                                       className="form-control-custom"
+                                      disabled={loading}
                                     />
                                   </Form.Group>
                                 </Col>
@@ -527,6 +786,7 @@ const RegisterPage = () => {
                                       onChange={handleInputChange}
                                       required
                                       className="form-control-custom"
+                                      disabled={loading}
                                     />
                                   </Form.Group>
                                 </Col>
@@ -543,6 +803,7 @@ const RegisterPage = () => {
                                       onChange={handleInputChange}
                                       required
                                       className="form-control-custom"
+                                      disabled={loading}
                                     />
                                   </Form.Group>
                                 </Col>
@@ -556,6 +817,7 @@ const RegisterPage = () => {
                                       onChange={handleInputChange}
                                       required
                                       className="form-control-custom"
+                                      disabled={loading}
                                     />
                                   </Form.Group>
                                 </Col>
@@ -587,6 +849,7 @@ const RegisterPage = () => {
                                 value={voterData.national_id_type} 
                                 onChange={handleInputChange}
                                 className="form-control-custom"
+                                disabled={loading}
                               >
                                 <option value="aadhar">Aadhar Card</option>
                                 <option value="passport">Passport</option>
@@ -606,8 +869,16 @@ const RegisterPage = () => {
                                 placeholder={`Enter ${voterData.national_id_type} number`}
                                 required
                                 className="form-control-custom"
+                                disabled={loading}
                               />
                             </Form.Group>
+
+                            {voterData.id_verified && (
+                              <Alert variant="success" className="mt-3">
+                                <FaCheckCircle className="me-2" />
+                                ID Document verified successfully
+                              </Alert>
+                            )}
                           </Col>
                           
                           <Col md={6}>
@@ -615,6 +886,8 @@ const RegisterPage = () => {
                               onUpload={handleFileUpload}
                               uploadedFile={uploadedID}
                               idType={voterData.national_id_type}
+                              loading={loading}
+                              disabled={loading}
                             />
                           </Col>
                         </Row>
@@ -635,13 +908,20 @@ const RegisterPage = () => {
                         onCapture={handleFaceCapture}
                         mode="register"
                         voterId={voterId}
+                        loading={loading}
                       />
+                      {voterData.face_verified && (
+                        <Alert variant="success" className="mt-3">
+                          <FaCheckCircle className="me-2" />
+                          Face verification completed successfully
+                        </Alert>
+                      )}
                     </div>
                   </div>
                 )}
 
                 {/* Step 5: Completion */}
-                {step === 5 && (
+                {step === 5 && voterId && (
                   <div className="step-content text-center completion-content">
                     <div className="success-animation">
                       <FaCheckCircle className="success-icon" />
@@ -649,11 +929,15 @@ const RegisterPage = () => {
                     <h3>Registration Complete! 🎉</h3>
                     <div className="voter-id-badge">
                       <Badge bg="success" className="voter-id">
-                        Voter ID: {voterId}
+                        Your Voter ID: {voterId}
                       </Badge>
                     </div>
                     <div className="completion-details">
-                      <p>Your voter registration has been successfully completed.</p>
+                      <p>Your voter registration has been successfully completed and verified.</p>
+                      <Alert variant="info" className="mt-3">
+                        <strong>Important:</strong> Your Date of Birth will be used as your password for login.
+                        Please remember your Voter ID and Date of Birth for future logins.
+                      </Alert>
                       <div className="verification-status">
                         <h5>Verification Status:</h5>
                         <ul className="list-unstyled">
@@ -674,7 +958,7 @@ const RegisterPage = () => {
                       <Button 
                         variant="outline-secondary" 
                         onClick={prevStep}
-                        disabled={step === 1}
+                        disabled={step === 1 || loading}
                         className="nav-btn"
                       >
                         Previous
@@ -684,14 +968,29 @@ const RegisterPage = () => {
                         <Button 
                           variant="primary"
                           onClick={submitRegistration}
-                          disabled={!voterData.face_verified || isSubmitting}
+                          disabled={!voterData.face_verified || isSubmitting || loading}
                           className="nav-btn"
                         >
-                          {isSubmitting ? 'Finalizing...' : 'Complete Registration'}
+                          {isSubmitting ? (
+                            <>
+                              <Spinner animation="border" size="sm" className="me-2" />
+                              Finalizing...
+                            </>
+                          ) : 'Complete Registration'}
                         </Button>
                       ) : (
-                        <Button variant="primary" onClick={nextStep} className="nav-btn">
-                          Continue
+                        <Button 
+                          variant="primary" 
+                          onClick={nextStep} 
+                          className="nav-btn"
+                          disabled={loading}
+                        >
+                          {loading ? (
+                            <>
+                              <Spinner animation="border" size="sm" className="me-2" />
+                              {step === 1 ? 'Saving...' : 'Loading...'}
+                            </>
+                          ) : 'Continue'}
                         </Button>
                       )}
                     </div>
@@ -704,9 +1003,18 @@ const RegisterPage = () => {
                       variant="success" 
                       size="lg"
                       onClick={() => navigate('/login')}
-                      className="proceed-btn"
+                      className="proceed-btn me-3"
                     >
                       Proceed to Login
+                    </Button>
+                    <Button 
+                      variant="outline-primary" 
+                      size="lg"
+                      onClick={copyVoterId}
+                      className="proceed-btn"
+                    >
+                      <FaCopy className="me-2" />
+                      Copy Voter ID
                     </Button>
                   </div>
                 )}
@@ -717,8 +1025,8 @@ const RegisterPage = () => {
       </Container>
 
       {/* OTP Verification Modal */}
-      <Modal show={showOTPModal} onHide={() => setShowOTPModal(false)} centered>
-        <Modal.Header closeButton>
+      <Modal show={showOTPModal} onHide={() => !loading && setShowOTPModal(false)} centered>
+        <Modal.Header closeButton={!loading}>
           <Modal.Title>Verify {otpType.toUpperCase()}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
@@ -727,6 +1035,7 @@ const RegisterPage = () => {
             value={voterData[otpType]}
             onVerify={handleVerifyOTP}
             onResend={() => handleSendOTP(otpType)}
+            loading={loading}
           />
         </Modal.Body>
       </Modal>
