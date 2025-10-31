@@ -1,11 +1,13 @@
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
+# smart_app/backend/extensions.py
+from flask_pymongo import PyMongo
 from flask_jwt_extended import JWTManager
 from flask_mail import Mail
 from flask_cors import CORS
+from flask_bcrypt import Bcrypt
 
-db = SQLAlchemy()
-migrate = Migrate()
+# MongoDB only - no SQLAlchemy
+mongo = PyMongo()
 jwt = JWTManager()
 mail = Mail()
 cors = CORS()
+bcrypt = Bcrypt()
