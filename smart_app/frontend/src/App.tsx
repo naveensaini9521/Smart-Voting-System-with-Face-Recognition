@@ -10,13 +10,16 @@ import Footer from './components/common/Footer.jsx';
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/registerpage.jsx';
-import DashboardPage from './pages/DashboardPage.jsx';
+import DashboardPage from './pages/Dashboard.jsx';
 import VotingPage from './pages/VotingPage.jsx';
 import ResultsPage from './pages/ResultsPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import HelpPage from './pages/HelpPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
+import VotingHistory from './pages/VotingHistory.jsx';
+import Analytics from './pages/Analytics.jsx';
+import Security from './pages/Security.jsx';
 
 // Import Context and Styles
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
@@ -30,7 +33,7 @@ const ProtectedRoute = ({ children, requireAdmin = false }) => {
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center" style={{ height: '50vh' }}>
-        <Spinner animation="border" role="status">
+        <Spinner animation="border" role="status" variant="primary">
           <span className="visually-hidden">Loading...</span>
         </Spinner>
       </div>
@@ -55,7 +58,7 @@ const PublicRoute = ({ children }) => {
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center" style={{ height: '50vh' }}>
-        <Spinner animation="border" role="status">
+        <Spinner animation="border" role="status" variant="primary">
           <span className="visually-hidden">Loading...</span>
         </Spinner>
       </div>
@@ -80,6 +83,7 @@ function AppContent() {
           <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }}>
             <span className="visually-hidden">Loading Smart Voting System...</span>
           </Spinner>
+          <span className="ms-3 fs-5">Loading Smart Voting System...</span>
         </div>
       </div>
     );
@@ -108,7 +112,7 @@ function AppContent() {
             } />
 
             {/* Protected Routes - Require authentication */}
-            <Route path="/dashboard" element={
+            <Route path="/dashboard/*" element={
               <ProtectedRoute>
                 <DashboardPage />
               </ProtectedRoute>
@@ -116,6 +120,21 @@ function AppContent() {
             <Route path="/profile" element={
               <ProtectedRoute>
                 <ProfilePage />
+              </ProtectedRoute>
+            } />
+            <Route path="/voting-history" element={
+              <ProtectedRoute>
+                <VotingHistory />
+              </ProtectedRoute>
+            } />
+            <Route path="/analytics" element={
+              <ProtectedRoute>
+                <Analytics />
+              </ProtectedRoute>
+            } />
+            <Route path="/security" element={
+              <ProtectedRoute>
+                <Security />
               </ProtectedRoute>
             } />
             <Route path="/voting/:electionId" element={
