@@ -303,6 +303,36 @@
   color: #34495e;
 }
 
+.contact-verification-container {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.verification-card {
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.verification-card:hover {
+  border-color: #007bff;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.verification-status .badge {
+  font-size: 0.8rem;
+  padding: 0.5rem 1rem;
+}
+
+.verified-success {
+  padding: 1rem 0;
+}
+
+.verification-progress {
+  background: #f8f9fa;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
 /* Responsive Design */
 @media (max-width: 768px) {
   .registration-body {
