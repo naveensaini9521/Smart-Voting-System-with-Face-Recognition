@@ -11,107 +11,107 @@ import {
   Modal,
   Form,
   ProgressBar,
-  Badge
+  Badge,
+  ListGroup
 } from 'react-bootstrap';
 import { useAuth } from '../context/AuthContext';
+import { voterAPI } from '../services/api';
 import { 
   CheckCircleFill, 
   XCircleFill, 
   Clock,
   PersonCheck,
-  ShieldCheck
+  ShieldCheck,
+  Eye,
+  Calendar,
+  GeoAlt,
+  InfoCircle
 } from 'react-bootstrap-icons';
 
 const VotingPage = () => {
   const { electionId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   
   const [election, setElection] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [votingStatus, setVotingStatus] = useState('idle'); // 'idle', 'voted', 'closed', 'not_started'
+  const [votingStatus, setVotingStatus] = useState('idle'); // 'idle', 'voted', 'closed', 'not_started', 'not_eligible'
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [faceVerificationRequired, setFaceVerificationRequired] = useState(true);
+  const [showCandidateModal, setShowCandidateModal] = useState(false);
+  const [selectedCandidateDetails, setSelectedCandidateDetails] = useState(null);
 
-  // Mock data - Replace with actual API calls
   useEffect(() => {
-    const fetchElectionData = async () => {
-      try {
-        // Simulate API call
-        setTimeout(() => {
-          const mockElection = {
-            id: electionId,
-            title: 'Student Council Election 2024',
-            description: 'Elect your student representatives for the academic year 2024-2025',
-            startDate: '2024-01-15T00:00:00Z',
-            endDate: '2024-01-20T23:59:59Z',
-            status: 'active', // 'upcoming', 'active', 'completed'
-            maxVotes: 1,
-            category: 'Student Council',
-            totalVoters: 1500,
-            votesCast: 856
-          };
-
-          const mockCandidates = [
-            {
-              id: 1,
-              name: 'Sarah Johnson',
-              position: 'President',
-              image: '/api/placeholder/150/150',
-              bio: '3rd Year Computer Science. Former Class Representative.',
-              manifesto: 'Focus on student welfare, better facilities, and career development programs.',
-              party: 'Student Progressive Alliance'
-            },
-            {
-              id: 2,
-              name: 'Michael Chen',
-              position: 'President',
-              image: '/api/placeholder/150/150',
-              bio: '2nd Year Business Administration. Sports Club President.',
-              manifesto: 'Enhance sports facilities, international student support, and entrepreneurship programs.',
-              party: 'Unity Student Party'
-            },
-            {
-              id: 3,
-              name: 'Emma Davis',
-              position: 'Vice President',
-              image: '/api/placeholder/150/150',
-              bio: '3rd Year Political Science. Debate Society President.',
-              manifesto: 'Improve academic resources, mental health support, and campus sustainability.',
-              party: 'Student Progressive Alliance'
-            },
-            {
-              id: 4,
-              name: 'Alex Rodriguez',
-              position: 'Vice President',
-              image: '/api/placeholder/150/150',
-              bio: '2nd Year Engineering. Tech Club Coordinator.',
-              manifesto: 'Digital campus initiatives, STEM education support, and innovation hubs.',
-              party: 'Unity Student Party'
-            }
-          ];
-
-          setElection(mockElection);
-          setCandidates(mockCandidates);
-          
-          // Check if user has already voted (mock)
-          const hasVoted = false; // Replace with actual check
-          setVotingStatus(hasVoted ? 'voted' : 'idle');
-        }, 1000);
-      } catch (err) {
-        setError('Failed to load election data');
-      }
-    };
-
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
     fetchElectionData();
-  }, [electionId]);
+  }, [electionId, isAuthenticated, navigate]);
 
-  const handleCandidateSelect = (candidateId) => {
-    setSelectedCandidate(candidateId);
+  const fetchElectionData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      // Fetch election details
+      const electionResponse = await voterAPI.getElectionDetails(electionId);
+      
+      if (electionResponse.success) {
+        const electionData = electionResponse.election;
+        setElection(electionData);
+        setFaceVerificationRequired(electionData.require_face_verification !== false);
+
+        // Check if election is active
+        const now = new Date();
+        const startDate = new Date(electionData.voting_start);
+        const endDate = new Date(electionData.voting_end);
+
+        if (now < startDate) {
+          setVotingStatus('not_started');
+        } else if (now > endDate) {
+          setVotingStatus('closed');
+        } else {
+          // Check if user has already voted
+          const voteStatusResponse = await voterAPI.checkVoteStatus(electionId, user.voter_id);
+          if (voteStatusResponse.success && voteStatusResponse.has_voted) {
+            setVotingStatus('voted');
+          } else {
+            setVotingStatus('idle');
+          }
+        }
+
+        // Fetch candidates
+        const candidatesResponse = await voterAPI.getCandidates(electionId);
+        if (candidatesResponse.success) {
+          setCandidates(candidatesResponse.candidates || []);
+        } else {
+          setError('Failed to load candidates');
+        }
+      } else {
+        setError(electionResponse.message || 'Failed to load election data');
+      }
+    } catch (err) {
+      console.error('Error fetching election data:', err);
+      setError('Failed to load election data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCandidateSelect = (candidate) => {
+    setSelectedCandidate(candidate.candidate_id);
     setError('');
+  };
+
+  const handleViewCandidateDetails = (candidate) => {
+    setSelectedCandidateDetails(candidate);
+    setShowCandidateModal(true);
   };
 
   const handleVoteSubmit = async () => {
@@ -124,40 +124,64 @@ const VotingPage = () => {
     setError('');
 
     try {
-      // Simulate API call for face verification and voting
-      setTimeout(() => {
-        // Mock face verification success
-        const faceVerified = true;
-        
-        if (faceVerified) {
-          setSuccess('Vote cast successfully!');
-          setVotingStatus('voted');
-          setShowConfirmModal(false);
+      // Perform face verification if required
+      let faceVerified = true;
+      
+      if (faceVerificationRequired) {
+        try {
+          // This would integrate with your face verification system
+          const faceVerificationResponse = await voterAPI.verifyFace({
+            voter_id: user.voter_id,
+            election_id: electionId
+          });
           
-          // Redirect to results after 2 seconds
-          setTimeout(() => {
-            navigate(`/results/${electionId}`);
-          }, 2000);
-        } else {
-          setError('Face verification failed. Please try again.');
+          faceVerified = faceVerificationResponse.success;
+          
+          if (!faceVerified) {
+            setError('Face verification failed. Please try again or contact support.');
+            setIsSubmitting(false);
+            return;
+          }
+        } catch (faceError) {
+          setError('Face verification service unavailable. Please try again later.');
+          setIsSubmitting(false);
+          return;
         }
+      }
+
+      // Submit the vote
+      const voteResponse = await voterAPI.castVote(electionId, selectedCandidate);
+      
+      if (voteResponse.success) {
+        setSuccess('Vote cast successfully!');
+        setVotingStatus('voted');
+        setShowConfirmModal(false);
         
-        setIsSubmitting(false);
-      }, 2000);
+        // Redirect to results after 2 seconds
+        setTimeout(() => {
+          navigate(`/results/${electionId}`);
+        }, 2000);
+      } else {
+        setError(voteResponse.message || 'Failed to submit vote. Please try again.');
+      }
     } catch (err) {
+      console.error('Vote submission error:', err);
       setError('Failed to submit vote. Please try again.');
+    } finally {
       setIsSubmitting(false);
     }
   };
 
   const getElectionProgress = () => {
     if (!election) return 0;
-    return Math.round((election.votesCast / election.totalVoters) * 100);
+    const totalVoters = election.total_voters || 1000;
+    const votesCast = election.votes_cast || 0;
+    return Math.round((votesCast / totalVoters) * 100);
   };
 
   const getTimeRemaining = () => {
     if (!election) return '';
-    const end = new Date(election.endDate);
+    const end = new Date(election.voting_end);
     const now = new Date();
     const diff = end - now;
     
@@ -165,15 +189,50 @@ const VotingPage = () => {
     
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     
-    return `${days}d ${hours}h remaining`;
+    if (days > 0) return `${days}d ${hours}h remaining`;
+    if (hours > 0) return `${hours}h ${minutes}m remaining`;
+    return `${minutes}m remaining`;
   };
 
-  if (!election) {
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  const formatDateTime = (dateString) => {
+    return new Date(dateString).toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (loading) {
     return (
       <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
         <Spinner animation="border" variant="primary" />
         <span className="ms-3">Loading election data...</span>
+      </Container>
+    );
+  }
+
+  if (!election) {
+    return (
+      <Container className="my-5">
+        <Alert variant="danger">
+          <h4>Election Not Found</h4>
+          <p>The requested election could not be found or you don't have access to it.</p>
+          <Button variant="primary" onClick={() => navigate('/elections')}>
+            Back to Elections
+          </Button>
+        </Alert>
       </Container>
     );
   }
@@ -214,6 +273,71 @@ const VotingPage = () => {
     );
   }
 
+  if (votingStatus === 'closed') {
+    return (
+      <Container className="my-5">
+        <Row className="justify-content-center">
+          <Col md={8} lg={6}>
+            <Card className="text-center shadow">
+              <Card.Body className="py-5">
+                <XCircleFill size={80} className="text-danger mb-4" />
+                <h3>Election Closed</h3>
+                <p className="text-muted">
+                  The {election.title} has ended on {formatDate(election.voting_end)}.
+                  Voting is no longer available.
+                </p>
+                <div className="mt-4">
+                  <Button 
+                    variant="primary" 
+                    onClick={() => navigate(`/results/${electionId}`)}
+                    className="me-3"
+                  >
+                    View Results
+                  </Button>
+                  <Button 
+                    variant="outline-secondary" 
+                    onClick={() => navigate('/elections')}
+                  >
+                    View Other Elections
+                  </Button>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+      </Container>
+    );
+  }
+
+  if (votingStatus === 'not_started') {
+    return (
+      <Container className="my-5">
+        <Row className="justify-content-center">
+          <Col md={8} lg={6}>
+            <Card className="text-center shadow">
+              <Card.Body className="py-5">
+                <Clock size={80} className="text-warning mb-4" />
+                <h3>Election Not Started</h3>
+                <p className="text-muted">
+                  The {election.title} will begin on {formatDate(election.voting_start)}.
+                  Please check back then to cast your vote.
+                </p>
+                <div className="mt-4">
+                  <Button 
+                    variant="outline-secondary" 
+                    onClick={() => navigate('/elections')}
+                  >
+                    View Other Elections
+                  </Button>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+      </Container>
+    );
+  }
+
   return (
     <Container className="my-4">
       {/* Election Header */}
@@ -221,131 +345,299 @@ const VotingPage = () => {
         <Card.Body>
           <Row className="align-items-center">
             <Col>
-              <Badge bg="primary" className="mb-2">{election.category}</Badge>
+              <Badge bg="primary" className="mb-2 text-capitalize">
+                {election.election_type || 'Election'}
+              </Badge>
               <h2 className="h4 mb-2">{election.title}</h2>
               <p className="text-muted mb-3">{election.description}</p>
               
-              <div className="d-flex flex-wrap gap-4">
-                <div className="d-flex align-items-center">
-                  <Clock size={16} className="me-2 text-muted" />
-                  <small>{getTimeRemaining()}</small>
-                </div>
-                <div className="d-flex align-items-center">
-                  <PersonCheck size={16} className="me-2 text-muted" />
-                  <small>{election.votesCast} votes cast</small>
-                </div>
-                <div className="d-flex align-items-center">
-                  <ShieldCheck size={16} className="me-2 text-muted" />
-                  <small>Secure voting</small>
-                </div>
-              </div>
+              <Row className="g-3">
+                <Col md={6}>
+                  <ListGroup variant="flush">
+                    <ListGroup.Item className="px-0 py-1 d-flex align-items-center">
+                      <Calendar size={16} className="me-2 text-muted" />
+                      <small>Starts: {formatDateTime(election.voting_start)}</small>
+                    </ListGroup.Item>
+                    <ListGroup.Item className="px-0 py-1 d-flex align-items-center">
+                      <Clock size={16} className="me-2 text-muted" />
+                      <small>Ends: {formatDateTime(election.voting_end)}</small>
+                    </ListGroup.Item>
+                  </ListGroup>
+                </Col>
+                <Col md={6}>
+                  <ListGroup variant="flush">
+                    <ListGroup.Item className="px-0 py-1 d-flex align-items-center">
+                      <GeoAlt size={16} className="me-2 text-muted" />
+                      <small>{election.constituency || 'All Constituencies'}</small>
+                    </ListGroup.Item>
+                    <ListGroup.Item className="px-0 py-1 d-flex align-items-center">
+                      <PersonCheck size={16} className="me-2 text-muted" />
+                      <small>{election.votes_cast || 0} votes cast</small>
+                    </ListGroup.Item>
+                  </ListGroup>
+                </Col>
+              </Row>
             </Col>
           </Row>
           
-          <ProgressBar 
-            now={getElectionProgress()} 
-            variant="success" 
-            className="mt-3" 
-            label={`${getElectionProgress()}% participation`}
-          />
+          <div className="mt-3">
+            <div className="d-flex justify-content-between align-items-center mb-1">
+              <small className="text-muted">Voter Participation</small>
+              <small className="text-muted">{getElectionProgress()}%</small>
+            </div>
+            <ProgressBar 
+              now={getElectionProgress()} 
+              variant="success" 
+            />
+          </div>
         </Card.Body>
       </Card>
 
       {/* Error/Success Alerts */}
-      {error && <Alert variant="danger" dismissible onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert variant="success" dismissible onClose={() => setSuccess('')}>{success}</Alert>}
+      {error && (
+        <Alert variant="danger" dismissible onClose={() => setError('')}>
+          <Alert.Heading>Error</Alert.Heading>
+          {error}
+        </Alert>
+      )}
+      {success && (
+        <Alert variant="success" dismissible onClose={() => setSuccess('')}>
+          <Alert.Heading>Success</Alert.Heading>
+          {success}
+        </Alert>
+      )}
 
       {/* Voting Instructions */}
       <Alert variant="info" className="mb-4">
+        <InfoCircle size={20} className="me-2" />
         <strong>Voting Instructions:</strong> Select your preferred candidate below. 
         You can only vote once. After submission, your vote cannot be changed.
+        {faceVerificationRequired && ' Face verification will be required before voting.'}
       </Alert>
 
       {/* Candidates List */}
       <Row>
-        {candidates.map((candidate) => (
-          <Col key={candidate.id} md={6} className="mb-4">
-            <Card 
-              className={`h-100 cursor-pointer ${selectedCandidate === candidate.id ? 'border-primary shadow' : ''}`}
-              onClick={() => handleCandidateSelect(candidate.id)}
-              style={{ cursor: 'pointer', transition: 'all 0.3s' }}
-            >
+        {candidates.length === 0 ? (
+          <Col>
+            <Card className="text-center py-5">
               <Card.Body>
-                <Row className="align-items-center">
-                  <Col xs={3}>
-                    <div 
-                      className="rounded-circle bg-light d-flex align-items-center justify-content-center"
-                      style={{ width: '80px', height: '80px' }}
-                    >
-                      {selectedCandidate === candidate.id ? (
-                        <CheckCircleFill size={30} className="text-primary" />
-                      ) : (
-                        <span className="text-muted">{candidate.name.charAt(0)}</span>
-                      )}
-                    </div>
-                  </Col>
-                  <Col xs={9}>
-                    <div className="d-flex justify-content-between align-items-start">
-                      <div>
-                        <h5 className="mb-1">{candidate.name}</h5>
-                        <Badge bg="secondary" className="mb-2">{candidate.position}</Badge>
-                        <p className="text-muted small mb-1">{candidate.party}</p>
-                      </div>
-                      {selectedCandidate === candidate.id && (
-                        <Badge bg="primary">Selected</Badge>
-                      )}
-                    </div>
-                    <p className="small text-muted mt-2">{candidate.bio}</p>
-                  </Col>
-                </Row>
-                
-                {/* Manifesto (collapsible) */}
-                <div className="mt-3">
-                  <details>
-                    <summary className="small text-primary cursor-pointer">
-                      View Manifesto
-                    </summary>
-                    <p className="small mt-2 text-muted">{candidate.manifesto}</p>
-                  </details>
-                </div>
+                <PersonCheck size={48} className="text-muted mb-3" />
+                <h5>No Candidates Available</h5>
+                <p className="text-muted">
+                  There are no candidates registered for this election yet.
+                </p>
               </Card.Body>
             </Card>
           </Col>
-        ))}
+        ) : (
+          candidates.map((candidate) => (
+            <Col key={candidate.candidate_id} lg={6} className="mb-4">
+              <Card 
+                className={`h-100 ${selectedCandidate === candidate.candidate_id ? 'border-primary shadow' : ''}`}
+                style={{ 
+                  cursor: 'pointer', 
+                  transition: 'all 0.3s',
+                  transform: selectedCandidate === candidate.candidate_id ? 'translateY(-2px)' : 'none'
+                }}
+              >
+                <Card.Body>
+                  <Row className="align-items-center">
+                    <Col xs={3}>
+                      <div 
+                        className="rounded-circle bg-light d-flex align-items-center justify-content-center border"
+                        style={{ width: '80px', height: '80px' }}
+                      >
+                        {selectedCandidate === candidate.candidate_id ? (
+                          <CheckCircleFill size={30} className="text-primary" />
+                        ) : (
+                          <span className="text-muted fw-bold fs-5">
+                            {candidate.full_name?.charAt(0) || 'C'}
+                          </span>
+                        )}
+                      </div>
+                    </Col>
+                    <Col xs={9}>
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                          <h5 className="mb-1">{candidate.full_name}</h5>
+                          {candidate.party && (
+                            <Badge bg="secondary" className="mb-2">
+                              {candidate.party}
+                            </Badge>
+                          )}
+                        </div>
+                        {selectedCandidate === candidate.candidate_id && (
+                          <Badge bg="primary">Selected</Badge>
+                        )}
+                      </div>
+                      
+                      {candidate.biography && (
+                        <p className="small text-muted mb-2 line-clamp-2">
+                          {candidate.biography}
+                        </p>
+                      )}
+                      
+                      <div className="d-flex gap-2">
+                        <Button
+                          variant="outline-primary"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewCandidateDetails(candidate);
+                          }}
+                        >
+                          <Eye size={14} className="me-1" />
+                          Details
+                        </Button>
+                        <Button
+                          variant={selectedCandidate === candidate.candidate_id ? "primary" : "outline-secondary"}
+                          size="sm"
+                          onClick={() => handleCandidateSelect(candidate)}
+                        >
+                          {selectedCandidate === candidate.candidate_id ? 'Selected' : 'Select'}
+                        </Button>
+                      </div>
+                    </Col>
+                  </Row>
+                </Card.Body>
+              </Card>
+            </Col>
+          ))
+        )}
       </Row>
 
       {/* Voting Action */}
-      <Card className="mt-4">
-        <Card.Body>
-          <Row className="align-items-center">
-            <Col>
-              <h6 className="mb-0">
-                {selectedCandidate 
-                  ? `Selected: ${candidates.find(c => c.id === selectedCandidate)?.name}`
-                  : 'No candidate selected'
-                }
-              </h6>
-            </Col>
-            <Col xs="auto">
-              <Button
-                variant="primary"
-                size="lg"
-                disabled={!selectedCandidate || isSubmitting}
-                onClick={() => setShowConfirmModal(true)}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Spinner animation="border" size="sm" className="me-2" />
-                    Processing...
-                  </>
-                ) : (
-                  'Cast Vote'
+      {candidates.length > 0 && (
+        <Card className="mt-4 sticky-bottom" style={{ bottom: '20px' }}>
+          <Card.Body>
+            <Row className="align-items-center">
+              <Col>
+                <h6 className="mb-1">
+                  {selectedCandidate 
+                    ? `Selected: ${candidates.find(c => c.candidate_id === selectedCandidate)?.full_name}`
+                    : 'No candidate selected'
+                  }
+                </h6>
+                {selectedCandidate && (
+                  <small className="text-muted">
+                    {candidates.find(c => c.candidate_id === selectedCandidate)?.party}
+                  </small>
                 )}
-              </Button>
-            </Col>
-          </Row>
-        </Card.Body>
-      </Card>
+              </Col>
+              <Col xs="auto">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  disabled={!selectedCandidate || isSubmitting}
+                  onClick={() => setShowConfirmModal(true)}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Spinner animation="border" size="sm" className="me-2" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck size={20} className="me-2" />
+                      Cast Vote
+                    </>
+                  )}
+                </Button>
+              </Col>
+            </Row>
+          </Card.Body>
+        </Card>
+      )}
+
+      {/* Candidate Details Modal */}
+      <Modal show={showCandidateModal} onHide={() => setShowCandidateModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Candidate Details</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {selectedCandidateDetails && (
+            <Row>
+              <Col md={4} className="text-center">
+                <div 
+                  className="rounded-circle bg-light d-flex align-items-center justify-content-center mx-auto border"
+                  style={{ width: '120px', height: '120px' }}
+                >
+                  <span className="text-muted fw-bold fs-2">
+                    {selectedCandidateDetails.full_name?.charAt(0) || 'C'}
+                  </span>
+                </div>
+                <h5 className="mt-3">{selectedCandidateDetails.full_name}</h5>
+                {selectedCandidateDetails.party && (
+                  <Badge bg="primary" className="mb-2">
+                    {selectedCandidateDetails.party}
+                  </Badge>
+                )}
+              </Col>
+              <Col md={8}>
+                <h6>Biography</h6>
+                <p className="text-muted">
+                  {selectedCandidateDetails.biography || 'No biography provided.'}
+                </p>
+                
+                {selectedCandidateDetails.manifesto && (
+                  <>
+                    <h6>Manifesto</h6>
+                    <p className="text-muted">
+                      {selectedCandidateDetails.manifesto}
+                    </p>
+                  </>
+                )}
+                
+                {selectedCandidateDetails.qualifications && (
+                  <>
+                    <h6>Qualifications</h6>
+                    <p className="text-muted">
+                      {selectedCandidateDetails.qualifications}
+                    </p>
+                  </>
+                )}
+                
+                {(selectedCandidateDetails.email || selectedCandidateDetails.website) && (
+                  <>
+                    <h6>Contact Information</h6>
+                    <ListGroup variant="flush">
+                      {selectedCandidateDetails.email && (
+                        <ListGroup.Item className="px-0">
+                          <small><strong>Email:</strong> {selectedCandidateDetails.email}</small>
+                        </ListGroup.Item>
+                      )}
+                      {selectedCandidateDetails.website && (
+                        <ListGroup.Item className="px-0">
+                          <small><strong>Website:</strong> {selectedCandidateDetails.website}</small>
+                        </ListGroup.Item>
+                      )}
+                    </ListGroup>
+                  </>
+                )}
+              </Col>
+            </Row>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button 
+            variant="outline-secondary" 
+            onClick={() => setShowCandidateModal(false)}
+          >
+            Close
+          </Button>
+          <Button 
+            variant="primary"
+            onClick={() => {
+              if (selectedCandidateDetails) {
+                handleCandidateSelect(selectedCandidateDetails);
+                setShowCandidateModal(false);
+              }
+            }}
+          >
+            Select This Candidate
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
       {/* Confirmation Modal */}
       <Modal show={showConfirmModal} onHide={() => setShowConfirmModal(false)} centered>
@@ -356,15 +648,20 @@ const VotingPage = () => {
           <p>You are about to vote for:</p>
           <Card className="bg-light">
             <Card.Body>
-              <h5>{candidates.find(c => c.id === selectedCandidate)?.name}</h5>
+              <h5>{candidates.find(c => c.candidate_id === selectedCandidate)?.full_name}</h5>
               <p className="text-muted mb-0">
-                {candidates.find(c => c.id === selectedCandidate)?.position} - 
-                {candidates.find(c => c.id === selectedCandidate)?.party}
+                {candidates.find(c => c.candidate_id === selectedCandidate)?.party}
               </p>
             </Card.Body>
           </Card>
+          
           <Alert variant="warning" className="mt-3">
-            <strong>Important:</strong> This action cannot be undone. Your vote will be final.
+            <Alert.Heading className="h6">
+              <ShieldCheck size={16} className="me-2" />
+              Important Notice
+            </Alert.Heading>
+            This action cannot be undone. Your vote will be final and securely recorded.
+            {faceVerificationRequired && ' Face verification will be required to complete your vote.'}
           </Alert>
         </Modal.Body>
         <Modal.Footer>
@@ -383,14 +680,30 @@ const VotingPage = () => {
             {isSubmitting ? (
               <>
                 <Spinner animation="border" size="sm" className="me-2" />
-                Verifying & Voting...
+                {faceVerificationRequired ? 'Verifying & Voting...' : 'Processing Vote...'}
               </>
             ) : (
-              'Confirm & Verify Face'
+              <>
+                <ShieldCheck size={16} className="me-2" />
+                {faceVerificationRequired ? 'Confirm & Verify Face' : 'Confirm Vote'}
+              </>
             )}
           </Button>
         </Modal.Footer>
       </Modal>
+
+      <style jsx>{`
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .sticky-bottom {
+          position: sticky;
+          z-index: 1020;
+        }
+      `}</style>
     </Container>
   );
 };

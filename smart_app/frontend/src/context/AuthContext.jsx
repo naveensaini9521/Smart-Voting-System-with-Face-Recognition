@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import { voterAPI } from '../services/api';
 
 // Auth context
 const AuthContext = createContext();
@@ -10,7 +11,10 @@ const AUTH_ACTIONS = {
   LOGIN_FAILURE: 'LOGIN_FAILURE',
   LOGOUT: 'LOGOUT',
   UPDATE_USER: 'UPDATE_USER',
-  SET_LOADING: 'SET_LOADING'
+  SET_LOADING: 'SET_LOADING',
+  CHECK_AUTH_START: 'CHECK_AUTH_START',
+  CHECK_AUTH_SUCCESS: 'CHECK_AUTH_SUCCESS',
+  CHECK_AUTH_FAILURE: 'CHECK_AUTH_FAILURE'
 };
 
 // Initial state
@@ -18,7 +22,8 @@ const initialState = {
   user: null,
   isAuthenticated: false,
   loading: true,
-  error: null
+  error: null,
+  token: null
 };
 
 // Auth reducer
@@ -28,6 +33,33 @@ const authReducer = (state, action) => {
       return {
         ...state,
         loading: action.payload
+      };
+
+    case AUTH_ACTIONS.CHECK_AUTH_START:
+      return {
+        ...state,
+        loading: true,
+        error: null
+      };
+
+    case AUTH_ACTIONS.CHECK_AUTH_SUCCESS:
+      return {
+        ...state,
+        user: action.payload.user,
+        token: action.payload.token,
+        isAuthenticated: true,
+        loading: false,
+        error: null
+      };
+
+    case AUTH_ACTIONS.CHECK_AUTH_FAILURE:
+      return {
+        ...state,
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        loading: false,
+        error: null // Don't show error for auth check failure
       };
 
     case AUTH_ACTIONS.LOGIN_START:
@@ -41,6 +73,7 @@ const authReducer = (state, action) => {
       return {
         ...state,
         user: action.payload.user,
+        token: action.payload.token,
         isAuthenticated: true,
         loading: false,
         error: null
@@ -50,6 +83,7 @@ const authReducer = (state, action) => {
       return {
         ...state,
         user: null,
+        token: null,
         isAuthenticated: false,
         loading: false,
         error: action.payload
@@ -59,6 +93,7 @@ const authReducer = (state, action) => {
       return {
         ...state,
         user: null,
+        token: null,
         isAuthenticated: false,
         loading: false,
         error: null
@@ -84,62 +119,98 @@ export const AuthProvider = ({ children }) => {
     checkExistingAuth();
   }, []);
 
-  const checkExistingAuth = () => {
+  const checkExistingAuth = async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      const userData = localStorage.getItem('userData');
+      dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_START });
 
-      if (token && userData) {
-        const user = JSON.parse(userData);
-        dispatch({
-          type: AUTH_ACTIONS.LOGIN_SUCCESS,
-          payload: { user }
-        });
+      const token = localStorage.getItem('authToken');
+      const voterData = localStorage.getItem('voterData');
+      const isAuthenticated = localStorage.getItem('isAuthenticated');
+
+      console.log('Checking existing auth:', { 
+        token: !!token, 
+        voterData: !!voterData, 
+        isAuthenticated 
+      });
+
+      if (token && voterData && isAuthenticated === 'true') {
+        try {
+          // Verify token with backend
+          const response = await voterAPI.verifyToken();
+          if (response.success) {
+            const user = JSON.parse(voterData);
+            dispatch({
+              type: AUTH_ACTIONS.CHECK_AUTH_SUCCESS,
+              payload: { user, token }
+            });
+            console.log('Existing auth verified successfully');
+          } else {
+            console.log('Token verification failed, clearing auth data');
+            clearAuthData();
+            dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_FAILURE });
+          }
+        } catch (error) {
+          console.log('Token verification error, using local storage data:', error);
+          // If token verification fails but we have local data, still consider authenticated
+          const user = JSON.parse(voterData);
+          dispatch({
+            type: AUTH_ACTIONS.CHECK_AUTH_SUCCESS,
+            payload: { user, token }
+          });
+        }
       } else {
-        dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
+        console.log('No valid auth data found');
+        dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_FAILURE });
       }
     } catch (error) {
       console.error('Error checking existing auth:', error);
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('userData');
-      dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
+      clearAuthData();
+      dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_FAILURE });
     }
   };
 
-  // Login function
-  const login = async (credentials) => {
+  // Clear authentication data from storage
+  const clearAuthData = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('voterData');
+    localStorage.removeItem('isAuthenticated');
+  };
+
+  // Login with credentials (first step)
+  const loginWithCredentials = async (credentials) => {
     dispatch({ type: AUTH_ACTIONS.LOGIN_START });
 
     try {
-      // Simulate API call - Replace with actual authentication
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // Mock user data - Replace with actual API response
-      const mockUser = {
-        id: '12345',
-        voterId: credentials.voterId || 'V' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-        fullName: 'John Doe',
-        email: 'john.doe@example.com',
-        role: credentials.voterId === 'ADMIN' ? 'admin' : 'voter',
-        isVerified: true,
-        faceRegistered: true
-      };
-
-      // Mock token
-      const mockToken = 'mock-jwt-token-' + Date.now();
-
-      // Store in localStorage
-      localStorage.setItem('authToken', mockToken);
-      localStorage.setItem('userData', JSON.stringify(mockUser));
-
-      dispatch({
-        type: AUTH_ACTIONS.LOGIN_SUCCESS,
-        payload: { user: mockUser }
+      console.log('Logging in with credentials:', { 
+        voter_id: credentials.voter_id 
       });
 
-      return { success: true, user: mockUser };
+      const response = await voterAPI.verifyCredentials(credentials);
+
+      if (response.success) {
+        // Store voter data temporarily for face verification
+        const tempUserData = response.voter_data;
+        
+        dispatch({
+          type: AUTH_ACTIONS.LOGIN_SUCCESS,
+          payload: { user: tempUserData, token: null } // No token yet, need face verification
+        });
+
+        return { 
+          success: true, 
+          user: tempUserData,
+          requiresFaceVerification: true
+        };
+      } else {
+        dispatch({
+          type: AUTH_ACTIONS.LOGIN_FAILURE,
+          payload: response.message || 'Login failed'
+        });
+        return { success: false, error: response.message };
+      }
     } catch (error) {
-      const errorMsg = error.message || 'Login failed';
+      console.error('Login error:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Login failed';
       dispatch({
         type: AUTH_ACTIONS.LOGIN_FAILURE,
         payload: errorMsg
@@ -148,17 +219,74 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Complete login with face verification
+  const completeLoginWithFace = async (faceData) => {
+    try {
+      console.log('Completing login with face verification for:', faceData.voter_id);
+
+      const response = await voterAPI.verifyFace(faceData);
+
+      if (response.success) {
+        // Store authentication data
+        localStorage.setItem('authToken', response.token);
+        localStorage.setItem('voterData', JSON.stringify(response.voter_data));
+        localStorage.setItem('isAuthenticated', 'true');
+
+        dispatch({
+          type: AUTH_ACTIONS.LOGIN_SUCCESS,
+          payload: { user: response.voter_data, token: response.token }
+        });
+
+        return { success: true, user: response.voter_data, token: response.token };
+      } else {
+        dispatch({
+          type: AUTH_ACTIONS.LOGIN_FAILURE,
+          payload: response.message || 'Face verification failed'
+        });
+        return { success: false, error: response.message };
+      }
+    } catch (error) {
+      console.error('Face verification error:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Face verification failed';
+      dispatch({
+        type: AUTH_ACTIONS.LOGIN_FAILURE,
+        payload: errorMsg
+      });
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  // Direct login with token and user data (for external auth)
+  const login = (token, userData) => {
+    console.log('Direct login with token for user:', userData.voter_id);
+    
+    // Store authentication data
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('voterData', JSON.stringify(userData));
+    localStorage.setItem('isAuthenticated', 'true');
+
+    dispatch({
+      type: AUTH_ACTIONS.LOGIN_SUCCESS,
+      payload: { user: userData, token }
+    });
+  };
+
   // Logout function
-  const logout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('userData');
-    dispatch({ type: AUTH_ACTIONS.LOGOUT });
+  const logout = async () => {
+    try {
+      await voterAPI.logout();
+    } catch (error) {
+      console.error('Logout API error:', error);
+    } finally {
+      clearAuthData();
+      dispatch({ type: AUTH_ACTIONS.LOGOUT });
+    }
   };
 
   // Update user profile
   const updateUser = (userData) => {
     const updatedUser = { ...state.user, ...userData };
-    localStorage.setItem('userData', JSON.stringify(updatedUser));
+    localStorage.setItem('voterData', JSON.stringify(updatedUser));
     dispatch({
       type: AUTH_ACTIONS.UPDATE_USER,
       payload: userData
@@ -170,12 +298,27 @@ export const AuthProvider = ({ children }) => {
     return state.user?.role === 'admin';
   };
 
+  // Check authentication status (force refresh)
+  const checkAuthStatus = async () => {
+    return await checkExistingAuth();
+  };
+
+  // Get auth headers for API calls
+  const getAuthHeaders = () => {
+    const token = state.token || localStorage.getItem('authToken');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   const value = {
     ...state,
     login,
+    loginWithCredentials,
+    completeLoginWithFace,
     logout,
     updateUser,
-    isAdmin
+    isAdmin,
+    checkAuthStatus,
+    getAuthHeaders
   };
 
   return (
