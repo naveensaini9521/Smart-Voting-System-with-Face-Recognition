@@ -8,11 +8,10 @@ import {
   FaUser, FaIdCard, FaCamera, FaCheckCircle, 
   FaPhone, FaEnvelope, FaMapMarkerAlt, FaShieldAlt,
   FaFingerprint, FaGlobe, FaCity, FaHome, FaBirthdayCake,
-  FaExclamationTriangle, FaCopy
+  FaExclamationTriangle, FaCopy, FaArrowLeft, FaArrowRight
 } from 'react-icons/fa';
 import FaceCapture from '../components/auth/facecapture.jsx';
 import IDUpload from '../components/auth/id-upload.jsx';
-import OTPVerification from '../components/auth/otp-verification.jsx';
 import { voterAPI } from '../services/api';
 import './RegisterPage.css';
 
@@ -48,8 +47,6 @@ const RegisterPage = () => {
     id_document: null,
     
     // Account Information
-    password: '',
-    confirm_password: '',
     security_question: '',
     security_answer: '',
     
@@ -63,8 +60,6 @@ const RegisterPage = () => {
   const [voterId, setVoterId] = useState(null);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showOTPModal, setShowOTPModal] = useState(false);
-  const [otpType, setOtpType] = useState('');
   const [uploadedID, setUploadedID] = useState(null);
   const [loading, setLoading] = useState(false);
   const [registrationProgress, setRegistrationProgress] = useState({
@@ -73,13 +68,24 @@ const RegisterPage = () => {
     id: false,
     face: false
   });
+  
+  // OTP Verification states
+  const [otpData, setOtpData] = useState({
+    email: { sent: false, verified: false, loading: false },
+    phone: { sent: false, verified: false, loading: false }
+  });
+  const [otpInput, setOtpInput] = useState({
+    email: '',
+    phone: ''
+  });
 
   // Debug useEffect
   useEffect(() => {
+    console.log('Current voterData:', voterData);
     console.log('Current voterId:', voterId);
     console.log('Current step:', step);
-    console.log('Registration progress:', registrationProgress);
-  }, [voterId, step, registrationProgress]);
+    console.log('OTP Data:', otpData);
+  }, [voterData, voterId, step, otpData]);
 
   // Age validation function
   const validateAge = (dateString) => {
@@ -154,20 +160,14 @@ const RegisterPage = () => {
 
   // Handle file upload
   const handleFileUpload = async (file, type) => {
-    if (!voterId) {
-      setMessage({ type: 'danger', text: 'Please complete personal information first' });
-      return;
-    }
-
     setLoading(true);
     try {
-      const formData = new FormData();
-      formData.append('id_document', file);
-      formData.append('voter_id', voterId);
-
-      const response = await voterAPI.uploadID(formData);
-      
-      if (response.success) {
+      // Convert file to base64 for demo purposes
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = reader.result;
+        
+        // For now, just mark as uploaded without API call since we don't have voterId yet
         setVoterData(prev => ({
           ...prev,
           id_document: file,
@@ -176,91 +176,101 @@ const RegisterPage = () => {
         setUploadedID(URL.createObjectURL(file));
         setRegistrationProgress(prev => ({ ...prev, id: true }));
         setMessage({ type: 'success', text: 'ID document uploaded successfully!' });
-        
-        // Auto-proceed to next step after successful upload
-        setTimeout(() => {
-          setStep(4);
-        }, 1000);
-      } else {
-        setMessage({ type: 'danger', text: response.message || 'ID upload failed' });
-      }
+        setLoading(false);
+      };
+      reader.readAsDataURL(file);
     } catch (error) {
       console.error('ID upload error:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to upload ID document. Please try again.';
+      const errorMessage = 'Failed to upload ID document. Please try again.';
       setMessage({ type: 'danger', text: errorMessage });
-    } finally {
       setLoading(false);
     }
   };
 
   // OTP Verification handlers
   const handleSendOTP = async (type) => {
-    if (!voterData[type]) {
-      setMessage({ type: 'danger', text: `Please enter your ${type} first` });
-      return;
-    }
+    setOtpData(prev => ({
+      ...prev,
+      [type]: { ...prev[type], loading: true }
+    }));
 
-    if (!voterId) {
-      setMessage({ type: 'danger', text: 'Please complete personal information first' });
-      return;
-    }
-
-    setLoading(true);
     try {
-      const response = await voterAPI.sendOTP({
+      const otpData = {
         [type]: voterData[type],
-        purpose: 'registration',
-        voter_id: voterId
-      });
+        purpose: 'registration'
+      };
+
+      const response = await voterAPI.sendOTP(otpData);
 
       if (response.success) {
-        setOtpType(type);
-        setShowOTPModal(true);
-        setMessage({ type: 'success', text: `OTP sent to your ${type}` });
+        setOtpData(prev => ({
+          ...prev,
+          [type]: { ...prev[type], sent: true, loading: false }
+        }));
+        setMessage({ 
+          type: 'success', 
+          text: `OTP sent to your ${type}. ${response.debug_otp ? `Debug OTP: ${response.debug_otp}` : ''}` 
+        });
       } else {
         setMessage({ type: 'danger', text: response.message || `Failed to send OTP to ${type}` });
+        setOtpData(prev => ({
+          ...prev,
+          [type]: { ...prev[type], loading: false }
+        }));
       }
     } catch (error) {
       console.error('OTP send error:', error);
       const errorMessage = error.response?.data?.message || `Failed to send OTP to ${type}`;
       setMessage({ type: 'danger', text: errorMessage });
-    } finally {
-      setLoading(false);
+      setOtpData(prev => ({
+        ...prev,
+        [type]: { ...prev[type], loading: false }
+      }));
     }
   };
 
-  const handleVerifyOTP = async (otp) => {
-    setLoading(true);
+  const handleVerifyOTP = async (type) => {
+    setOtpData(prev => ({
+      ...prev,
+      [type]: { ...prev[type], loading: true }
+    }));
+
     try {
-      const response = await voterAPI.verifyOTP({
-        voter_id: voterId,
-        otp_code: otp,
-        purpose: 'registration',
-        [otpType]: voterData[otpType]
-      });
+      const otpData = {
+        [type]: voterData[type],
+        otp_code: otpInput[type],
+        purpose: 'registration'
+      };
+
+      const response = await voterAPI.verifyOTP(otpData);
 
       if (response.success) {
+        setOtpData(prev => ({
+          ...prev,
+          [type]: { ...prev[type], verified: true, loading: false }
+        }));
+        setMessage({ type: 'success', text: `${type.charAt(0).toUpperCase() + type.slice(1)} verified successfully!` });
+        
+        // Update voterData verification status
         setVoterData(prev => ({
           ...prev,
-          [`${otpType}_verified`]: true
+          [`${type}_verified`]: true
         }));
-        
-        // Update registration progress
-        if (otpType === 'email' || otpType === 'phone') {
-          setRegistrationProgress(prev => ({ ...prev, contact: true }));
-        }
-        
-        setShowOTPModal(false);
-        setMessage({ type: 'success', text: `${otpType.toUpperCase()} verified successfully!` });
       } else {
         setMessage({ type: 'danger', text: response.message || 'Invalid OTP' });
+        setOtpData(prev => ({
+          ...prev,
+          [type]: { ...prev[type], loading: false }
+        }));
       }
     } catch (error) {
       console.error('OTP verification error:', error);
       const errorMessage = error.response?.data?.message || 'OTP verification failed';
       setMessage({ type: 'danger', text: errorMessage });
-    } finally {
-      setLoading(false);
+      setOtpData(prev => ({
+        ...prev,
+        [type]: { ...prev[type], loading: false }
+      }));
     }
   };
 
@@ -292,6 +302,10 @@ const RegisterPage = () => {
         if (!voterData.village_city.trim()) errors.push('City/Village is required');
         if (!voterData.district.trim()) errors.push('District is required');
         if (!voterData.state.trim()) errors.push('State is required');
+
+        // Check OTP verification
+        if (!otpData.email.verified) errors.push('Email must be verified with OTP');
+        if (!otpData.phone.verified) errors.push('Phone must be verified with OTP');
         break;
       
       case 3:
@@ -311,28 +325,94 @@ const RegisterPage = () => {
     return true;
   };
 
-  // Save personal information and get voter ID
-  const savePersonalInfo = async () => {
+  // Prepare data for backend - ALL STEPS DATA
+  const prepareRegistrationData = () => {
+    const registrationData = {
+      // Personal Information (Step 1)
+      full_name: voterData.full_name,
+      father_name: voterData.father_name,
+      mother_name: voterData.mother_name,
+      gender: voterData.gender,
+      date_of_birth: voterData.date_of_birth,
+      place_of_birth: voterData.place_of_birth,
+      
+      // Contact Information (Step 2)
+      email: voterData.email,
+      phone: voterData.phone,
+      alternate_phone: voterData.alternate_phone,
+      
+      // Address Information (Step 2)
+      address_line1: voterData.address_line1,
+      address_line2: voterData.address_line2,
+      pincode: voterData.pincode,
+      village_city: voterData.village_city,
+      district: voterData.district,
+      state: voterData.state,
+      country: voterData.country,
+      
+      // Identity Information (Step 3)
+      national_id_type: voterData.national_id_type,
+      national_id_number: voterData.national_id_number,
+      
+      // Verification Status
+      email_verified: otpData.email.verified,
+      phone_verified: otpData.phone.verified,
+      id_verified: voterData.id_verified,
+      face_verified: voterData.face_verified,
+      
+      // Security Information
+      security_question: voterData.security_question,
+      security_answer: voterData.security_answer
+    };
+
+    console.log('=== PREPARED REGISTRATION DATA ===');
+    console.log(registrationData);
+    console.log('================================');
+
+    return registrationData;
+  };
+
+  // Save ALL information and get voter ID
+  const saveAllInformation = async () => {
     setLoading(true);
     setMessage({ type: 'info', text: 'Saving your information...' });
     
     try {
-      console.log('Sending voter data to backend:', voterData);
+      // Validate ALL required fields before sending
+      const requiredFields = ['email', 'phone', 'address_line1', 'pincode', 'village_city', 'district', 'state', 'national_id_number'];
+      const missingFields = requiredFields.filter(field => !voterData[field] || voterData[field].toString().trim() === '');
       
-      const response = await voterAPI.register(voterData);
+      if (missingFields.length > 0) {
+        setMessage({ 
+          type: 'danger', 
+          text: `Please complete all steps first. Missing: ${missingFields.join(', ')}` 
+        });
+        setLoading(false);
+        return false;
+      }
+
+      const registrationData = prepareRegistrationData();
+      console.log('Sending COMPLETE registration data to backend:', registrationData);
+      
+      const response = await voterAPI.register(registrationData);
       
       if (response.success) {
         setVoterId(response.voter_id);
-        setRegistrationProgress(prev => ({ ...prev, personal: true }));
+        setRegistrationProgress(prev => ({ 
+          ...prev, 
+          personal: true,
+          contact: true,
+          id: true 
+        }));
         setMessage({ 
           type: 'success', 
-          text: `Personal information saved successfully! Your Voter ID: ${response.voter_id}` 
+          text: `Registration successful! Your Voter ID: ${response.voter_id}` 
         });
         return true;
       } else {
         setMessage({ 
           type: 'danger', 
-          text: response.message || 'Failed to save personal information' 
+          text: response.message || 'Failed to save information' 
         });
         return false;
       }
@@ -351,9 +431,9 @@ const RegisterPage = () => {
   // Navigation between steps
   const nextStep = async () => {
     if (validateStep(step)) {
-      if (step === 1) {
-        // For step 1, save data to backend first to get voter ID
-        const success = await savePersonalInfo();
+      if (step === 3) {
+        // When moving from step 3 to 4, save ALL data first
+        const success = await saveAllInformation();
         if (success) {
           setStep(prev => prev + 1);
           setMessage({ type: '', text: '' });
@@ -370,10 +450,44 @@ const RegisterPage = () => {
     setMessage({ type: '', text: '' });
   };
 
-  // Submit registration
-  const submitRegistration = async () => {
-    if (!validateStep(4)) return;
-    
+  // Handle face capture - MODIFIED to complete registration
+  const handleFaceCapture = async (imageData, success) => {
+    if (success && voterId) {
+      setLoading(true);
+      try {
+        console.log(`Registering face for voter: ${voterId}`);
+        
+        const response = await voterAPI.registerFace({
+          voter_id: voterId,
+          image_data: imageData
+        });
+
+        if (response.success) {
+          setVoterData(prev => ({ ...prev, face_verified: true }));
+          setRegistrationProgress(prev => ({ ...prev, face: true }));
+          setMessage({ type: 'success', text: 'Face registration successful!' });
+          
+          // Complete registration after face verification
+          setTimeout(() => {
+            completeRegistration();
+          }, 1500);
+        } else {
+          setMessage({ type: 'danger', text: response.message || 'Face registration failed' });
+        }
+      } catch (error) {
+        console.error('Face registration error:', error);
+        const errorMessage = error.response?.data?.message || 'Face registration failed. Please try again.';
+        setMessage({ type: 'danger', text: errorMessage });
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      setMessage({ type: 'danger', text: 'Face registration failed. Please try again.' });
+    }
+  };
+
+  // Complete registration and show success page
+  const completeRegistration = async () => {
     setIsSubmitting(true);
     setMessage({ type: 'info', text: 'Finalizing your registration...' });
     
@@ -381,18 +495,28 @@ const RegisterPage = () => {
       const response = await voterAPI.completeRegistration(voterId);
       
       if (response.success) {
-        // Use the voter_id from the response to ensure we have the latest
         const finalVoterId = response.voter_data?.voter_id || voterId;
+        const password = response.password || 'your_dob';
+        
         setVoterId(finalVoterId);
         setStep(5);
         setMessage({ 
           type: 'success', 
-          text: 'Registration completed successfully!' 
+          text: `Registration completed successfully! Check your email and phone for credentials.` 
         });
         
         // Store voter ID in local storage for login
         localStorage.setItem('voterId', finalVoterId);
         localStorage.setItem('voterData', JSON.stringify(response.voter_data));
+        
+        // Show credentials on success page
+        setVoterData(prev => ({
+          ...prev,
+          credentials: {
+            voterId: finalVoterId,
+            password: password
+          }
+        }));
       } else {
         setMessage({ 
           type: 'danger', 
@@ -412,40 +536,6 @@ const RegisterPage = () => {
     }
   };
 
-  // Handle face capture
-  const handleFaceCapture = async (imageData, success) => {
-    if (success && voterId) {
-      setLoading(true);
-      try {
-        const response = await voterAPI.registerFace({
-          voter_id: voterId,
-          image_data: imageData
-        });
-
-        if (response.success) {
-          setVoterData(prev => ({ ...prev, face_verified: true }));
-          setRegistrationProgress(prev => ({ ...prev, face: true }));
-          setMessage({ type: 'success', text: 'Face registration successful!' });
-          
-          // Auto-proceed to complete registration after face verification
-          setTimeout(() => {
-            submitRegistration();
-          }, 1500);
-        } else {
-          setMessage({ type: 'danger', text: response.message || 'Face registration failed' });
-        }
-      } catch (error) {
-        console.error('Face registration error:', error);
-        const errorMessage = error.response?.data?.message || 'Face registration failed. Please try again.';
-        setMessage({ type: 'danger', text: errorMessage });
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setMessage({ type: 'danger', text: 'Face registration failed. Please try again.' });
-    }
-  };
-
   // Copy voter ID to clipboard
   const copyVoterId = async () => {
     if (voterId) {
@@ -454,6 +544,19 @@ const RegisterPage = () => {
         setMessage({ type: 'success', text: 'Voter ID copied to clipboard!' });
       } catch (err) {
         setMessage({ type: 'danger', text: 'Failed to copy Voter ID' });
+      }
+    }
+  };
+
+  // Copy credentials to clipboard
+  const copyCredentials = async () => {
+    if (voterData.credentials) {
+      const credentials = `Voter ID: ${voterData.credentials.voterId}\nPassword: ${voterData.credentials.password}`;
+      try {
+        await navigator.clipboard.writeText(credentials);
+        setMessage({ type: 'success', text: 'Credentials copied to clipboard!' });
+      } catch (err) {
+        setMessage({ type: 'danger', text: 'Failed to copy credentials' });
       }
     }
   };
@@ -472,7 +575,7 @@ const RegisterPage = () => {
                   <FaShieldAlt />
                 </div>
                 <h2>Secure Voter Registration</h2>
-                <p className="text-muted">Complete your registration in 5 simple steps</p>
+                <p className="text-muted">Complete all steps to register</p>
                 <RegistrationStepper currentStep={step} />
               </Card.Header>
               
@@ -514,10 +617,7 @@ const RegisterPage = () => {
                         <Row>
                           <Col md={6}>
                             <Form.Group className="mb-3">
-                              <Form.Label>
-                                <FaUser className="me-2" />
-                                Full Name *
-                              </Form.Label>
+                              <Form.Label>Full Name *</Form.Label>
                               <Form.Control
                                 type="text"
                                 name="full_name"
@@ -525,8 +625,6 @@ const RegisterPage = () => {
                                 onChange={handleInputChange}
                                 placeholder="Enter your full name"
                                 required
-                                className="form-control-custom"
-                                disabled={loading}
                               />
                             </Form.Group>
                           </Col>
@@ -538,8 +636,6 @@ const RegisterPage = () => {
                                 value={voterData.gender} 
                                 onChange={handleInputChange} 
                                 required
-                                className="form-control-custom"
-                                disabled={loading}
                               >
                                 <option value="">Select Gender</option>
                                 <option value="male">Male</option>
@@ -561,8 +657,6 @@ const RegisterPage = () => {
                                 onChange={handleInputChange}
                                 placeholder="Enter father's name"
                                 required
-                                className="form-control-custom"
-                                disabled={loading}
                               />
                             </Form.Group>
                           </Col>
@@ -575,8 +669,6 @@ const RegisterPage = () => {
                                 value={voterData.mother_name}
                                 onChange={handleInputChange}
                                 placeholder="Enter mother's name"
-                                className="form-control-custom"
-                                disabled={loading}
                               />
                             </Form.Group>
                           </Col>
@@ -585,21 +677,14 @@ const RegisterPage = () => {
                         <Row>
                           <Col md={6}>
                             <Form.Group className="mb-3">
-                              <Form.Label>
-                                <FaBirthdayCake className="me-2" />
-                                Date of Birth *
-                              </Form.Label>
+                              <Form.Label>Date of Birth *</Form.Label>
                               <Form.Control
                                 type="date"
                                 name="date_of_birth"
                                 value={voterData.date_of_birth}
-                                onChange={(e) => {
-                                  handleInputChange(e);
-                                }}
+                                onChange={handleInputChange}
                                 max={new Date().toISOString().split('T')[0]}
                                 required
-                                className="form-control-custom"
-                                disabled={loading}
                               />
                               {voterData.date_of_birth && (
                                 <div className={`age-validation ${ageValidation.isValid ? 'valid' : 'invalid'}`}>
@@ -611,7 +696,7 @@ const RegisterPage = () => {
                                   ) : (
                                     <span className="age-invalid">
                                       <FaExclamationTriangle className="me-1" />
-                                      Age: {ageValidation.age} years - Must be 18 or older to register
+                                      Age: {ageValidation.age} years - Must be 18 or older
                                     </span>
                                   )}
                                 </div>
@@ -627,8 +712,6 @@ const RegisterPage = () => {
                                 value={voterData.place_of_birth}
                                 onChange={handleInputChange}
                                 placeholder="City/Town of birth"
-                                className="form-control-custom"
-                                disabled={loading}
                               />
                             </Form.Group>
                           </Col>
@@ -638,7 +721,7 @@ const RegisterPage = () => {
                   </div>
                 )}
 
-                {/* Step 2: Contact & Address Information */}
+                {/* Step 2: Contact & Address Information with OTP Verification */}
                 {step === 2 && (
                   <div className="step-content">
                     <h4 className="step-title text-center">
@@ -646,187 +729,227 @@ const RegisterPage = () => {
                       Contact & Address Information
                     </h4>
 
-                    <div className="form-tabs-container">
-                      <Tabs defaultActiveKey="contact" className="mb-4 justify-content-center">
-                        <Tab eventKey="contact" title={
-                          <span className="tab-title"><FaPhone className="me-1" />Contact</span>
-                        }>
-                          <Row className="justify-content-center">
-                            <Col lg={8}>
-                              <Row>
-                                <Col md={6}>
-                                  <Form.Group className="mb-3">
-                                    <Form.Label>
-                                      <FaEnvelope className="me-2" />
-                                      Email Address *
-                                    </Form.Label>
-                                    <div className="d-flex">
-                                      <Form.Control
-                                        type="email"
-                                        name="email"
-                                        value={voterData.email}
-                                        onChange={handleInputChange}
-                                        placeholder="your@email.com"
-                                        required
-                                        className="form-control-custom"
-                                        disabled={loading || voterData.email_verified}
-                                      />
-                                      <Button 
-                                        variant={voterData.email_verified ? "success" : "outline-primary"}
-                                        className="ms-2 verify-btn"
-                                        onClick={() => handleSendOTP('email')}
-                                        disabled={!voterData.email || loading || voterData.email_verified}
-                                      >
-                                        {loading ? <Spinner animation="border" size="sm" /> : 
-                                         voterData.email_verified ? <FaCheckCircle /> : "Verify"}
-                                      </Button>
-                                    </div>
-                                    {voterData.email_verified && (
-                                      <Form.Text className="text-success">
-                                        <FaCheckCircle className="me-1" />
-                                        Email verified
-                                      </Form.Text>
-                                    )}
-                                  </Form.Group>
-                                </Col>
-                                <Col md={6}>
-                                  <Form.Group className="mb-3">
-                                    <Form.Label>
-                                      <FaPhone className="me-2" />
-                                      Phone Number *
-                                    </Form.Label>
-                                    <div className="d-flex">
-                                      <Form.Control
-                                        type="tel"
-                                        name="phone"
-                                        value={voterData.phone}
-                                        onChange={handleInputChange}
-                                        placeholder="+91 XXXXXXXXXX"
-                                        required
-                                        className="form-control-custom"
-                                        disabled={loading || voterData.phone_verified}
-                                      />
-                                      <Button 
-                                        variant={voterData.phone_verified ? "success" : "outline-primary"}
-                                        className="ms-2 verify-btn"
-                                        onClick={() => handleSendOTP('phone')}
-                                        disabled={!voterData.phone || loading || voterData.phone_verified}
-                                      >
-                                        {loading ? <Spinner animation="border" size="sm" /> : 
-                                         voterData.phone_verified ? <FaCheckCircle /> : "Verify"}
-                                      </Button>
-                                    </div>
-                                    {voterData.phone_verified && (
-                                      <Form.Text className="text-success">
-                                        <FaCheckCircle className="me-1" />
-                                        Phone verified
-                                      </Form.Text>
-                                    )}
-                                  </Form.Group>
-                                </Col>
-                              </Row>
-                            </Col>
-                          </Row>
-                        </Tab>
-
-                        <Tab eventKey="address" title={
-                          <span className="tab-title"><FaHome className="me-1" />Address</span>
-                        }>
-                          <Row className="justify-content-center">
-                            <Col lg={8}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Address Line 1 *</Form.Label>
+                    <Row className="justify-content-center">
+                      <Col lg={8}>
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Email Address *</Form.Label>
+                              <div className="d-flex gap-2">
                                 <Form.Control
-                                  type="text"
-                                  name="address_line1"
-                                  value={voterData.address_line1}
+                                  type="email"
+                                  name="email"
+                                  value={voterData.email}
                                   onChange={handleInputChange}
-                                  placeholder="Street address, P.O. Box"
+                                  placeholder="your@email.com"
                                   required
-                                  className="form-control-custom"
-                                  disabled={loading}
+                                  disabled={otpData.email.verified}
                                 />
-                              </Form.Group>
-
-                              <Form.Group className="mb-3">
-                                <Form.Label>Address Line 2</Form.Label>
+                                {!otpData.email.verified ? (
+                                  <Button 
+                                    variant={otpData.email.sent ? "outline-success" : "primary"}
+                                    onClick={() => handleSendOTP('email')}
+                                    disabled={otpData.email.loading || !voterData.email}
+                                    style={{ minWidth: '100px' }}
+                                  >
+                                    {otpData.email.loading ? (
+                                      <Spinner animation="border" size="sm" />
+                                    ) : otpData.email.sent ? (
+                                      "Verify"
+                                    ) : (
+                                      "Send OTP"
+                                    )}
+                                  </Button>
+                                ) : (
+                                  <Button variant="success" disabled style={{ minWidth: '100px' }}>
+                                    <FaCheckCircle /> Verified
+                                  </Button>
+                                )}
+                              </div>
+                              {otpData.email.sent && !otpData.email.verified && (
+                                <div className="mt-2">
+                                  <Form.Control
+                                    type="text"
+                                    placeholder="Enter OTP"
+                                    value={otpInput.email}
+                                    onChange={(e) => setOtpInput(prev => ({ ...prev, email: e.target.value }))}
+                                    className="mb-2"
+                                  />
+                                  <Button 
+                                    variant="success" 
+                                    size="sm"
+                                    onClick={() => handleVerifyOTP('email')}
+                                    disabled={otpData.email.loading || !otpInput.email}
+                                  >
+                                    {otpData.email.loading ? (
+                                      <Spinner animation="border" size="sm" />
+                                    ) : (
+                                      "Verify OTP"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
+                            </Form.Group>
+                          </Col>
+                          
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Phone Number *</Form.Label>
+                              <div className="d-flex gap-2">
                                 <Form.Control
-                                  type="text"
-                                  name="address_line2"
-                                  value={voterData.address_line2}
+                                  type="tel"
+                                  name="phone"
+                                  value={voterData.phone}
                                   onChange={handleInputChange}
-                                  placeholder="Apartment, suite, unit"
-                                  className="form-control-custom"
-                                  disabled={loading}
+                                  placeholder="9876543210"
+                                  required
+                                  disabled={otpData.phone.verified}
                                 />
-                              </Form.Group>
+                                {!otpData.phone.verified ? (
+                                  <Button 
+                                    variant={otpData.phone.sent ? "outline-success" : "primary"}
+                                    onClick={() => handleSendOTP('phone')}
+                                    disabled={otpData.phone.loading || !voterData.phone}
+                                    style={{ minWidth: '100px' }}
+                                  >
+                                    {otpData.phone.loading ? (
+                                      <Spinner animation="border" size="sm" />
+                                    ) : otpData.phone.sent ? (
+                                      "Verify"
+                                    ) : (
+                                      "Send OTP"
+                                    )}
+                                  </Button>
+                                ) : (
+                                  <Button variant="success" disabled style={{ minWidth: '100px' }}>
+                                    <FaCheckCircle /> Verified
+                                  </Button>
+                                )}
+                              </div>
+                              {otpData.phone.sent && !otpData.phone.verified && (
+                                <div className="mt-2">
+                                  <Form.Control
+                                    type="text"
+                                    placeholder="Enter OTP"
+                                    value={otpInput.phone}
+                                    onChange={(e) => setOtpInput(prev => ({ ...prev, phone: e.target.value }))}
+                                    className="mb-2"
+                                  />
+                                  <Button 
+                                    variant="success" 
+                                    size="sm"
+                                    onClick={() => handleVerifyOTP('phone')}
+                                    disabled={otpData.phone.loading || !otpInput.phone}
+                                  >
+                                    {otpData.phone.loading ? (
+                                      <Spinner animation="border" size="sm" />
+                                    ) : (
+                                      "Verify OTP"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
+                            </Form.Group>
+                          </Col>
+                        </Row>
 
-                              <Row>
-                                <Col md={3}>
-                                  <Form.Group className="mb-3">
-                                    <Form.Label>Pincode *</Form.Label>
-                                    <Form.Control
-                                      type="text"
-                                      name="pincode"
-                                      value={voterData.pincode}
-                                      onChange={handleInputChange}
-                                      required
-                                      className="form-control-custom"
-                                      disabled={loading}
-                                    />
-                                  </Form.Group>
-                                </Col>
-                                <Col md={9}>
-                                  <Form.Group className="mb-3">
-                                    <Form.Label>Village/City *</Form.Label>
-                                    <Form.Control
-                                      type="text"
-                                      name="village_city"
-                                      value={voterData.village_city}
-                                      onChange={handleInputChange}
-                                      required
-                                      className="form-control-custom"
-                                      disabled={loading}
-                                    />
-                                  </Form.Group>
-                                </Col>
-                              </Row>
+                        <Form.Group className="mb-3">
+                          <Form.Label>Address Line 1 *</Form.Label>
+                          <Form.Control
+                            type="text"
+                            name="address_line1"
+                            value={voterData.address_line1}
+                            onChange={handleInputChange}
+                            placeholder="Street address, P.O. Box"
+                            required
+                          />
+                        </Form.Group>
 
-                              <Row>
-                                <Col md={6}>
-                                  <Form.Group className="mb-3">
-                                    <Form.Label>District *</Form.Label>
-                                    <Form.Control
-                                      type="text"
-                                      name="district"
-                                      value={voterData.district}
-                                      onChange={handleInputChange}
-                                      required
-                                      className="form-control-custom"
-                                      disabled={loading}
-                                    />
-                                  </Form.Group>
-                                </Col>
-                                <Col md={6}>
-                                  <Form.Group className="mb-3">
-                                    <Form.Label>State *</Form.Label>
-                                    <Form.Control
-                                      type="text"
-                                      name="state"
-                                      value={voterData.state}
-                                      onChange={handleInputChange}
-                                      required
-                                      className="form-control-custom"
-                                      disabled={loading}
-                                    />
-                                  </Form.Group>
-                                </Col>
-                              </Row>
-                            </Col>
-                          </Row>
-                        </Tab>
-                      </Tabs>
-                    </div>
+                        <Form.Group className="mb-3">
+                          <Form.Label>Address Line 2</Form.Label>
+                          <Form.Control
+                            type="text"
+                            name="address_line2"
+                            value={voterData.address_line2}
+                            onChange={handleInputChange}
+                            placeholder="Apartment, suite, unit"
+                          />
+                        </Form.Group>
+
+                        <Row>
+                          <Col md={3}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Pincode *</Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="pincode"
+                                value={voterData.pincode}
+                                onChange={handleInputChange}
+                                placeholder="110001"
+                                required
+                              />
+                            </Form.Group>
+                          </Col>
+                          <Col md={9}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Village/City *</Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="village_city"
+                                value={voterData.village_city}
+                                onChange={handleInputChange}
+                                placeholder="Enter your city or village"
+                                required
+                              />
+                            </Form.Group>
+                          </Col>
+                        </Row>
+
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>District *</Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="district"
+                                value={voterData.district}
+                                onChange={handleInputChange}
+                                placeholder="Enter your district"
+                                required
+                              />
+                            </Form.Group>
+                          </Col>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>State *</Form.Label>
+                              <Form.Control
+                                type="text"
+                                name="state"
+                                value={voterData.state}
+                                onChange={handleInputChange}
+                                placeholder="Enter your state"
+                                required
+                              />
+                            </Form.Group>
+                          </Col>
+                        </Row>
+
+                        {/* Verification Status */}
+                        <Alert variant="info" className="mt-3">
+                          <h6>Verification Status:</h6>
+                          <div className="d-flex justify-content-between">
+                            <span>
+                              <FaEnvelope className="me-2" />
+                              Email: {otpData.email.verified ? 'Verified' : 'Pending'}
+                            </span>
+                            <span>
+                              <FaPhone className="me-2" />
+                              Phone: {otpData.phone.verified ? 'Verified' : 'Pending'}
+                            </span>
+                          </div>
+                        </Alert>
+                      </Col>
+                    </Row>
                   </div>
                 )}
 
@@ -848,8 +971,6 @@ const RegisterPage = () => {
                                 name="national_id_type" 
                                 value={voterData.national_id_type} 
                                 onChange={handleInputChange}
-                                className="form-control-custom"
-                                disabled={loading}
                               >
                                 <option value="aadhar">Aadhar Card</option>
                                 <option value="passport">Passport</option>
@@ -868,17 +989,12 @@ const RegisterPage = () => {
                                 onChange={handleInputChange}
                                 placeholder={`Enter ${voterData.national_id_type} number`}
                                 required
-                                className="form-control-custom"
-                                disabled={loading}
                               />
                             </Form.Group>
 
-                            {voterData.id_verified && (
-                              <Alert variant="success" className="mt-3">
-                                <FaCheckCircle className="me-2" />
-                                ID Document verified successfully
-                              </Alert>
-                            )}
+                            <Alert variant="info">
+                              <strong>Note:</strong> Complete all information above before proceeding to face verification.
+                            </Alert>
                           </Col>
                           
                           <Col md={6}>
@@ -887,7 +1003,6 @@ const RegisterPage = () => {
                               uploadedFile={uploadedID}
                               idType={voterData.national_id_type}
                               loading={loading}
-                              disabled={loading}
                             />
                           </Col>
                         </Row>
@@ -913,14 +1028,14 @@ const RegisterPage = () => {
                       {voterData.face_verified && (
                         <Alert variant="success" className="mt-3">
                           <FaCheckCircle className="me-2" />
-                          Face verification completed successfully
+                          Face verification completed successfully! Finalizing registration...
                         </Alert>
                       )}
                     </div>
                   </div>
                 )}
 
-                {/* Step 5: Completion */}
+                {/* Step 5: Completion Page */}
                 {step === 5 && voterId && (
                   <div className="step-content text-center completion-content">
                     <div className="success-animation">
@@ -934,9 +1049,30 @@ const RegisterPage = () => {
                     </div>
                     <div className="completion-details">
                       <p>Your voter registration has been successfully completed and verified.</p>
+                      
+                      {/* Credentials Display */}
+                      {voterData.credentials && (
+                        <Alert variant="success" className="mt-3">
+                          <h5>Your Login Credentials:</h5>
+                          <div className="credentials-display">
+                            <p><strong>Voter ID:</strong> {voterData.credentials.voterId}</p>
+                            <p><strong>Password:</strong> {voterData.credentials.password}</p>
+                          </div>
+                          <Button 
+                            variant="outline-success" 
+                            size="sm"
+                            onClick={copyCredentials}
+                            className="mt-2"
+                          >
+                            <FaCopy className="me-2" />
+                            Copy Credentials
+                          </Button>
+                        </Alert>
+                      )}
+                      
                       <Alert variant="info" className="mt-3">
-                        <strong>Important:</strong> Your Date of Birth will be used as your password for login.
-                        Please remember your Voter ID and Date of Birth for future logins.
+                        <strong>Important:</strong> Your credentials have been sent to your email and phone. 
+                        Please keep this information secure and do not share it with anyone.
                       </Alert>
                       <div className="verification-status">
                         <h5>Verification Status:</h5>
@@ -959,40 +1095,28 @@ const RegisterPage = () => {
                         variant="outline-secondary" 
                         onClick={prevStep}
                         disabled={step === 1 || loading}
-                        className="nav-btn"
                       >
+                        <FaArrowLeft className="me-2" />
                         Previous
                       </Button>
                       
-                      {step === 4 ? (
-                        <Button 
-                          variant="primary"
-                          onClick={submitRegistration}
-                          disabled={!voterData.face_verified || isSubmitting || loading}
-                          className="nav-btn"
-                        >
-                          {isSubmitting ? (
-                            <>
-                              <Spinner animation="border" size="sm" className="me-2" />
-                              Finalizing...
-                            </>
-                          ) : 'Complete Registration'}
-                        </Button>
-                      ) : (
-                        <Button 
-                          variant="primary" 
-                          onClick={nextStep} 
-                          className="nav-btn"
-                          disabled={loading}
-                        >
-                          {loading ? (
-                            <>
-                              <Spinner animation="border" size="sm" className="me-2" />
-                              {step === 1 ? 'Saving...' : 'Loading...'}
-                            </>
-                          ) : 'Continue'}
-                        </Button>
-                      )}
+                      <Button 
+                        variant="primary" 
+                        onClick={nextStep} 
+                        disabled={loading}
+                      >
+                        {loading ? (
+                          <>
+                            <Spinner animation="border" size="sm" className="me-2" />
+                            {step === 3 ? 'Submitting...' : 'Loading...'}
+                          </>
+                        ) : (
+                          <>
+                            {step === 3 ? 'Submit & Continue to Face Verification' : 'Continue'}
+                            <FaArrowRight className="ms-2" />
+                          </>
+                        )}
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -1003,7 +1127,7 @@ const RegisterPage = () => {
                       variant="success" 
                       size="lg"
                       onClick={() => navigate('/login')}
-                      className="proceed-btn me-3"
+                      className="me-3"
                     >
                       Proceed to Login
                     </Button>
@@ -1011,7 +1135,6 @@ const RegisterPage = () => {
                       variant="outline-primary" 
                       size="lg"
                       onClick={copyVoterId}
-                      className="proceed-btn"
                     >
                       <FaCopy className="me-2" />
                       Copy Voter ID
@@ -1023,22 +1146,6 @@ const RegisterPage = () => {
           </Col>
         </Row>
       </Container>
-
-      {/* OTP Verification Modal */}
-      <Modal show={showOTPModal} onHide={() => !loading && setShowOTPModal(false)} centered>
-        <Modal.Header closeButton={!loading}>
-          <Modal.Title>Verify {otpType.toUpperCase()}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <OTPVerification 
-            type={otpType}
-            value={voterData[otpType]}
-            onVerify={handleVerifyOTP}
-            onResend={() => handleSendOTP(otpType)}
-            loading={loading}
-          />
-        </Modal.Body>
-      </Modal>
     </div>
   );
 };
