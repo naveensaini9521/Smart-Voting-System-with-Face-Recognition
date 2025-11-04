@@ -1,0 +1,114 @@
+.face-capture-component {
+  position: relative;
+  border: none;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.face-capture-component .card-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-bottom: none;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  border-radius: 0.375rem;
+}
+
+.loading-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.camera-setup .camera-icon {
+  font-size: 4rem;
+  color: #6c757d;
+  opacity: 0.7;
+}
+
+.camera-feed-container {
+  position: relative;
+  display: inline-block;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.camera-feed {
+  display: block;
+  border-radius: 8px;
+}
+
+.face-guide {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 250px;
+  border: 2px dashed rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.captured-image-container {
+  display: inline-block;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  border: 3px solid #e9ecef;
+}
+
+.captured-image {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.alert-custom {
+  border: none;
+  border-left: 4px solid;
+}
+
+.alert-custom.alert-success {
+  border-left-color: #28a745;
+  background-color: #f8fff9;
+}
+
+.alert-custom.alert-danger {
+  border-left-color: #dc3545;
+  background-color: #fff8f8;
+}
+
+.alert-custom.alert-warning {
+  border-left-color: #ffc107;
+  background-color: #fffef0;
+}
+
+.alert-custom.alert-info {
+  border-left-color: #17a2b8;
+  background-color: #f0fdff;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .camera-feed-container {
+    max-width: 100%;
+  }
+  
+  .face-guide {
+    width: 150px;
+    height: 200px;
+  }
+}
