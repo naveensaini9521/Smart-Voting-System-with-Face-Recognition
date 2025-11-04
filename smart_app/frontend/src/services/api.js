@@ -16,9 +16,14 @@ const api = axios.create({
 // Request interceptor to add auth token if available
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    // Try to get admin token first, then voter token
+    const adminToken = localStorage.getItem('adminToken');
+    const voterToken = localStorage.getItem('authToken');
+    
+    if (adminToken) {
+      config.headers.Authorization = `Bearer ${adminToken}`;
+    } else if (voterToken) {
+      config.headers.Authorization = `Bearer ${voterToken}`;
     }
     return config;
   },
@@ -36,9 +41,15 @@ api.interceptors.response.use(
       localStorage.removeItem('authToken');
       localStorage.removeItem('voterData');
       localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('adminData');
+      localStorage.removeItem('isAdminAuthenticated');
       
-      // Redirect to login if not already there
-      if (!window.location.pathname.includes('/login')) {
+      // Redirect to appropriate login based on current path
+      const currentPath = window.location.pathname;
+      if (currentPath.includes('/admin')) {
+        window.location.href = '/admin/login';
+      } else if (!currentPath.includes('/login')) {
         window.location.href = '/login';
       }
     }
@@ -56,7 +67,153 @@ api.interceptors.response.use(
   }
 );
 
+// Voter API functions
 export const voterAPI = {
+  // ============ AUTHENTICATION ENDPOINTS ============
+  
+  // Verify voter credentials
+  verifyCredentials: async (credentials) => {
+    console.log('Verifying credentials:', { 
+      voter_id: credentials.voter_id, 
+      password: '***' // Don't log actual password
+    });
+    const response = await api.post('/auth/login', credentials);
+    console.log('Login response:', response.data);
+    return response.data;
+  },
+
+  // Verify face for login
+  verifyFace: async (faceData) => {
+    console.log('Verifying face for voter:', faceData.voter_id);
+    const response = await api.post('/auth/verify-face', faceData);
+    console.log('Face verification response:', response.data);
+    return response.data;
+  },
+
+  // Logout user
+  logout: async () => {
+    const response = await api.post('/auth/logout');
+    // Clear local storage on logout
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('voterData');
+    localStorage.removeItem('isAuthenticated');
+    return response.data;
+  },
+
+  // Check authentication status
+  checkAuth: async () => {
+    const response = await api.get('/auth/check-auth');
+    return response.data;
+  },
+
+  // Get protected data (example)
+  getProtectedData: async () => {
+    const response = await api.get('/auth/protected');
+    return response.data;
+  },
+
+  // Verify token validity
+  verifyToken: async () => {
+    const response = await api.get('/auth/verify-token');
+    return response.data;
+  },
+
+  // ============ REGISTRATION ENDPOINTS ============
+
+  // Register new voter
+  register: async (voterData) => {
+    console.log('Sending registration data:', voterData);
+    const response = await api.post('/auth/register', voterData);
+    console.log('Registration response:', response.data);
+    return response.data;
+  },
+
+  // Complete registration
+  completeRegistration: async (voterId) => {
+    console.log('Completing registration for voter:', voterId);
+    const response = await api.post(`/auth/complete-registration/${voterId}`);
+    console.log('Complete registration response:', response.data);
+    return response.data;
+  },
+
+  // Register face
+  registerFace: async (faceData) => {
+    console.log('Registering face for voter:', faceData.voter_id);
+    const response = await api.post(`/auth/register-face/${faceData.voter_id}`, {
+      image_data: faceData.image_data
+    });
+    console.log('Face registration response:', response.data);
+    return response.data;
+  },
+
+  // Check voter status
+  checkVoter: async (voterId) => {
+    const response = await api.get(`/auth/check-voter/${voterId}`);
+    return response.data;
+  },
+
+  // ============ OTP ENDPOINTS ============
+
+  // Send OTP
+  sendOTP: async (otpData) => {
+    const response = await api.post('/auth/send-otp', otpData);
+    return response.data;
+  },
+
+  // Verify OTP
+  verifyOTP: async (otpData) => {
+    const response = await api.post('/auth/verify-otp', otpData);
+    return response.data;
+  },
+
+  // ============ CONTACT VERIFICATION ENDPOINTS ============
+
+  // Send verification OTP
+  sendVerificationOTP: async (voterId, data) => {
+    console.log(`Sending verification OTP for voter: ${voterId}, type: ${data.type}`);
+    const response = await api.post(`/auth/send-verification-otp/${voterId}`, data);
+    return response.data;
+  },
+
+  // Verify contact
+  verifyContact: async (voterId, data) => {
+    console.log(`Verifying contact for voter: ${voterId}, type: ${data.type}`);
+    const response = await api.post(`/auth/verify-contact/${voterId}`, data);
+    return response.data;
+  },
+
+  // ============ DOCUMENT UPLOAD ENDPOINTS ============
+
+  // Upload ID document
+  uploadID: async (formData) => {
+    const response = await api.post('/auth/upload-id', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  // ============ VOTER PROFILE ENDPOINTS ============
+
+  // Get voter profile by ID
+  getProfileById: async (voterId) => {
+    const response = await api.get(`/auth/voter/${voterId}/profile`);
+    return response.data;
+  },
+
+  // Update voter profile
+  updateVoterProfile: async (voterId, updateData) => {
+    const response = await api.put(`/auth/voter/${voterId}/profile`, updateData);
+    return response.data;
+  },
+
+  // Change password
+  changePassword: async (voterId, passwordData) => {
+    const response = await api.post(`/auth/voter/${voterId}/change-password`, passwordData);
+    return response.data;
+  },
+
   // ============ DASHBOARD ENDPOINTS ============
 
   // Get dashboard data
@@ -221,151 +378,6 @@ export const voterAPI = {
     }
   },
 
-  // ============ AUTHENTICATION ENDPOINTS ============
-  
-  // Verify voter credentials
-  verifyCredentials: async (credentials) => {
-    console.log('Verifying credentials:', { 
-      voter_id: credentials.voter_id, 
-      password: '***' // Don't log actual password
-    });
-    const response = await api.post('/auth/login', credentials);
-    console.log('Login response:', response.data);
-    return response.data;
-  },
-
-  // Verify face for login
-  verifyFace: async (faceData) => {
-    console.log('Verifying face for voter:', faceData.voter_id);
-    const response = await api.post('/auth/verify-face', faceData);
-    console.log('Face verification response:', response.data);
-    return response.data;
-  },
-
-  // Logout user
-  logout: async () => {
-    const response = await api.post('/auth/logout');
-    // Clear local storage on logout
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('voterData');
-    localStorage.removeItem('isAuthenticated');
-    return response.data;
-  },
-
-  // Check authentication status
-  checkAuth: async () => {
-    const response = await api.get('/auth/check-auth');
-    return response.data;
-  },
-
-  // Get protected data (example)
-  getProtectedData: async () => {
-    const response = await api.get('/auth/protected');
-    return response.data;
-  },
-
-  // Verify token validity
-  verifyToken: async () => {
-    const response = await api.get('/auth/verify-token');
-    return response.data;
-  },
-
-  // ============ REGISTRATION ENDPOINTS ============
-
-  // Register new voter
-  register: async (voterData) => {
-    console.log('Sending registration data:', voterData);
-    const response = await api.post('/auth/register', voterData);
-    console.log('Registration response:', response.data);
-    return response.data;
-  },
-
-  // Complete registration
-  completeRegistration: async (voterId) => {
-    console.log('Completing registration for voter:', voterId);
-    const response = await api.post(`/auth/complete-registration/${voterId}`);
-    console.log('Complete registration response:', response.data);
-    return response.data;
-  },
-
-  // Register face
-  registerFace: async (faceData) => {
-    console.log('Registering face for voter:', faceData.voter_id);
-    const response = await api.post(`/auth/register-face/${faceData.voter_id}`, {
-      image_data: faceData.image_data
-    });
-    console.log('Face registration response:', response.data);
-    return response.data;
-  },
-
-  // Check voter status
-  checkVoter: async (voterId) => {
-    const response = await api.get(`/auth/check-voter/${voterId}`);
-    return response.data;
-  },
-
-  // ============ OTP ENDPOINTS ============
-
-  // Send OTP
-  sendOTP: async (otpData) => {
-    const response = await api.post('/auth/send-otp', otpData);
-    return response.data;
-  },
-
-  // Verify OTP
-  verifyOTP: async (otpData) => {
-    const response = await api.post('/auth/verify-otp', otpData);
-    return response.data;
-  },
-
-  // ============ CONTACT VERIFICATION ENDPOINTS ============
-
-  // Send verification OTP
-  sendVerificationOTP: async (voterId, data) => {
-    console.log(`Sending verification OTP for voter: ${voterId}, type: ${data.type}`);
-    const response = await api.post(`/auth/send-verification-otp/${voterId}`, data);
-    return response.data;
-  },
-
-  // Verify contact
-  verifyContact: async (voterId, data) => {
-    console.log(`Verifying contact for voter: ${voterId}, type: ${data.type}`);
-    const response = await api.post(`/auth/verify-contact/${voterId}`, data);
-    return response.data;
-  },
-
-  // ============ DOCUMENT UPLOAD ENDPOINTS ============
-
-  // Upload ID document
-  uploadID: async (formData) => {
-    const response = await api.post('/auth/upload-id', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  },
-
-  // ============ VOTER PROFILE ENDPOINTS ============
-
-  // Get voter profile by ID
-  getProfileById: async (voterId) => {
-    const response = await api.get(`/auth/voter/${voterId}/profile`);
-    return response.data;
-  },
-
-  // Update voter profile
-  updateVoterProfile: async (voterId, updateData) => {
-    const response = await api.put(`/auth/voter/${voterId}/profile`, updateData);
-    return response.data;
-  },
-
-  // Change password
-  changePassword: async (voterId, passwordData) => {
-    const response = await api.post(`/auth/voter/${voterId}/change-password`, passwordData);
-    return response.data;
-  },
-
   // ============ ELECTION ENDPOINTS ============
 
   // Get active elections
@@ -441,18 +453,191 @@ export const voterAPI = {
   }
 };
 
+// Admin API functions
+export const adminAPI = {
+  // ============ ADMIN AUTHENTICATION ENDPOINTS ============
+
+  // Admin login
+  login: async (credentials) => {
+    console.log('Admin login attempt:', { username: credentials.username });
+    const response = await api.post('/admin/login', credentials);
+    console.log('Admin login response:', response.data);
+    return response.data;
+  },
+
+  // Verify admin token
+  verifyToken: async () => {
+    const response = await api.get('/admin/verify-token');
+    return response.data;
+  },
+
+  // Admin logout
+  logout: async () => {
+    const response = await api.post('/admin/logout');
+    // Clear admin local storage on logout
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminData');
+    localStorage.removeItem('isAdminAuthenticated');
+    return response.data;
+  },
+
+  // ============ ELECTION MANAGEMENT ============
+
+  // Create election
+  createElection: async (electionData) => {
+    console.log('Creating election:', electionData.title);
+    const response = await api.post('/admin/elections', electionData);
+    return response.data;
+  },
+
+  // Get elections
+  getElections: async (params = {}) => {
+    const response = await api.get('/admin/elections', { params });
+    return response.data;
+  },
+
+  // Update election
+  updateElection: async (electionId, updateData) => {
+    const response = await api.put(`/admin/elections/${electionId}`, updateData);
+    return response.data;
+  },
+
+  // Delete election
+  deleteElection: async (electionId) => {
+    const response = await api.delete(`/admin/elections/${electionId}`);
+    return response.data;
+  },
+
+  // ============ VOTER MANAGEMENT ============
+
+  // Get voters
+  getVoters: async (params = {}) => {
+    const response = await api.get('/admin/voters', { params });
+    return response.data;
+  },
+
+  // Update voter status
+  updateVoterStatus: async (voterId, statusData) => {
+    const response = await api.put(`/admin/voters/${voterId}/status`, statusData);
+    return response.data;
+  },
+
+  // Verify voter
+  verifyVoter: async (voterId, verificationData) => {
+    const response = await api.post(`/admin/voters/${voterId}/verify`, verificationData);
+    return response.data;
+  },
+
+  // ============ CANDIDATE MANAGEMENT ============
+
+  // Get candidates
+  getCandidates: async (electionId = null) => {
+    const params = electionId ? { election_id: electionId } : {};
+    const response = await api.get('/admin/candidates', { params });
+    return response.data;
+  },
+
+  // Approve candidate
+  approveCandidate: async (candidateId) => {
+    const response = await api.put(`/admin/candidates/${candidateId}/approve`, {});
+    return response.data;
+  },
+
+  // Reject candidate
+  rejectCandidate: async (candidateId, reason) => {
+    const response = await api.put(`/admin/candidates/${candidateId}/reject`, { reason });
+    return response.data;
+  },
+
+  // ============ RESULTS AND ANALYTICS ============
+
+  // Get election results
+  getElectionResults: async (electionId) => {
+    const response = await api.get(`/admin/elections/${electionId}/results`);
+    return response.data;
+  },
+
+  // Get system stats
+  getSystemStats: async () => {
+    const response = await api.get('/admin/stats');
+    return response.data;
+  },
+
+  // Get analytics
+  getAnalytics: async () => {
+    const response = await api.get('/admin/analytics');
+    return response.data;
+  },
+
+  // ============ AUDIT LOGS ============
+
+  // Get audit logs
+  getAuditLogs: async (params = {}) => {
+    const response = await api.get('/admin/audit-logs', { params });
+    return response.data;
+  },
+
+  // ============ ADMIN MANAGEMENT ============
+
+  // Get all admins
+  getAdmins: async () => {
+    const response = await api.get('/admin/admins');
+    return response.data;
+  },
+
+  // Create admin
+  createAdmin: async (adminData) => {
+    const response = await api.post('/admin/admins', adminData);
+    return response.data;
+  },
+
+  // Update admin
+  updateAdmin: async (adminId, updateData) => {
+    const response = await api.put(`/admin/admins/${adminId}`, updateData);
+    return response.data;
+  },
+
+  // Delete admin
+  deleteAdmin: async (adminId) => {
+    const response = await api.delete(`/admin/admins/${adminId}`);
+    return response.data;
+  },
+
+  // ============ SYSTEM SETTINGS ============
+
+  // Get system settings
+  getSystemSettings: async () => {
+    const response = await api.get('/admin/system-settings');
+    return response.data;
+  },
+
+  // Update system settings
+  updateSystemSettings: async (settings) => {
+    const response = await api.put('/admin/system-settings', settings);
+    return response.data;
+  }
+};
+
 // Utility functions for authentication
 export const authUtils = {
-  // Check if user is authenticated
-  isAuthenticated: () => {
+  // Check if voter is authenticated
+  isVoterAuthenticated: () => {
     const token = localStorage.getItem('authToken');
     const voterData = localStorage.getItem('voterData');
     const isAuthenticated = localStorage.getItem('isAuthenticated');
     return !!(token && voterData && isAuthenticated === 'true');
   },
 
-  // Get current user data
-  getCurrentUser: () => {
+  // Check if admin is authenticated
+  isAdminAuthenticated: () => {
+    const adminToken = localStorage.getItem('adminToken');
+    const adminData = localStorage.getItem('adminData');
+    const isAdminAuthenticated = localStorage.getItem('isAdminAuthenticated');
+    return !!(adminToken && adminData && isAdminAuthenticated === 'true');
+  },
+
+  // Get current voter data
+  getCurrentVoter: () => {
     try {
       const voterData = localStorage.getItem('voterData');
       return voterData ? JSON.parse(voterData) : null;
@@ -462,23 +647,63 @@ export const authUtils = {
     }
   },
 
-  // Get auth token
-  getToken: () => {
+  // Get current admin data
+  getCurrentAdmin: () => {
+    try {
+      const adminData = localStorage.getItem('adminData');
+      return adminData ? JSON.parse(adminData) : null;
+    } catch (error) {
+      console.error('Error parsing admin data:', error);
+      return null;
+    }
+  },
+
+  // Get voter auth token
+  getVoterToken: () => {
     return localStorage.getItem('authToken');
   },
 
-  // Set authentication data
-  setAuthData: (token, voterData) => {
+  // Get admin auth token
+  getAdminToken: () => {
+    return localStorage.getItem('adminToken');
+  },
+
+  // Set voter authentication data
+  setVoterAuthData: (token, voterData) => {
     localStorage.setItem('authToken', token);
     localStorage.setItem('voterData', JSON.stringify(voterData));
     localStorage.setItem('isAuthenticated', 'true');
   },
 
-  // Clear authentication data
-  clearAuthData: () => {
+  // Set admin authentication data
+  setAdminAuthData: (token, adminData) => {
+    localStorage.setItem('adminToken', token);
+    localStorage.setItem('adminData', JSON.stringify(adminData));
+    localStorage.setItem('isAdminAuthenticated', 'true');
+  },
+
+  // Clear voter authentication data
+  clearVoterAuthData: () => {
     localStorage.removeItem('authToken');
     localStorage.removeItem('voterData');
     localStorage.removeItem('isAuthenticated');
+  },
+
+  // Clear admin authentication data
+  clearAdminAuthData: () => {
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminData');
+    localStorage.removeItem('isAdminAuthenticated');
+  },
+
+  // Clear all authentication data
+  clearAllAuthData: () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('voterData');
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminData');
+    localStorage.removeItem('isAdminAuthenticated');
   },
 
   // Check token expiration
@@ -491,16 +716,27 @@ export const authUtils = {
     }
   },
 
-  // Login function to update auth state
-  login: (token, voterData) => {
-    authUtils.setAuthData(token, voterData);
-    // Dispatch custom event for auth state change
+  // Voter login function
+  voterLogin: (token, voterData) => {
+    authUtils.setVoterAuthData(token, voterData);
     window.dispatchEvent(new Event('authStateChange'));
   },
 
-  // Logout function
-  logout: () => {
-    authUtils.clearAuthData();
+  // Admin login function
+  adminLogin: (token, adminData) => {
+    authUtils.setAdminAuthData(token, adminData);
+    window.dispatchEvent(new Event('authStateChange'));
+  },
+
+  // Voter logout function
+  voterLogout: () => {
+    authUtils.clearVoterAuthData();
+    window.dispatchEvent(new Event('authStateChange'));
+  },
+
+  // Admin logout function
+  adminLogout: () => {
+    authUtils.clearAdminAuthData();
     window.dispatchEvent(new Event('authStateChange'));
   }
 };
@@ -520,7 +756,7 @@ export const apiErrorHandler = {
           break;
         case 401:
           message = serverMessage || 'Authentication failed. Please login again.';
-          authUtils.clearAuthData();
+          authUtils.clearAllAuthData();
           break;
         case 403:
           message = serverMessage || 'Access denied. You do not have permission.';

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { voterAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext.jsx';
 import FaceCapture from '../components/auth/facecapture.jsx';
-import { FaUserShield, FaSignInAlt, FaShieldAlt, FaCheck, FaCamera, FaTachometerAlt, FaPrint, FaSync, FaCheckCircle, FaTimesCircle, FaRedo } from 'react-icons/fa';
+import { FaUserShield, FaSignInAlt, FaShieldAlt, FaCheck, FaCamera, FaTachometerAlt, FaPrint, FaSync, FaCheckCircle, FaTimesCircle, FaRedo, FaUserCog } from 'react-icons/fa';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -204,6 +204,11 @@ const LoginPage = () => {
     window.print();
   };
 
+  // Handle admin login navigation
+  const handleAdminLogin = () => {
+    navigate('/admin/login');
+  };
+
   return (
     <div 
       className="min-vh-100 d-flex align-items-center justify-content-center py-5 login-page-wrapper"
@@ -310,6 +315,20 @@ const LoginPage = () => {
                       <small className="text-muted">
                         Don't have a Voter ID? <a href="/register" className="text-decoration-none">Register here</a>
                       </small>
+                    </div>
+
+                    {/* Admin Access Section */}
+                    <div className="text-center mt-4 pt-3 border-top">
+                      <p className="text-muted mb-2">Administrator Access</p>
+                      <Button 
+                        variant="outline-dark" 
+                        size="sm"
+                        onClick={handleAdminLogin}
+                        className="admin-access-btn"
+                      >
+                        <FaUserCog className="me-2" />
+                        Admin Login
+                      </Button>
                     </div>
                   </div>
                 )}

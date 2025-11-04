@@ -13,7 +13,7 @@ import RegisterPage from './pages/registerpage.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
 import VotingPage from './pages/VotingPage.jsx';
 import ResultsPage from './pages/ResultsPage.jsx';
-import AdminPage from './pages/AdminPage.jsx';
+import AdminLoginPage from './pages/AdminLoginPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import HelpPage from './pages/HelpPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
@@ -21,14 +21,17 @@ import VotingHistory from './pages/VotingHistory.jsx';
 import Analytics from './pages/Analytics.jsx';
 import Security from './pages/Security.jsx';
 
+// Import Admin Components
+import AdminDashboard from './components/admin/AdminDashboard.jsx';
+
 // Import Context and Styles
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 
-// Protected Route Component
-const ProtectedRoute = ({ children, requireAdmin = false }) => {
-  const { isAuthenticated, user, loading } = useAuth();
+// Protected Route Component for Voters
+const ProtectedRoute = ({ children }) => {
+  const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
     return (
@@ -44,14 +47,31 @@ const ProtectedRoute = ({ children, requireAdmin = false }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (requireAdmin && user?.role !== 'admin') {
-    return <Navigate to="/dashboard" replace />;
+  return children;
+};
+
+// Admin Protected Route Component
+const AdminProtectedRoute = ({ children }) => {
+  const { isAdminAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center" style={{ height: '50vh' }}>
+        <Spinner animation="border" role="status" variant="primary">
+          <span className="visually-hidden">Loading...</span>
+        </Spinner>
+      </div>
+    );
+  }
+
+  if (!isAdminAuthenticated) {
+    return <Navigate to="/admin/login" replace />;
   }
 
   return children;
 };
 
-// Public Route Component (Redirect if already authenticated)
+// Public Route Component (Redirect if already authenticated as voter)
 const PublicRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
 
@@ -67,6 +87,27 @@ const PublicRoute = ({ children }) => {
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+};
+
+// Admin Public Route Component (Redirect if already authenticated as admin)
+const AdminPublicRoute = ({ children }) => {
+  const { isAdminAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center" style={{ height: '50vh' }}>
+        <Spinner animation="border" role="status" variant="primary">
+          <span className="visually-hidden">Loading...</span>
+        </Spinner>
+      </div>
+    );
+  }
+
+  if (isAdminAuthenticated) {
+    return <Navigate to="/admin/dashboard" replace />;
   }
 
   return children;
@@ -99,7 +140,7 @@ function AppContent() {
             <Route path="/" element={<HomePage />} />
             <Route path="/help" element={<HelpPage />} />
             
-            {/* Auth Routes - Only accessible when not logged in */}
+            {/* Voter Auth Routes - Only accessible when not logged in as voter */}
             <Route path="/login" element={
               <PublicRoute>
                 <LoginPage />
@@ -111,7 +152,14 @@ function AppContent() {
               </PublicRoute>
             } />
 
-            {/* Protected Routes - Require authentication */}
+            {/* Admin Auth Routes - Only accessible when not logged in as admin */}
+            <Route path="/admin/login" element={
+              <AdminPublicRoute>
+                <AdminLoginPage /> {/* Fixed: Using AdminLoginPage instead of AdminLogin */}
+              </AdminPublicRoute>
+            } />
+
+            {/* Protected Voter Routes - Require voter authentication */}
             <Route path="/dashboard/*" element={
               <ProtectedRoute>
                 <DashboardPage />
@@ -148,16 +196,19 @@ function AppContent() {
               </ProtectedRoute>
             } />
 
-            {/* Admin Routes - Require admin role */}
+            {/* Protected Admin Routes - Require admin authentication */}
+            <Route path="/admin/dashboard/*" element={
+              <AdminProtectedRoute>
+                <AdminDashboard />
+              </AdminProtectedRoute>
+            } />
+            
+            {/* Legacy Admin Route (redirect to new admin dashboard) */}
             <Route path="/admin" element={
-              <ProtectedRoute requireAdmin={true}>
-                <AdminPage />
-              </ProtectedRoute>
+              <Navigate to="/admin/dashboard" replace />
             } />
             <Route path="/admin/*" element={
-              <ProtectedRoute requireAdmin={true}>
-                <AdminPage />
-              </ProtectedRoute>
+              <Navigate to="/admin/dashboard" replace />
             } />
 
             {/* Error Routes */}

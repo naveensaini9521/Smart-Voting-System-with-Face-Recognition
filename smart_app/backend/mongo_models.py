@@ -701,6 +701,7 @@ class Vote(MongoBase):
         ]
         return cls.aggregate(pipeline)
 
+
 class Admin(MongoBase):
     collection_name = "admins"
     
@@ -731,7 +732,9 @@ class Admin(MongoBase):
             "profile_picture": data.get('profile_picture'),
             "phone": data.get('phone'),
             "department": data.get('department'),
-            "access_level": data.get('access_level', 1)
+            "access_level": data.get('access_level', 1),
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
         }
         
         return cls.create(admin_data)
@@ -752,6 +755,10 @@ class Admin(MongoBase):
         return cls.get_collection().find_one({"email": email})
     
     @classmethod
+    def find_by_admin_id(cls, admin_id):
+        return cls.get_collection().find_one({"admin_id": admin_id})
+    
+    @classmethod
     def verify_password(cls, admin_doc, password):
         """Verify admin password"""
         if not admin_doc or 'password_hash' not in admin_doc:
@@ -761,7 +768,19 @@ class Admin(MongoBase):
         password_bytes = password.encode('utf-8')
         stored_hash_bytes = admin_doc['password_hash'].encode('utf-8')
         return bcrypt.checkpw(password_bytes, stored_hash_bytes)
-
+    
+    @classmethod
+    def get_all_admins(cls):
+        """Get all admins"""
+        return cls.find_all({}, {'password_hash': 0})
+    
+    @classmethod
+    def update_last_login(cls, admin_id):
+        """Update admin's last login timestamp"""
+        return cls.update_one(
+            {"admin_id": admin_id},
+            {"last_login": datetime.utcnow()}
+        )
 
 class IDDocument(MongoBase):
     """Model for ID document storage and verification"""
