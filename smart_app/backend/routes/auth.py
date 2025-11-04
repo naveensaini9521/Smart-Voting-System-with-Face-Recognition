@@ -6,7 +6,7 @@ import numpy as np
 import base64
 import io
 from PIL import Image
-from smart_app.backend.mongo_models import Voter, FaceEncoding
+from smart_app.backend.mongo_models import AuditLog, Voter, FaceEncoding
 import bcrypt
 
 logger = logging.getLogger(__name__)

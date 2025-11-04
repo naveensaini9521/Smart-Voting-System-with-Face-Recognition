@@ -120,65 +120,69 @@ export const voterAPI = {
 
   // ============ REGISTRATION ENDPOINTS ============
 
-  // Register new voter
+  // Register new voter - FIXED: Use /register/register endpoint
   register: async (voterData) => {
     console.log('Sending registration data:', voterData);
-    const response = await api.post('/auth/register', voterData);
+    const response = await api.post('/register/register', voterData);
     console.log('Registration response:', response.data);
     return response.data;
   },
 
-  // Complete registration
+  // Complete registration - FIXED: Use /register/complete-registration endpoint
   completeRegistration: async (voterId) => {
     console.log('Completing registration for voter:', voterId);
-    const response = await api.post(`/auth/complete-registration/${voterId}`);
+    const response = await api.post(`/register/complete-registration/${voterId}`);
     console.log('Complete registration response:', response.data);
     return response.data;
   },
 
-  // Register face
+  // Register face - FIXED: Use /register/register-face endpoint
   registerFace: async (faceData) => {
     console.log('Registering face for voter:', faceData.voter_id);
-    const response = await api.post(`/auth/register-face/${faceData.voter_id}`, {
+    const response = await api.post(`/register/register-face/${faceData.voter_id}`, {
       image_data: faceData.image_data
     });
     console.log('Face registration response:', response.data);
     return response.data;
   },
 
-  // Check voter status
+  // Check voter status - FIXED: Use /register/check-voter endpoint
   checkVoter: async (voterId) => {
-    const response = await api.get(`/auth/check-voter/${voterId}`);
+    const response = await api.get(`/register/check-voter/${voterId}`);
     return response.data;
   },
 
   // ============ OTP ENDPOINTS ============
 
-  // Send OTP
+  // Send OTP - FIXED: Use /register/send-otp endpoint
   sendOTP: async (otpData) => {
-    const response = await api.post('/auth/send-otp', otpData);
+    console.log('Sending OTP for registration:', otpData);
+    const response = await api.post('/register/send-otp', otpData);
+    console.log('Send OTP response:', response.data);
     return response.data;
   },
 
-  // Verify OTP
+  // Verify OTP - FIXED: Use /register/verify-otp endpoint
   verifyOTP: async (otpData) => {
-    const response = await api.post('/auth/verify-otp', otpData);
+    console.log('Verifying OTP for registration:', otpData);
+    const response = await api.post('/register/verify-otp', otpData);
+    console.log('Verify OTP response:', response.data);
     return response.data;
   },
 
   // ============ CONTACT VERIFICATION ENDPOINTS ============
 
-  // Send verification OTP
+  // Send verification OTP - FIXED: Use /register/send-verification-otp endpoint
   sendVerificationOTP: async (voterId, data) => {
     console.log(`Sending verification OTP for voter: ${voterId}, type: ${data.type}`);
-    const response = await api.post(`/auth/send-verification-otp/${voterId}`, data);
+    const response = await api.post(`/register/send-verification-otp/${voterId}`, data);
     return response.data;
   },
 
-  // Verify contact
+  // Verify contact - FIXED: Use /register/verify-contact endpoint
   verifyContact: async (voterId, data) => {
     console.log(`Verifying contact for voter: ${voterId}, type: ${data.type}`);
-    const response = await api.post(`/auth/verify-contact/${voterId}`, data);
+    const response = await api.post(`/register/verify-contact/${voterId}`, data);
     return response.data;
   },
 
@@ -414,13 +418,13 @@ export const voterAPI = {
 
   // Debug: Get all voters
   debugGetVoters: async () => {
-    const response = await api.get('/dashboard/debug/voters');
+    const response = await api.get('/auth/debug/voters');
     return response.data;
   },
 
   // Debug: Check authentication
   debugCheckAuth: async () => {
-    const response = await api.get('/dashboard/debug/check-auth');
+    const response = await api.get('/auth/debug/check-auth');
     return response.data;
   },
 
@@ -460,24 +464,44 @@ export const adminAPI = {
   // Admin login
   login: async (credentials) => {
     console.log('Admin login attempt:', { username: credentials.username });
-    const response = await api.post('/admin/login', credentials);
+    const response = await api.post('/auth/admin/login', credentials);
     console.log('Admin login response:', response.data);
     return response.data;
   },
 
   // Verify admin token
   verifyToken: async () => {
-    const response = await api.get('/admin/verify-token');
+    const response = await api.get('/auth/admin/verify-token');
     return response.data;
   },
 
   // Admin logout
   logout: async () => {
-    const response = await api.post('/admin/logout');
+    const response = await api.post('/auth/admin/logout');
     // Clear admin local storage on logout
     localStorage.removeItem('adminToken');
     localStorage.removeItem('adminData');
     localStorage.removeItem('isAdminAuthenticated');
+    return response.data;
+  },
+
+  // ============ ADMIN MANAGEMENT ENDPOINTS ============
+
+  // Get all admins
+  getAdmins: async () => {
+    const response = await api.get('/register/admin/list');
+    return response.data;
+  },
+
+  // Create admin
+  createAdmin: async (adminData) => {
+    const response = await api.post('/register/admin/register', adminData);
+    return response.data;
+  },
+
+  // Update admin
+  updateAdmin: async (adminId, updateData) => {
+    const response = await api.put(`/register/admin/update/${adminId}`, updateData);
     return response.data;
   },
 
@@ -574,32 +598,6 @@ export const adminAPI = {
   // Get audit logs
   getAuditLogs: async (params = {}) => {
     const response = await api.get('/admin/audit-logs', { params });
-    return response.data;
-  },
-
-  // ============ ADMIN MANAGEMENT ============
-
-  // Get all admins
-  getAdmins: async () => {
-    const response = await api.get('/admin/admins');
-    return response.data;
-  },
-
-  // Create admin
-  createAdmin: async (adminData) => {
-    const response = await api.post('/admin/admins', adminData);
-    return response.data;
-  },
-
-  // Update admin
-  updateAdmin: async (adminId, updateData) => {
-    const response = await api.put(`/admin/admins/${adminId}`, updateData);
-    return response.data;
-  },
-
-  // Delete admin
-  deleteAdmin: async (adminId) => {
-    const response = await api.delete(`/admin/admins/${adminId}`);
     return response.data;
   },
 

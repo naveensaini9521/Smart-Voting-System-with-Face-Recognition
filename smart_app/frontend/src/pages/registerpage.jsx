@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Container, Row, Col, Card, Form, Button, Alert, 
-  ProgressBar, Modal, Tab, Tabs, Badge, Spinner
+  ProgressBar, Modal, Tab, Tabs, Badge, Spinner,
+  InputGroup
 } from 'react-bootstrap';
 import { 
   FaUser, FaIdCard, FaCamera, FaCheckCircle, 
   FaPhone, FaEnvelope, FaMapMarkerAlt, FaShieldAlt,
   FaFingerprint, FaGlobe, FaCity, FaHome, FaBirthdayCake,
-  FaExclamationTriangle, FaCopy, FaArrowLeft, FaArrowRight
+  FaExclamationTriangle, FaCopy, FaArrowLeft, FaArrowRight,
+  FaEye, FaEyeSlash
 } from 'react-icons/fa';
 import FaceCapture from '../components/auth/facecapture.jsx';
 import IDUpload from '../components/auth/id-upload.jsx';
@@ -47,6 +49,8 @@ const RegisterPage = () => {
     id_document: null,
     
     // Account Information
+    password: '',
+    confirm_password: '',
     security_question: '',
     security_answer: '',
     
@@ -79,6 +83,10 @@ const RegisterPage = () => {
     phone: ''
   });
 
+  // Password visibility states
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   // Debug useEffect
   useEffect(() => {
     console.log('Current voterData:', voterData);
@@ -103,6 +111,24 @@ const RegisterPage = () => {
     return { 
       isValid: age >= 18, 
       age: age 
+    };
+  };
+
+  // Password validation function
+  const validatePassword = (password) => {
+    const minLength = 8;
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumbers = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    
+    return {
+      isValid: password.length >= minLength && hasUpperCase && hasLowerCase && hasNumbers,
+      minLength: password.length >= minLength,
+      hasUpperCase,
+      hasLowerCase,
+      hasNumbers,
+      hasSpecialChar
     };
   };
 
@@ -189,45 +215,71 @@ const RegisterPage = () => {
 
   // OTP Verification handlers
   const handleSendOTP = async (type) => {
-    setOtpData(prev => ({
-      ...prev,
-      [type]: { ...prev[type], loading: true }
-    }));
+  setOtpData(prev => ({
+    ...prev,
+    [type]: { ...prev[type], loading: true }
+  }));
 
-    try {
-      const otpData = {
-        [type]: voterData[type],
-        purpose: 'registration'
-      };
+  try {
+    const otpData = {
+      [type]: voterData[type],
+      purpose: 'registration'
+    };
 
-      const response = await voterAPI.sendOTP(otpData);
+    console.log(`Sending ${type} OTP:`, otpData);
+    
+    const response = await voterAPI.sendOTP(otpData);
 
-      if (response.success) {
-        setOtpData(prev => ({
-          ...prev,
-          [type]: { ...prev[type], sent: true, loading: false }
-        }));
-        setMessage({ 
-          type: 'success', 
-          text: `OTP sent to your ${type}. ${response.debug_otp ? `Debug OTP: ${response.debug_otp}` : ''}` 
-        });
-      } else {
-        setMessage({ type: 'danger', text: response.message || `Failed to send OTP to ${type}` });
-        setOtpData(prev => ({
-          ...prev,
-          [type]: { ...prev[type], loading: false }
-        }));
-      }
-    } catch (error) {
-      console.error('OTP send error:', error);
-      const errorMessage = error.response?.data?.message || `Failed to send OTP to ${type}`;
-      setMessage({ type: 'danger', text: errorMessage });
+    if (response.success) {
       setOtpData(prev => ({
         ...prev,
-        [type]: { ...prev[type], loading: false }
+        [type]: { 
+          ...prev[type], 
+          sent: true, 
+          loading: false 
+        }
+      }));
+      
+      // Show specific message based on what was sent
+      let message = `OTP sent to your ${type}`;
+      if (response.channels) {
+        if (response.channels.email_sent && response.channels.sms_sent) {
+          message = 'OTP sent to your email and phone';
+        } else if (response.channels.email_sent) {
+          message = 'OTP sent to your email';
+        } else if (response.channels.sms_sent) {
+          message = 'OTP sent to your phone';
+        }
+      }
+      
+      setMessage({ 
+        type: 'success', 
+        text: `${message}. ${response.debug_otp ? `Debug OTP: ${response.debug_otp}` : ''}` 
+      });
+    } else {
+      setMessage({ 
+        type: 'warning', 
+        text: response.message || `OTP sent in development mode. Debug OTP: ${response.debug_otp}` 
+      });
+      setOtpData(prev => ({
+        ...prev,
+        [type]: { ...prev[type], sent: true, loading: false }
       }));
     }
-  };
+  } catch (error) {
+    console.error('OTP send error:', error);
+    const errorMessage = error.response?.data?.message || `Failed to send OTP to ${type}`;
+    setMessage({ 
+      type: 'warning', 
+      text: `Development mode: ${errorMessage}. Using debug OTP if available.` 
+    });
+    // Even in error, allow proceeding in development
+    setOtpData(prev => ({
+      ...prev,
+      [type]: { ...prev[type], sent: true, loading: false }
+    }));
+  }
+};
 
   const handleVerifyOTP = async (type) => {
     setOtpData(prev => ({
@@ -303,6 +355,20 @@ const RegisterPage = () => {
         if (!voterData.district.trim()) errors.push('District is required');
         if (!voterData.state.trim()) errors.push('State is required');
 
+        // Password validation
+        if (!voterData.password) errors.push('Password is required');
+        else {
+          const passwordValidation = validatePassword(voterData.password);
+          if (!passwordValidation.isValid) {
+            errors.push('Password must be at least 8 characters with uppercase, lowercase, and numbers');
+          }
+        }
+        
+        if (!voterData.confirm_password) errors.push('Please confirm your password');
+        else if (voterData.password !== voterData.confirm_password) {
+          errors.push('Passwords do not match');
+        }
+
         // Check OTP verification
         if (!otpData.email.verified) errors.push('Email must be verified with OTP');
         if (!otpData.phone.verified) errors.push('Phone must be verified with OTP');
@@ -354,15 +420,16 @@ const RegisterPage = () => {
       national_id_type: voterData.national_id_type,
       national_id_number: voterData.national_id_number,
       
+      // Account Information (Step 2)
+      password: voterData.password,
+      security_question: voterData.security_question,
+      security_answer: voterData.security_answer,
+      
       // Verification Status
       email_verified: otpData.email.verified,
       phone_verified: otpData.phone.verified,
       id_verified: voterData.id_verified,
-      face_verified: voterData.face_verified,
-      
-      // Security Information
-      security_question: voterData.security_question,
-      security_answer: voterData.security_answer
+      face_verified: voterData.face_verified
     };
 
     console.log('=== PREPARED REGISTRATION DATA ===');
@@ -379,7 +446,7 @@ const RegisterPage = () => {
     
     try {
       // Validate ALL required fields before sending
-      const requiredFields = ['email', 'phone', 'address_line1', 'pincode', 'village_city', 'district', 'state', 'national_id_number'];
+      const requiredFields = ['email', 'phone', 'address_line1', 'pincode', 'village_city', 'district', 'state', 'national_id_number', 'password'];
       const missingFields = requiredFields.filter(field => !voterData[field] || voterData[field].toString().trim() === '');
       
       if (missingFields.length > 0) {
@@ -496,7 +563,7 @@ const RegisterPage = () => {
       
       if (response.success) {
         const finalVoterId = response.voter_data?.voter_id || voterId;
-        const password = response.password || 'your_dob';
+        const password = response.password || voterData.password;
         
         setVoterId(finalVoterId);
         setStep(5);
@@ -726,7 +793,7 @@ const RegisterPage = () => {
                   <div className="step-content">
                     <h4 className="step-title text-center">
                       <FaMapMarkerAlt className="me-2" />
-                      Contact & Address Information
+                      Contact, Address & Security
                     </h4>
 
                     <Row className="justify-content-center">
@@ -848,6 +915,76 @@ const RegisterPage = () => {
                                     )}
                                   </Button>
                                 </div>
+                              )}
+                            </Form.Group>
+                          </Col>
+                        </Row>
+
+                        {/* Password Fields */}
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Password *</Form.Label>
+                              <InputGroup>
+                                <Form.Control
+                                  type={showPassword ? "text" : "password"}
+                                  name="password"
+                                  value={voterData.password}
+                                  onChange={handleInputChange}
+                                  placeholder="Create a strong password"
+                                  required
+                                />
+                                <Button 
+                                  variant="outline-secondary"
+                                  onClick={() => setShowPassword(!showPassword)}
+                                >
+                                  {showPassword ? <FaEyeSlash /> : <FaEye />}
+                                </Button>
+                              </InputGroup>
+                              {voterData.password && (
+                                <div className="password-strength mt-2">
+                                  <small>
+                                    Password must contain:
+                                    <ul className="list-unstyled ms-3">
+                                      <li className={voterData.password.length >= 8 ? 'text-success' : 'text-danger'}>
+                                        • At least 8 characters
+                                      </li>
+                                      <li className={/[A-Z]/.test(voterData.password) ? 'text-success' : 'text-danger'}>
+                                        • One uppercase letter
+                                      </li>
+                                      <li className={/[a-z]/.test(voterData.password) ? 'text-success' : 'text-danger'}>
+                                        • One lowercase letter
+                                      </li>
+                                      <li className={/\d/.test(voterData.password) ? 'text-success' : 'text-danger'}>
+                                        • One number
+                                      </li>
+                                    </ul>
+                                  </small>
+                                </div>
+                              )}
+                            </Form.Group>
+                          </Col>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Confirm Password *</Form.Label>
+                              <InputGroup>
+                                <Form.Control
+                                  type={showConfirmPassword ? "text" : "password"}
+                                  name="confirm_password"
+                                  value={voterData.confirm_password}
+                                  onChange={handleInputChange}
+                                  placeholder="Confirm your password"
+                                  required
+                                />
+                                <Button 
+                                  variant="outline-secondary"
+                                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                >
+                                  {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
+                                </Button>
+                              </InputGroup>
+                              {voterData.confirm_password && voterData.password !== voterData.confirm_password && (
+                                <small className="text-danger">Passwords do not match</small>
                               )}
                             </Form.Group>
                           </Col>

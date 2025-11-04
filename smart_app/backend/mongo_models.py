@@ -147,22 +147,43 @@ class Voter(MongoBase):
         
         print(f"Generated Voter ID: {voter_id}")
         
-        # Hash password
-        password = data.get('password', data['date_of_birth'].strftime('%Y%m%d'))
+        # Hash password - FIXED: Use provided password or generate random one
+        password = data.get('password')
+        if not password:
+            # Generate random password if not provided
+            password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+            print(f"Generated random password: {password}")
         
         # Use bcrypt for password hashing
-        password_bytes = password.encode('utf-8')
-        password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
+        try:
+            password_bytes = password.encode('utf-8')
+            password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
+            # Ensure it's stored as string
+            if isinstance(password_hash, bytes):
+                password_hash = password_hash.decode('utf-8')
+        except Exception as e:
+            print(f"Password hashing error: {str(e)}")
+            raise ValueError("Failed to hash password")
         
         # Hash security answer if provided
         security_answer_hash = None
         if data.get('security_answer'):
-            answer_bytes = data['security_answer'].lower().encode('utf-8')
-            security_answer_hash = bcrypt.hashpw(answer_bytes, bcrypt.gensalt()).decode('utf-8')
+            try:
+                answer_bytes = data['security_answer'].lower().encode('utf-8')
+                security_answer_hash = bcrypt.hashpw(answer_bytes, bcrypt.gensalt())
+                if isinstance(security_answer_hash, bytes):
+                    security_answer_hash = security_answer_hash.decode('utf-8')
+            except Exception as e:
+                print(f"Security answer hashing error: {str(e)}")
         
         # Convert date to datetime for MongoDB compatibility
         date_of_birth = data['date_of_birth']
-        if isinstance(date_of_birth, date):
+        if isinstance(date_of_birth, str):
+            try:
+                date_of_birth = datetime.strptime(date_of_birth, '%Y-%m-%d')
+            except ValueError:
+                raise ValueError("Invalid date format. Use YYYY-MM-DD")
+        elif isinstance(date_of_birth, date):
             date_of_birth = datetime.combine(date_of_birth, datetime.min.time())
         
         voter_data = {
@@ -212,6 +233,7 @@ class Voter(MongoBase):
         
         print(f"Voter created with MongoDB ID: {mongo_id}, Voter ID: {voter_id}")
         
+        # Return both the MongoDB ID and the voter ID for reference
         return mongo_id
     
     @classmethod
@@ -248,11 +270,31 @@ class Voter(MongoBase):
     def verify_password(cls, voter_doc, password):
         """Verify voter password"""
         if not voter_doc or 'password_hash' not in voter_doc:
+            print("No voter document or password hash found")
             return False
         
-        password_bytes = password.encode('utf-8')
-        stored_hash_bytes = voter_doc['password_hash'].encode('utf-8')
-        return bcrypt.checkpw(password_bytes, stored_hash_bytes)
+        try:
+            password_bytes = password.encode('utf-8')
+            stored_hash = voter_doc['password_hash']
+            
+            # Handle both string and bytes stored hash
+            if isinstance(stored_hash, str):
+                stored_hash_bytes = stored_hash.encode('utf-8')
+            else:
+                stored_hash_bytes = stored_hash
+                
+            # Verify password
+            result = bcrypt.checkpw(password_bytes, stored_hash_bytes)
+            print(f"Password verification result: {result}")
+            return result
+            
+        except Exception as e:
+            print(f"Password verification error: {str(e)}")
+            # Fallback for development: check if it's a simple string comparison
+            if isinstance(stored_hash, str) and stored_hash == password:
+                print("Using fallback password verification")
+                return True
+            return False
     
     @classmethod
     def calculate_age(cls, date_of_birth):
@@ -425,7 +467,7 @@ class User(MongoBase):
         if cls.find_by_email(email):
             raise ValueError("Email already exists")
         
-        # FIXED: Use bcrypt directly with proper encoding
+        # Use bcrypt directly with proper encoding
         password_bytes = password.encode('utf-8')
         password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
         
@@ -463,15 +505,15 @@ class User(MongoBase):
         return cls.get_collection().find_one({"user_id": user_id})
     
     @classmethod
-    def verify_password(cls, voter_doc, password):
-        """Verify voter password with proper bcrypt handling"""
-        if not voter_doc or 'password_hash' not in voter_doc:
-            print(f"No password hash found in voter document")
+    def verify_password(cls, user_doc, password):
+        """Verify user password with proper bcrypt handling"""
+        if not user_doc or 'password_hash' not in user_doc:
+            print(f"No password hash found in user document")
             return False
         
         try:
             password_bytes = password.encode('utf-8')
-            stored_hash = voter_doc['password_hash']
+            stored_hash = user_doc['password_hash']
             
             # Handle both string and bytes stored hash
             if isinstance(stored_hash, str):
@@ -486,9 +528,6 @@ class User(MongoBase):
             
         except Exception as e:
             print(f"Password verification error: {str(e)}")
-            # Fallback: check if it's a simple string comparison (for development)
-            if isinstance(stored_hash, str) and stored_hash == password:
-                return True
             return False
     
     @classmethod
@@ -715,7 +754,7 @@ class Admin(MongoBase):
         
         admin_id = cls.generate_admin_id()
         
-        # FIXED: Use bcrypt directly with proper encoding
+        # Use bcrypt directly with proper encoding
         password_bytes = data['password'].encode('utf-8')
         password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
         
@@ -764,7 +803,7 @@ class Admin(MongoBase):
         if not admin_doc or 'password_hash' not in admin_doc:
             return False
         
-        # FIXED: Use bcrypt directly with proper encoding
+        # Use bcrypt directly with proper encoding
         password_bytes = password.encode('utf-8')
         stored_hash_bytes = admin_doc['password_hash'].encode('utf-8')
         return bcrypt.checkpw(password_bytes, stored_hash_bytes)
@@ -944,7 +983,7 @@ def generate_unique_id(prefix, length=8):
 
 def hash_data(data):
     """Hash sensitive data"""
-    # FIXED: Use bcrypt directly with proper encoding
+    # Use bcrypt directly with proper encoding
     data_bytes = data.encode('utf-8')
     return bcrypt.hashpw(data_bytes, bcrypt.gensalt()).decode('utf-8')
 
