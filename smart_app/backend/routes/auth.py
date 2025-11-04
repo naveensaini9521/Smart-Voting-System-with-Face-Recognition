@@ -336,6 +336,193 @@ def verify_face():
             'success': False,
             'message': 'Face verification failed. Please try again.'
         }), 500
+        
+# Admin authentication routes
+@auth_bp.route('/admin/login', methods=['POST', 'OPTIONS'])
+def admin_login():
+    """Verify admin credentials"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+            
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({
+                'success': False,
+                'message': 'Username and password are required'
+            }), 400
+        
+        print(f"=== ADMIN LOGIN ATTEMPT ===")
+        print(f"Username: {username}")
+        
+        # Find admin by username
+        admin = Admin.find_by_username(username)
+        
+        if not admin:
+            print(f"Admin not found: {username}")
+            return jsonify({
+                'success': False,
+                'message': 'Invalid admin credentials'
+            }), 401
+        
+        print(f"Admin found: {admin['full_name']}")
+        
+        # Verify password
+        if not Admin.verify_password(admin, password):
+            print("Admin password verification failed")
+            return jsonify({
+                'success': False,
+                'message': 'Invalid admin credentials'
+            }), 401
+        
+        print("Admin password verified successfully")
+        
+        # Check if admin is active
+        if not admin.get('is_active', True):
+            return jsonify({
+                'success': False,
+                'message': 'Admin account has been deactivated'
+            }), 401
+        
+        # Prepare admin data for response
+        admin_data = {
+            'admin_id': admin['admin_id'],
+            'username': admin['username'],
+            'full_name': admin['full_name'],
+            'email': admin['email'],
+            'role': admin['role'],
+            'permissions': admin.get('permissions', {}),
+            'department': admin.get('department'),
+            'access_level': admin.get('access_level', 1),
+            'last_login': admin.get('last_login')
+        }
+        
+        # Generate JWT token for admin
+        admin_token = generate_token({
+            'admin_id': admin['admin_id'],
+            'username': admin['username'],
+            'role': admin['role'],
+            'email': admin['email']
+        })
+        
+        # Update last login
+        try:
+            Admin.update_one(
+                {"admin_id": admin['admin_id']},
+                {"$set": {"last_login": datetime.utcnow()}}
+            )
+        except Exception as e:
+            print(f"Warning: Could not update admin last login: {e}")
+        
+        # Log admin login
+        AuditLog.create_log(
+            action="admin_login",
+            user_id=admin['admin_id'],
+            user_type="admin",
+            details=f"Admin {admin['username']} logged in",
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        logger.info(f"Admin login successful: {username}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Admin login successful',
+            'admin_data': admin_data,
+            'token': admin_token
+        })
+        
+    except Exception as e:
+        logger.error(f'Admin login error: {str(e)}')
+        import traceback
+        print(f"Admin login exception: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'message': 'Admin login failed. Please try again.'
+        }), 500
+
+@auth_bp.route('/admin/verify-token', methods=['GET', 'OPTIONS'])
+def admin_verify_token():
+    """Verify admin token validity"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
+    token = request.headers.get('Authorization')
+    
+    if not token or not token.startswith('Bearer '):
+        return jsonify({
+            'success': False,
+            'message': 'No token provided'
+        }), 401
+    
+    token = token.split(' ')[1]
+    payload = verify_token(token)
+    
+    if not payload:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid or expired token'
+        }), 401
+    
+    # Get fresh admin data
+    admin = Admin.find_by_username(payload['username'])
+    if not admin:
+        return jsonify({
+            'success': False,
+            'message': 'Admin not found'
+        }), 401
+    
+    admin_data = {
+        'admin_id': admin['admin_id'],
+        'username': admin['username'],
+        'full_name': admin['full_name'],
+        'email': admin['email'],
+        'role': admin['role'],
+        'permissions': admin.get('permissions', {}),
+        'department': admin.get('department'),
+        'access_level': admin.get('access_level', 1)
+    }
+    
+    return jsonify({
+        'success': True,
+        'admin_data': admin_data
+    })
+
+@auth_bp.route('/admin/logout', methods=['POST', 'OPTIONS'])
+def admin_logout():
+    """Admin logout"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
+    token = request.headers.get('Authorization')
+    if token and token.startswith('Bearer '):
+        token = token.split(' ')[1]
+        payload = verify_token(token)
+        if payload:
+            # Log admin logout
+            AuditLog.create_log(
+                action="admin_logout",
+                user_id=payload.get('admin_id'),
+                user_type="admin",
+                details=f"Admin {payload.get('username')} logged out",
+                ip_address=request.remote_addr
+            )
+    
+    return jsonify({
+        'success': True,
+        'message': 'Admin logged out successfully'
+    })
+    
 
 @auth_bp.route('/logout', methods=['POST', 'OPTIONS'])
 def logout():

@@ -11,7 +11,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from smart_app.backend.mongo_models import Voter, OTP, FaceEncoding, IDDocument, calculate_age
+from smart_app.backend.mongo_models import Admin, AuditLog, Voter, OTP, FaceEncoding, IDDocument, calculate_age
+from smart_app.backend.routes.auth import verify_token
 
 logger = logging.getLogger(__name__)
 
@@ -750,6 +751,268 @@ def verify_otp():
         return jsonify({
             'success': False,
             'message': 'OTP verification failed'
+        }), 500
+
+# Add this to your existing auth.py file after the admin login route
+
+@register_bp.route('/admin/register', methods=['POST', 'OPTIONS'])
+def admin_register():
+    """Register a new admin (only accessible by superadmin)"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
+    try:
+        # Verify the requesting admin has permission
+        token = request.headers.get('Authorization')
+        if not token or not token.startswith('Bearer '):
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+        
+        token = token.split(' ')[1]
+        payload = verify_token(token)
+        
+        if not payload:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid or expired token'
+            }), 401
+        
+        # Check if requesting admin has superadmin privileges
+        requesting_admin = Admin.find_by_username(payload['username'])
+        if not requesting_admin or requesting_admin.get('role') != 'superadmin':
+            return jsonify({
+                'success': False,
+                'message': 'Insufficient permissions. Only superadmin can register new admins.'
+            }), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+            
+        required_fields = ['username', 'email', 'password', 'full_name', 'role']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'success': False,
+                    'message': f'{field} is required'
+                }), 400
+        
+        # Validate role
+        valid_roles = ['superadmin', 'admin', 'moderator']
+        if data['role'] not in valid_roles:
+            return jsonify({
+                'success': False,
+                'message': f'Role must be one of: {", ".join(valid_roles)}'
+            }), 400
+        
+        # Create new admin
+        admin_data = {
+            'username': data['username'],
+            'email': data['email'],
+            'password': data['password'],
+            'full_name': data['full_name'],
+            'role': data['role'],
+            'department': data.get('department'),
+            'phone': data.get('phone'),
+            'permissions': data.get('permissions', {}),
+            'access_level': data.get('access_level', 1),
+            'is_active': data.get('is_active', True)
+        }
+        
+        admin_id = Admin.create_admin(admin_data)
+        
+        # Log the admin creation
+        AuditLog.create_log(
+            action="admin_created",
+            user_id=requesting_admin['admin_id'],
+            user_type="admin",
+            details=f"Admin {data['username']} created by {requesting_admin['username']}",
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        logger.info(f"New admin created: {data['username']} by {requesting_admin['username']}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Admin created successfully',
+            'admin_id': admin_id
+        })
+        
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 400
+    except Exception as e:
+        logger.error(f'Admin registration error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Admin registration failed. Please try again.'
+        }), 500
+
+@register_bp.route('/admin/list', methods=['GET', 'OPTIONS'])
+def admin_list():
+    """Get list of all admins (only accessible by superadmin)"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
+    try:
+        # Verify the requesting admin has permission
+        token = request.headers.get('Authorization')
+        if not token or not token.startswith('Bearer '):
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+        
+        token = token.split(' ')[1]
+        payload = verify_token(token)
+        
+        if not payload:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid or expired token'
+            }), 401
+        
+        # Check if requesting admin has admin privileges
+        requesting_admin = Admin.find_by_username(payload['username'])
+        if not requesting_admin or requesting_admin.get('role') not in ['superadmin', 'admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Insufficient permissions'
+            }), 403
+        
+        # Get all admins (exclude password hashes)
+        admins = Admin.find_all({}, {
+            'password_hash': 0,
+            'security_answer_hash': 0
+        })
+        
+        # Format admin data for response
+        admin_list = []
+        for admin in admins:
+            admin_list.append({
+                'admin_id': admin.get('admin_id'),
+                'username': admin.get('username'),
+                'email': admin.get('email'),
+                'full_name': admin.get('full_name'),
+                'role': admin.get('role'),
+                'department': admin.get('department'),
+                'is_active': admin.get('is_active', True),
+                'last_login': admin.get('last_login'),
+                'created_at': admin.get('created_at'),
+                'access_level': admin.get('access_level', 1)
+            })
+        
+        return jsonify({
+            'success': True,
+            'admins': admin_list,
+            'total_count': len(admin_list)
+        })
+        
+    except Exception as e:
+        logger.error(f'Admin list error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to fetch admin list'
+        }), 500
+
+@register_bp.route('/admin/update/<admin_id>', methods=['PUT', 'OPTIONS'])
+def admin_update(admin_id):
+    """Update admin details (only accessible by superadmin)"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
+    try:
+        # Verify the requesting admin has permission
+        token = request.headers.get('Authorization')
+        if not token or not token.startswith('Bearer '):
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+        
+        token = token.split(' ')[1]
+        payload = verify_token(token)
+        
+        if not payload:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid or expired token'
+            }), 401
+        
+        # Check if requesting admin has superadmin privileges
+        requesting_admin = Admin.find_by_username(payload['username'])
+        if not requesting_admin or requesting_admin.get('role') != 'superadmin':
+            return jsonify({
+                'success': False,
+                'message': 'Insufficient permissions. Only superadmin can update admins.'
+            }), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+        
+        # Find the admin to update
+        target_admin = Admin.find_one({"admin_id": admin_id})
+        if not target_admin:
+            return jsonify({
+                'success': False,
+                'message': 'Admin not found'
+            }), 404
+        
+        # Prepare update data
+        update_data = {}
+        allowed_fields = ['full_name', 'email', 'role', 'department', 'phone', 
+                         'permissions', 'access_level', 'is_active']
+        
+        for field in allowed_fields:
+            if field in data:
+                update_data[field] = data[field]
+        
+        # Update password if provided
+        if 'password' in data and data['password']:
+            password_bytes = data['password'].encode('utf-8')
+            password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
+            update_data['password_hash'] = password_hash
+        
+        # Perform update
+        Admin.update_one(
+            {"admin_id": admin_id},
+            update_data
+        )
+        
+        # Log the admin update
+        AuditLog.create_log(
+            action="admin_updated",
+            user_id=requesting_admin['admin_id'],
+            user_type="admin",
+            details=f"Admin {target_admin['username']} updated by {requesting_admin['username']}",
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        logger.info(f"Admin updated: {target_admin['username']} by {requesting_admin['username']}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Admin updated successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f'Admin update error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to update admin'
         }), 500
 
 #
