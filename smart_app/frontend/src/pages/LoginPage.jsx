@@ -317,19 +317,19 @@ const LoginPage = () => {
                       </small>
                     </div>
 
-                    {/* Admin Access Section */}
-                    <div className="text-center mt-4 pt-3 border-top">
-                      <p className="text-muted mb-2">Administrator Access</p>
-                      <Button 
-                        variant="outline-dark" 
-                        size="sm"
-                        onClick={handleAdminLogin}
-                        className="admin-access-btn"
-                      >
-                        <FaUserCog className="me-2" />
-                        Admin Login
-                      </Button>
-                    </div>
+                  {/* Admin Access Section */}
+                  <div className="text-center mt-4 pt-3 border-top">
+                    <p className="text-muted mb-2">Administrator Access</p>
+                    <Button 
+                      variant="outline-dark" 
+                      size="sm"
+                      onClick={handleAdminLogin}
+                      className="admin-access-btn"
+                    >
+                      <FaUserCog className="me-2" />
+                      Admin Login
+                    </Button>
+                  </div>
                   </div>
                 )}
 

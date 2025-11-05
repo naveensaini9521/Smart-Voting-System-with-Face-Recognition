@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Form, Button, Alert, Spinner, Modal } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { adminAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext.jsx';
 import { FaUserShield, FaSignInAlt, FaShieldAlt, FaLock, FaEye, FaEyeSlash } from 'react-icons/fa';
 
 const AdminLoginPage = () => {
   const navigate = useNavigate();
-  const { adminLogin } = useAuth();
+  const { adminLogin, isAdminAuthenticated } = useAuth();
   
   const [loginData, setLoginData] = useState({
     username: '',
@@ -26,6 +26,13 @@ const AdminLoginPage = () => {
   ];
 
   const [currentBgIndex, setCurrentBgIndex] = useState(0);
+
+  // Redirect if already authenticated as admin
+  useEffect(() => {
+    if (isAdminAuthenticated) {
+      navigate('/admin/dashboard');
+    }
+  }, [isAdminAuthenticated, navigate]);
 
   // Animate background images
   useEffect(() => {
@@ -60,29 +67,22 @@ const AdminLoginPage = () => {
         password: '***' 
       });
       
-      // Call backend API to verify admin credentials
-      const response = await adminAPI.login({
+      // Use the auth context adminLogin function instead of direct API call
+      const result = await adminLogin({
         username: loginData.username,
         password: loginData.password
       });
 
-      if (response.success) {
+      if (result.success) {
         setMessage('Admin authentication successful! Redirecting...');
         
-        // Store admin authentication data
-        localStorage.setItem('adminToken', response.token);
-        localStorage.setItem('adminData', JSON.stringify(response.admin_data));
-        localStorage.setItem('isAdminAuthenticated', 'true');
-        
-        // Update auth context
-        adminLogin(response.token, response.admin_data);
-        
+        // The auth context already handles storing tokens and updating state
         // Redirect to admin dashboard
         setTimeout(() => {
           navigate('/admin/dashboard');
         }, 1500);
       } else {
-        setError(response.message || 'Invalid admin credentials. Please try again.');
+        setError(result.error || 'Invalid admin credentials. Please try again.');
       }
     } catch (err) {
       console.error('Admin login error:', err);
@@ -212,7 +212,7 @@ const AdminLoginPage = () => {
                     Enhanced security protocols active
                   </p>
                   <small className="text-muted">
-                    Return to <a href="/login" className="text-decoration-none">Voter Login</a>
+                    Return to <Link to="/login" className="text-decoration-none">Voter Login</Link>
                   </small>
                 </div>
               </Card.Body>
