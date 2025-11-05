@@ -285,7 +285,7 @@ export const AuthProvider = ({ children }) => {
       if (adminToken && adminData && isAdminAuthenticated === 'true') {
         try {
           // Verify admin token with backend
-          const response = await adminAPI.verifyToken(adminToken);
+          const response = await adminAPI.verifyToken();
           if (response.success) {
             const admin = JSON.parse(adminData);
             dispatch({
@@ -351,7 +351,7 @@ export const AuthProvider = ({ children }) => {
         
         dispatch({
           type: AUTH_ACTIONS.LOGIN_SUCCESS,
-          payload: { user: tempUserData, token: response.temp_token || null } // Use temp_token if available
+          payload: { user: tempUserData, token: response.temp_token || null }
         });
 
         return { 
@@ -530,7 +530,7 @@ export const AuthProvider = ({ children }) => {
     try {
       // Only call logout API if we have an admin token
       if (state.adminToken) {
-        await adminAPI.logout(state.adminToken);
+        await adminAPI.logout();
       }
     } catch (error) {
       console.error('Admin logout API error:', error);
