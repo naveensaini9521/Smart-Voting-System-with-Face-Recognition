@@ -12,7 +12,8 @@ import {
   Form,
   Alert,
   Spinner,
-  Pagination
+  Pagination,
+  Image
 } from 'react-bootstrap';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { adminAPI } from '../../services/api';
@@ -33,7 +34,11 @@ import {
   FaTimesCircle,
   FaSync,
   FaSearch,
-  FaFilter
+  FaFilter,
+  FaUpload,
+  FaImage,
+  FaLandmark,
+  FaUserTie
 } from 'react-icons/fa';
 
 const AdminDashboard = () => {
@@ -51,6 +56,7 @@ const AdminDashboard = () => {
   // Modal states
   const [showElectionModal, setShowElectionModal] = useState(false);
   const [showCandidateModal, setShowCandidateModal] = useState(false);
+  const [showElectionDetailModal, setShowElectionDetailModal] = useState(false);
   
   // Form states
   const [electionForm, setElectionForm] = useState({
@@ -65,23 +71,41 @@ const AdminDashboard = () => {
     registration_start: '',
     registration_end: '',
     max_candidates: 1,
-    require_face_verification: true
+    require_face_verification: true,
+    election_logo: null,
+    election_banner: null,
+    election_rules: '',
+    results_visibility: 'after_voting',
+    minimum_voter_age: 18,
+    allowed_voter_groups: ['all']
   });
   
   const [candidateForm, setCandidateForm] = useState({
     election_id: '',
     full_name: '',
     party: '',
+    party_logo: null,
     biography: '',
     email: '',
-    phone: ''
+    phone: '',
+    photo: null,
+    candidate_id: '',
+    agenda: '',
+    qualifications: '',
+    assets_declaration: '',
+    criminal_records: 'none',
+    election_symbol: null,
+    symbol_name: ''
   });
+
+  const [selectedElection, setSelectedElection] = useState(null);
 
   // Pagination states
   const [pagination, setPagination] = useState({
     voters: { page: 1, per_page: 10, total: 0 },
     elections: { page: 1, per_page: 10, total: 0 },
-    audit: { page: 1, per_page: 10, total: 0 }
+    audit: { page: 1, per_page: 10, total: 0 },
+    candidates: { page: 1, per_page: 10, total: 0 }
   });
 
   useEffect(() => {
@@ -95,6 +119,8 @@ const AdminDashboard = () => {
       loadVoters();
     } else if (activeTab === 'audit') {
       loadAuditLogs();
+    } else if (activeTab === 'candidates') {
+      loadCandidates();
     }
   }, [activeTab]);
 
@@ -166,6 +192,28 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadCandidates = async (page = 1) => {
+    setLoading(true);
+    try {
+      const response = await adminAPI.getCandidates({ page, per_page: pagination.candidates.per_page });
+      if (response.success) {
+        setCandidates(response.candidates);
+        setPagination(prev => ({
+          ...prev,
+          candidates: {
+            ...response.pagination,
+            page: response.pagination.page || page
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading candidates:', error);
+      setError('Failed to load candidates');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadAuditLogs = async (page = 1) => {
     setLoading(true);
     try {
@@ -194,7 +242,22 @@ const AdminDashboard = () => {
     setError('');
     
     try {
-      const response = await adminAPI.createElection(electionForm);
+      const formData = new FormData();
+      
+      // Append all election form fields to FormData
+      Object.keys(electionForm).forEach(key => {
+        if (key === 'election_logo' || key === 'election_banner') {
+          if (electionForm[key]) {
+            formData.append(key, electionForm[key]);
+          }
+        } else if (key === 'allowed_voter_groups') {
+          formData.append(key, JSON.stringify(electionForm[key]));
+        } else {
+          formData.append(key, electionForm[key]);
+        }
+      });
+
+      const response = await adminAPI.createElection(formData);
       if (response.success) {
         setSuccess('Election created successfully!');
         setShowElectionModal(false);
@@ -210,7 +273,13 @@ const AdminDashboard = () => {
           registration_start: '',
           registration_end: '',
           max_candidates: 1,
-          require_face_verification: true
+          require_face_verification: true,
+          election_logo: null,
+          election_banner: null,
+          election_rules: '',
+          results_visibility: 'after_voting',
+          minimum_voter_age: 18,
+          allowed_voter_groups: ['all']
         });
         loadElections();
       } else {
@@ -219,6 +288,58 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Error creating election:', error);
       setError('Failed to create election');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateCandidate = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    
+    try {
+      const formData = new FormData();
+      
+      // Append all candidate form fields to FormData
+      Object.keys(candidateForm).forEach(key => {
+        if (key === 'photo' || key === 'party_logo' || key === 'election_symbol') {
+          if (candidateForm[key]) {
+            formData.append(key, candidateForm[key]);
+          }
+        } else {
+          formData.append(key, candidateForm[key]);
+        }
+      });
+
+      const response = await adminAPI.createCandidate(formData);
+      if (response.success) {
+        setSuccess('Candidate created successfully!');
+        setShowCandidateModal(false);
+        setCandidateForm({
+          election_id: '',
+          full_name: '',
+          party: '',
+          party_logo: null,
+          biography: '',
+          email: '',
+          phone: '',
+          photo: null,
+          candidate_id: '',
+          agenda: '',
+          qualifications: '',
+          assets_declaration: '',
+          criminal_records: 'none',
+          election_symbol: null,
+          symbol_name: ''
+        });
+        loadCandidates();
+      } else {
+        setError(response.message || 'Failed to create candidate');
+      }
+    } catch (error) {
+      console.error('Error creating candidate:', error);
+      setError('Failed to create candidate');
     } finally {
       setLoading(false);
     }
@@ -259,13 +380,29 @@ const AdminDashboard = () => {
       const response = await adminAPI.approveCandidate(candidateId);
       if (response.success) {
         setSuccess('Candidate approved successfully');
-        // Reload candidates if on candidates tab
+        loadCandidates(pagination.candidates.page);
       } else {
         setError(response.message || 'Failed to approve candidate');
       }
     } catch (error) {
       console.error('Error approving candidate:', error);
       setError('Failed to approve candidate');
+    }
+  };
+
+  const handleViewElectionDetails = (election) => {
+    setSelectedElection(election);
+    setShowElectionDetailModal(true);
+  };
+
+  const handleFileUpload = (e, fieldName, formType) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (formType === 'election') {
+        setElectionForm(prev => ({ ...prev, [fieldName]: file }));
+      } else if (formType === 'candidate') {
+        setCandidateForm(prev => ({ ...prev, [fieldName]: file }));
+      }
     }
   };
 
@@ -346,21 +483,35 @@ const AdminDashboard = () => {
             <Table responsive hover>
               <thead>
                 <tr>
-                  <th>Title</th>
+                  <th>Election</th>
                   <th>Type</th>
                   <th>Status</th>
                   <th>Voting Period</th>
                   <th>Candidates</th>
                   <th>Votes</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {elections.slice(0, 5).map(election => (
                   <tr key={election.election_id}>
                     <td>
-                      <strong>{election.title}</strong>
-                      <br />
-                      <small className="text-muted">{election.election_id}</small>
+                      <div className="d-flex align-items-center">
+                        {election.election_logo && (
+                          <Image 
+                            src={election.election_logo} 
+                            width={40} 
+                            height={40} 
+                            rounded 
+                            className="me-3"
+                          />
+                        )}
+                        <div>
+                          <strong>{election.title}</strong>
+                          <br />
+                          <small className="text-muted">{election.election_id}</small>
+                        </div>
+                      </div>
                     </td>
                     <td>
                       <Badge bg="light" text="dark">
@@ -384,6 +535,16 @@ const AdminDashboard = () => {
                     </td>
                     <td>{election.total_candidates || 0}</td>
                     <td>{election.total_votes || 0}</td>
+                    <td>
+                      <Button 
+                        size="sm" 
+                        variant="outline-primary" 
+                        title="View Details"
+                        onClick={() => handleViewElectionDetails(election)}
+                      >
+                        <FaEye />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -451,7 +612,7 @@ const AdminDashboard = () => {
             <Table responsive hover>
               <thead>
                 <tr>
-                  <th>Title</th>
+                  <th>Election</th>
                   <th>Type</th>
                   <th>Constituency</th>
                   <th>Status</th>
@@ -465,9 +626,22 @@ const AdminDashboard = () => {
                 {elections.map(election => (
                   <tr key={election.election_id}>
                     <td>
-                      <strong>{election.title}</strong>
-                      <br />
-                      <small className="text-muted">{election.election_id}</small>
+                      <div className="d-flex align-items-center">
+                        {election.election_logo && (
+                          <Image 
+                            src={election.election_logo} 
+                            width={40} 
+                            height={40} 
+                            rounded 
+                            className="me-3"
+                          />
+                        )}
+                        <div>
+                          <strong>{election.title}</strong>
+                          <br />
+                          <small className="text-muted">{election.election_id}</small>
+                        </div>
+                      </div>
                     </td>
                     <td>
                       <Badge bg="light" text="dark">
@@ -493,7 +667,13 @@ const AdminDashboard = () => {
                     <td>{election.total_candidates || 0}</td>
                     <td>{election.total_votes || 0}</td>
                     <td>
-                      <Button size="sm" variant="outline-primary" className="me-1" title="View">
+                      <Button 
+                        size="sm" 
+                        variant="outline-primary" 
+                        className="me-1" 
+                        title="View Details"
+                        onClick={() => handleViewElectionDetails(election)}
+                      >
                         <FaEye />
                       </Button>
                       <Button size="sm" variant="outline-warning" className="me-1" title="Edit">
@@ -680,65 +860,112 @@ const AdminDashboard = () => {
   const renderCandidates = () => (
     <Card className="border-0 shadow-sm">
       <Card.Header className="bg-white d-flex justify-content-between align-items-center">
-        <h5 className="mb-0">Manage Candidates</h5>
+        <h5 className="mb-0">Manage Candidates ({pagination.candidates.total})</h5>
         <Button variant="primary" onClick={() => setShowCandidateModal(true)}>
           <FaPlus className="me-1" /> Add Candidate
         </Button>
       </Card.Header>
       <Card.Body>
-        <div className="text-center py-5">
-          <FaUserCheck className="text-muted fa-3x mb-3" />
-          <h5>Candidate Management</h5>
-          <p className="text-muted">Manage election candidates and their approvals</p>
-          <Button variant="primary" onClick={() => setShowCandidateModal(true)}>
-            <FaPlus className="me-1" /> Add New Candidate
-          </Button>
-        </div>
-      </Card.Body>
-    </Card>
-  );
-
-  const renderAuditLogs = () => (
-    <Card className="border-0 shadow-sm">
-      <Card.Header className="bg-white">
-        <h5 className="mb-0">Audit Logs ({pagination.audit.total})</h5>
-      </Card.Header>
-      <Card.Body>
-        {auditLogs.length === 0 ? (
+        {candidates.length === 0 ? (
           <div className="text-center py-5">
-            <FaClipboardList className="text-muted fa-3x mb-3" />
-            <h5>No audit logs found</h5>
-            <p className="text-muted">System activities will be logged here</p>
+            <FaUserTie className="text-muted fa-3x mb-3" />
+            <h5>No candidates found</h5>
+            <p className="text-muted">Add candidates to participate in elections</p>
+            <Button variant="primary" onClick={() => setShowCandidateModal(true)}>
+              <FaPlus className="me-1" /> Add New Candidate
+            </Button>
           </div>
         ) : (
           <>
             <Table responsive hover>
               <thead>
                 <tr>
-                  <th>Timestamp</th>
-                  <th>Action</th>
-                  <th>User</th>
-                  <th>Details</th>
-                  <th>IP Address</th>
+                  <th>Candidate</th>
+                  <th>Party</th>
+                  <th>Election</th>
+                  <th>Status</th>
+                  <th>Contact</th>
+                  <th>Approval</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {auditLogs.map(log => (
-                  <tr key={log.log_id}>
+                {candidates.map(candidate => (
+                  <tr key={candidate.candidate_id}>
                     <td>
-                      <small>{new Date(log.timestamp).toLocaleString()}</small>
+                      <div className="d-flex align-items-center">
+                        {candidate.photo && (
+                          <Image 
+                            src={candidate.photo} 
+                            width={40} 
+                            height={40} 
+                            rounded 
+                            className="me-3"
+                          />
+                        )}
+                        <div>
+                          <strong>{candidate.full_name}</strong>
+                          <br />
+                          <small className="text-muted">{candidate.candidate_id}</small>
+                        </div>
+                      </div>
                     </td>
                     <td>
-                      <Badge bg="info">{log.action}</Badge>
+                      <div className="d-flex align-items-center">
+                        {candidate.party_logo && (
+                          <Image 
+                            src={candidate.party_logo} 
+                            width={30} 
+                            height={30} 
+                            rounded 
+                            className="me-2"
+                          />
+                        )}
+                        <span>{candidate.party}</span>
+                      </div>
                     </td>
                     <td>
-                      <code>{log.user_id}</code>
-                      <br />
-                      <small className="text-muted">{log.user_type}</small>
+                      <small>{candidate.election_title}</small>
                     </td>
-                    <td>{log.details}</td>
                     <td>
-                      <code>{log.ip_address}</code>
+                      <Badge bg={
+                        candidate.status === 'approved' ? 'success' :
+                        candidate.status === 'pending' ? 'warning' :
+                        candidate.status === 'rejected' ? 'danger' : 'secondary'
+                      }>
+                        {candidate.status}
+                      </Badge>
+                    </td>
+                    <td>
+                      <small>
+                        {candidate.email}<br/>
+                        {candidate.phone}
+                      </small>
+                    </td>
+                    <td>
+                      {candidate.status === 'pending' && (
+                        <Button 
+                          size="sm" 
+                          variant="success" 
+                          onClick={() => handleApproveCandidate(candidate.candidate_id)}
+                        >
+                          <FaCheckCircle className="me-1" /> Approve
+                        </Button>
+                      )}
+                      {candidate.status === 'approved' && (
+                        <Badge bg="success">Approved</Badge>
+                      )}
+                    </td>
+                    <td>
+                      <Button size="sm" variant="outline-primary" className="me-1" title="View">
+                        <FaEye />
+                      </Button>
+                      <Button size="sm" variant="outline-warning" className="me-1" title="Edit">
+                        <FaEdit />
+                      </Button>
+                      <Button size="sm" variant="outline-danger" title="Delete">
+                        <FaTrash />
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -746,25 +973,25 @@ const AdminDashboard = () => {
             </Table>
             
             {/* Pagination */}
-            {pagination.audit.total_pages > 1 && (
+            {pagination.candidates.total_pages > 1 && (
               <div className="d-flex justify-content-center mt-3">
                 <Pagination>
                   <Pagination.Prev 
-                    disabled={pagination.audit.page === 1}
-                    onClick={() => loadAuditLogs(pagination.audit.page - 1)}
+                    disabled={pagination.candidates.page === 1}
+                    onClick={() => loadCandidates(pagination.candidates.page - 1)}
                   />
-                  {[...Array(pagination.audit.total_pages)].map((_, i) => (
+                  {[...Array(pagination.candidates.total_pages)].map((_, i) => (
                     <Pagination.Item
                       key={i + 1}
-                      active={i + 1 === pagination.audit.page}
-                      onClick={() => loadAuditLogs(i + 1)}
+                      active={i + 1 === pagination.candidates.page}
+                      onClick={() => loadCandidates(i + 1)}
                     >
                       {i + 1}
                     </Pagination.Item>
                   ))}
                   <Pagination.Next 
-                    disabled={pagination.audit.page === pagination.audit.total_pages}
-                    onClick={() => loadAuditLogs(pagination.audit.page + 1)}
+                    disabled={pagination.candidates.page === pagination.candidates.total_pages}
+                    onClick={() => loadCandidates(pagination.candidates.page + 1)}
                   />
                 </Pagination>
               </div>
@@ -774,6 +1001,116 @@ const AdminDashboard = () => {
       </Card.Body>
     </Card>
   );
+
+ const renderAuditLogs = () => (
+  <Card className="border-0 shadow-sm">
+    <Card.Header className="bg-white">
+      <h5 className="mb-0">Audit Logs ({pagination.audit.total})</h5>
+    </Card.Header>
+    <Card.Body>
+      {auditLogs.length === 0 ? (
+        <div className="text-center py-5">
+          <FaClipboardList className="text-muted fa-3x mb-3" />
+          <h5>No audit logs found</h5>
+          <p className="text-muted">System activities will be logged here</p>
+        </div>
+      ) : (
+        <>
+          <Table responsive hover>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Action</th>
+                <th>User</th>
+                <th>Details</th>
+                <th>IP Address</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLogs.map(log => (
+                <tr key={log.log_id}>
+                  <td>
+                    <small>{new Date(log.timestamp).toLocaleString()}</small>
+                  </td>
+                  <td>
+                    <Badge bg={
+                      log.action === 'login' ? 'success' :
+                      log.action === 'logout' ? 'secondary' :
+                      log.action === 'create' ? 'primary' :
+                      log.action === 'update' ? 'warning' :
+                      log.action === 'delete' ? 'danger' : 'info'
+                    }>
+                      {log.action}
+                    </Badge>
+                  </td>
+                  <td>
+                    <div>
+                      <code>{log.user_id}</code>
+                      <br />
+                      <small className="text-muted">{log.user_type}</small>
+                    </div>
+                  </td>
+                  <td>
+                    {/* Safely render details - handle both string and object */}
+                    {typeof log.details === 'string' ? (
+                      log.details
+                    ) : log.details && typeof log.details === 'object' ? (
+                      <div>
+                        {Object.entries(log.details).map(([key, value]) => (
+                          <div key={key}>
+                            <small>
+                              <strong>{key}:</strong> {String(value)}
+                            </small>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      'No details'
+                    )}
+                  </td>
+                  <td>
+                    <code>{log.ip_address || 'N/A'}</code>
+                  </td>
+                  <td>
+                    <Badge bg={log.status === 'success' ? 'success' : 'danger'}>
+                      {log.status || 'unknown'}
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          
+          {/* Pagination */}
+          {pagination.audit.total_pages > 1 && (
+            <div className="d-flex justify-content-center mt-3">
+              <Pagination>
+                <Pagination.Prev 
+                  disabled={pagination.audit.page === 1}
+                  onClick={() => loadAuditLogs(pagination.audit.page - 1)}
+                />
+                {[...Array(pagination.audit.total_pages)].map((_, i) => (
+                  <Pagination.Item
+                    key={i + 1}
+                    active={i + 1 === pagination.audit.page}
+                    onClick={() => loadAuditLogs(i + 1)}
+                  >
+                    {i + 1}
+                  </Pagination.Item>
+                ))}
+                <Pagination.Next 
+                  disabled={pagination.audit.page === pagination.audit.total_pages}
+                  onClick={() => loadAuditLogs(pagination.audit.page + 1)}
+                />
+              </Pagination>
+            </div>
+          )}
+        </>
+      )}
+    </Card.Body>
+  </Card>
+);
 
   const renderReports = () => (
     <Card className="border-0 shadow-sm">
@@ -915,7 +1252,7 @@ const AdminDashboard = () => {
                       onClick={() => setActiveTab('candidates')}
                       className="d-flex align-items-center"
                     >
-                      <FaUserCheck className="me-2" />
+                      <FaUserTie className="me-2" />
                       Candidates
                     </Nav.Link>
                   </Nav.Item>
@@ -1023,6 +1360,36 @@ const AdminDashboard = () => {
               />
             </Form.Group>
 
+            {/* Election Logo and Banner */}
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election Logo</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'election_logo', 'election')}
+                  />
+                  <Form.Text className="text-muted">
+                    Upload a logo for this election (recommended: 200x200px)
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election Banner</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'election_banner', 'election')}
+                  />
+                  <Form.Text className="text-muted">
+                    Upload a banner image for this election (recommended: 1200x300px)
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+            </Row>
+
             <Row>
               <Col md={6}>
                 <Form.Group className="mb-3">
@@ -1084,6 +1451,45 @@ const AdminDashboard = () => {
               </Col>
             </Row>
 
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Results Visibility</Form.Label>
+                  <Form.Select
+                    value={electionForm.results_visibility}
+                    onChange={(e) => setElectionForm({...electionForm, results_visibility: e.target.value})}
+                  >
+                    <option value="after_voting">After Voting Period</option>
+                    <option value="immediate">Immediate</option>
+                    <option value="manual">Manual Release</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Minimum Voter Age</Form.Label>
+                  <Form.Control 
+                    type="number"
+                    min="18"
+                    max="100"
+                    value={electionForm.minimum_voter_age}
+                    onChange={(e) => setElectionForm({...electionForm, minimum_voter_age: parseInt(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Election Rules</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={3} 
+                placeholder="Enter election rules and guidelines"
+                value={electionForm.election_rules}
+                onChange={(e) => setElectionForm({...electionForm, election_rules: e.target.value})}
+              />
+            </Form.Group>
+
             <Form.Check
               type="checkbox"
               label="Require Face Verification"
@@ -1101,6 +1507,332 @@ const AdminDashboard = () => {
             </Button>
           </Modal.Footer>
         </Form>
+      </Modal>
+
+      {/* Create Candidate Modal */}
+      <Modal show={showCandidateModal} onHide={() => setShowCandidateModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Add New Candidate</Modal.Title>
+        </Modal.Header>
+        <Form onSubmit={handleCreateCandidate}>
+          <Modal.Body>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Full Name *</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter candidate's full name"
+                    value={candidateForm.full_name}
+                    onChange={(e) => setCandidateForm({...candidateForm, full_name: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Candidate ID *</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter candidate ID"
+                    value={candidateForm.candidate_id}
+                    onChange={(e) => setCandidateForm({...candidateForm, candidate_id: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election *</Form.Label>
+                  <Form.Select
+                    value={candidateForm.election_id}
+                    onChange={(e) => setCandidateForm({...candidateForm, election_id: e.target.value})}
+                    required
+                  >
+                    <option value="">Select Election</option>
+                    {elections.map(election => (
+                      <option key={election.election_id} value={election.election_id}>
+                        {election.title}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Political Party *</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter political party"
+                    value={candidateForm.party}
+                    onChange={(e) => setCandidateForm({...candidateForm, party: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            {/* Candidate Photo and Party Logo */}
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Candidate Photo</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'photo', 'candidate')}
+                  />
+                  <Form.Text className="text-muted">
+                    Upload candidate's photo (recommended: 300x300px)
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Party Logo</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'party_logo', 'candidate')}
+                  />
+                  <Form.Text className="text-muted">
+                    Upload party logo (recommended: 200x200px)
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Email *</Form.Label>
+                  <Form.Control 
+                    type="email" 
+                    placeholder="Enter email address"
+                    value={candidateForm.email}
+                    onChange={(e) => setCandidateForm({...candidateForm, email: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Phone *</Form.Label>
+                  <Form.Control 
+                    type="tel" 
+                    placeholder="Enter phone number"
+                    value={candidateForm.phone}
+                    onChange={(e) => setCandidateForm({...candidateForm, phone: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Biography</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={3} 
+                placeholder="Enter candidate's biography"
+                value={candidateForm.biography}
+                onChange={(e) => setCandidateForm({...candidateForm, biography: e.target.value})}
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Political Agenda</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={3} 
+                placeholder="Enter candidate's political agenda and promises"
+                value={candidateForm.agenda}
+                onChange={(e) => setCandidateForm({...candidateForm, agenda: e.target.value})}
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Qualifications</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={2} 
+                placeholder="Enter candidate's qualifications and experience"
+                value={candidateForm.qualifications}
+                onChange={(e) => setCandidateForm({...candidateForm, qualifications: e.target.value})}
+              />
+            </Form.Group>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Assets Declaration</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter declared assets"
+                    value={candidateForm.assets_declaration}
+                    onChange={(e) => setCandidateForm({...candidateForm, assets_declaration: e.target.value})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Criminal Records</Form.Label>
+                  <Form.Select
+                    value={candidateForm.criminal_records}
+                    onChange={(e) => setCandidateForm({...candidateForm, criminal_records: e.target.value})}
+                  >
+                    <option value="none">No Criminal Records</option>
+                    <option value="pending">Cases Pending</option>
+                    <option value="convicted">Convicted</option>
+                    <option value="acquitted">Acquitted</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+            </Row>
+
+            {/* Election Symbol */}
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election Symbol</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'election_symbol', 'candidate')}
+                  />
+                  <Form.Text className="text-muted">
+                    Upload election symbol (recommended: 100x100px)
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Symbol Name</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter symbol name"
+                    value={candidateForm.symbol_name}
+                    onChange={(e) => setCandidateForm({...candidateForm, symbol_name: e.target.value})}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="secondary" onClick={() => setShowCandidateModal(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={loading}>
+              {loading ? <Spinner size="sm" /> : 'Add Candidate'}
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      {/* Election Detail Modal */}
+      <Modal show={showElectionDetailModal} onHide={() => setShowElectionDetailModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Election Details</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {selectedElection && (
+            <Row>
+              <Col md={4}>
+                {selectedElection.election_logo && (
+                  <Image 
+                    src={selectedElection.election_logo} 
+                    fluid 
+                    rounded 
+                    className="mb-3"
+                  />
+                )}
+                <Card>
+                  <Card.Body>
+                    <h6>Quick Stats</h6>
+                    <div className="mb-2">
+                      <strong>Total Candidates:</strong> {selectedElection.total_candidates || 0}
+                    </div>
+                    <div className="mb-2">
+                      <strong>Total Votes:</strong> {selectedElection.total_votes || 0}
+                    </div>
+                    <div className="mb-2">
+                      <strong>Voter Turnout:</strong> {selectedElection.voter_turnout || 'N/A'}%
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Col>
+              <Col md={8}>
+                <h4>{selectedElection.title}</h4>
+                <p className="text-muted">{selectedElection.description}</p>
+                
+                <Row className="mb-3">
+                  <Col md={6}>
+                    <strong>Election ID:</strong>
+                    <br />
+                    <code>{selectedElection.election_id}</code>
+                  </Col>
+                  <Col md={6}>
+                    <strong>Type:</strong>
+                    <br />
+                    <Badge bg="light" text="dark">{selectedElection.election_type}</Badge>
+                  </Col>
+                </Row>
+
+                <Row className="mb-3">
+                  <Col md={6}>
+                    <strong>Voting Period:</strong>
+                    <br />
+                    {new Date(selectedElection.voting_start).toLocaleString()} - {' '}
+                    {new Date(selectedElection.voting_end).toLocaleString()}
+                  </Col>
+                  <Col md={6}>
+                    <strong>Status:</strong>
+                    <br />
+                    <Badge bg={
+                      selectedElection.status === 'active' ? 'success' :
+                      selectedElection.status === 'scheduled' ? 'warning' :
+                      selectedElection.status === 'completed' ? 'secondary' : 'light'
+                    }>
+                      {selectedElection.status}
+                    </Badge>
+                  </Col>
+                </Row>
+
+                <Row className="mb-3">
+                  <Col md={6}>
+                    <strong>Constituency:</strong>
+                    <br />
+                    {selectedElection.constituency || 'N/A'}
+                  </Col>
+                  <Col md={6}>
+                    <strong>District:</strong>
+                    <br />
+                    {selectedElection.district || 'N/A'}
+                  </Col>
+                </Row>
+
+                {selectedElection.election_rules && (
+                  <div className="mb-3">
+                    <strong>Election Rules:</strong>
+                    <br />
+                    {selectedElection.election_rules}
+                  </div>
+                )}
+              </Col>
+            </Row>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowElectionDetailModal(false)}>
+            Close
+          </Button>
+          <Button variant="primary">
+            <FaEdit className="me-1" /> Edit Election
+          </Button>
+        </Modal.Footer>
       </Modal>
     </div>
   );
