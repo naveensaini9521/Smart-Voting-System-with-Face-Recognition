@@ -457,27 +457,27 @@ export const voterAPI = {
   }
 };
 
-// Admin API functions
+// Admin API functions - UPDATED TO MATCH BACKEND ROUTES
 export const adminAPI = {
   // ============ ADMIN AUTHENTICATION ENDPOINTS ============
 
   // Admin login
   login: async (credentials) => {
     console.log('Admin login attempt:', { username: credentials.username });
-    const response = await api.post('/auth/admin/login', credentials);
+    const response = await api.post('/admin/auth/login', credentials);
     console.log('Admin login response:', response.data);
     return response.data;
   },
 
   // Verify admin token
   verifyToken: async () => {
-    const response = await api.get('/auth/admin/verify-token');
+    const response = await api.get('/admin/auth/verify-token');
     return response.data;
   },
 
   // Admin logout
   logout: async () => {
-    const response = await api.post('/auth/admin/logout');
+    const response = await api.post('/admin/auth/logout');
     // Clear admin local storage on logout
     localStorage.removeItem('adminToken');
     localStorage.removeItem('adminData');
@@ -485,39 +485,49 @@ export const adminAPI = {
     return response.data;
   },
 
-  // ============ ADMIN MANAGEMENT ENDPOINTS ============
+  // ============ DASHBOARD & STATISTICS ============
 
-  // Get all admins
-  getAdmins: async () => {
-    const response = await api.get('/register/admin/list');
+  // Get dashboard statistics
+  getDashboardStats: async () => {
+    const response = await api.get('/admin/dashboard/stats');
     return response.data;
   },
 
-  // Create admin
-  createAdmin: async (adminData) => {
-    const response = await api.post('/register/admin/register', adminData);
-    return response.data;
-  },
-
-  // Update admin
-  updateAdmin: async (adminId, updateData) => {
-    const response = await api.put(`/register/admin/update/${adminId}`, updateData);
+  // Get system statistics (alias for getDashboardStats)
+  getSystemStats: async () => {
+    const response = await api.get('/admin/dashboard/stats');
     return response.data;
   },
 
   // ============ ELECTION MANAGEMENT ============
 
-  // Create election
-  createElection: async (electionData) => {
-    console.log('Creating election:', electionData.title);
-    const response = await api.post('/admin/elections', electionData);
+  // Get elections with pagination
+  getElections: async (params = {}) => {
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page);
+    if (params.per_page) queryParams.append('per_page', params.per_page);
+    if (params.status) queryParams.append('status', params.status);
+    
+    const response = await api.get(`/admin/elections?${queryParams.toString()}`);
     return response.data;
   },
 
-  // Get elections
-  getElections: async (params = {}) => {
-    const response = await api.get('/admin/elections', { params });
-    return response.data;
+  // Create election
+  createElection: async (electionData) => {
+    console.log('Creating election:', electionData.title);
+    
+    // Handle FormData for file uploads
+    if (electionData instanceof FormData) {
+      const response = await api.post('/admin/elections', electionData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } else {
+      const response = await api.post('/admin/elections', electionData);
+      return response.data;
+    }
   },
 
   // Update election
@@ -532,17 +542,29 @@ export const adminAPI = {
     return response.data;
   },
 
-  // ============ VOTER MANAGEMENT ============
-
-  // Get voters
-  getVoters: async (params = {}) => {
-    const response = await api.get('/admin/voters', { params });
+  // Get election details
+  getElectionDetails: async (electionId) => {
+    const response = await api.get(`/admin/elections/${electionId}`);
     return response.data;
   },
 
-  // Update voter status
-  updateVoterStatus: async (voterId, statusData) => {
-    const response = await api.put(`/admin/voters/${voterId}/status`, statusData);
+  // ============ VOTER MANAGEMENT ============
+
+  // Get voters with pagination
+  getVoters: async (params = {}) => {
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page);
+    if (params.per_page) queryParams.append('per_page', params.per_page);
+    if (params.status) queryParams.append('status', params.status);
+    if (params.verified) queryParams.append('verified', params.verified);
+    
+    const response = await api.get(`/admin/voters?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  // Get voter details
+  getVoterDetails: async (voterId) => {
+    const response = await api.get(`/admin/voters/${voterId}`);
     return response.data;
   },
 
@@ -552,66 +574,211 @@ export const adminAPI = {
     return response.data;
   },
 
+  // Update voter status
+  updateVoterStatus: async (voterId, statusData) => {
+    const response = await api.put(`/admin/voters/${voterId}/status`, statusData);
+    return response.data;
+  },
+
+  // Bulk verify voters
+  bulkVerifyVoters: async (voterIds, verificationType) => {
+    const response = await api.post('/admin/voters/bulk-verify', {
+      voter_ids: voterIds,
+      verification_type: verificationType
+    });
+    return response.data;
+  },
+
   // ============ CANDIDATE MANAGEMENT ============
 
-  // Get candidates
-  getCandidates: async (electionId = null) => {
-    const params = electionId ? { election_id: electionId } : {};
-    const response = await api.get('/admin/candidates', { params });
+  // Get candidates with pagination
+  getCandidates: async (params = {}) => {
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page);
+    if (params.per_page) queryParams.append('per_page', params.per_page);
+    if (params.election_id) queryParams.append('election_id', params.election_id);
+    if (params.status) queryParams.append('status', params.status);
+    
+    const response = await api.get(`/admin/candidates?${queryParams.toString()}`);
     return response.data;
+  },
+
+  // Create candidate
+  createCandidate: async (candidateData) => {
+    console.log('Creating candidate:', candidateData.full_name);
+    
+    // Handle FormData for file uploads
+    if (candidateData instanceof FormData) {
+      const response = await api.post('/admin/candidates', candidateData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } else {
+      const response = await api.post('/admin/candidates', candidateData);
+      return response.data;
+    }
   },
 
   // Approve candidate
   approveCandidate: async (candidateId) => {
-    const response = await api.put(`/admin/candidates/${candidateId}/approve`, {});
+    const response = await api.put(`/admin/candidates/${candidateId}/approve`);
     return response.data;
   },
 
   // Reject candidate
-  rejectCandidate: async (candidateId, reason) => {
+  rejectCandidate: async (candidateId, reason = '') => {
     const response = await api.put(`/admin/candidates/${candidateId}/reject`, { reason });
     return response.data;
   },
 
-  // ============ RESULTS AND ANALYTICS ============
-
-  // Get election results
-  getElectionResults: async (electionId) => {
-    const response = await api.get(`/admin/elections/${electionId}/results`);
+  // Get candidate details
+  getCandidateDetails: async (candidateId) => {
+    const response = await api.get(`/admin/candidates/${candidateId}`);
     return response.data;
   },
 
-  // Get system stats
-  getSystemStats: async () => {
-    const response = await api.get('/admin/stats');
-    return response.data;
-  },
-
-  // Get analytics
-  getAnalytics: async () => {
-    const response = await api.get('/admin/analytics');
+  // Update candidate
+  updateCandidate: async (candidateId, updateData) => {
+    const response = await api.put(`/admin/candidates/${candidateId}`, updateData);
     return response.data;
   },
 
   // ============ AUDIT LOGS ============
 
-  // Get audit logs
+  // Get audit logs with pagination
   getAuditLogs: async (params = {}) => {
-    const response = await api.get('/admin/audit-logs', { params });
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page);
+    if (params.per_page) queryParams.append('per_page', params.per_page);
+    if (params.action) queryParams.append('action', params.action);
+    if (params.user_type) queryParams.append('user_type', params.user_type);
+    if (params.start_date) queryParams.append('start_date', params.start_date);
+    if (params.end_date) queryParams.append('end_date', params.end_date);
+    
+    const response = await api.get(`/admin/audit-logs?${queryParams.toString()}`);
     return response.data;
   },
 
-  // ============ SYSTEM SETTINGS ============
+  // Get audit log details
+  getAuditLogDetails: async (logId) => {
+    const response = await api.get(`/admin/audit-logs/${logId}`);
+    return response.data;
+  },
+
+  // ============ REPORTS & ANALYTICS ============
+
+  // Get election analytics
+  getElectionAnalytics: async (electionId) => {
+    const response = await api.get(`/admin/analytics/elections/${electionId}`);
+    return response.data;
+  },
+
+  // Get voter analytics
+  getVoterAnalytics: async () => {
+    const response = await api.get('/admin/analytics/voters');
+    return response.data;
+  },
+
+  // Get system analytics
+  getSystemAnalytics: async () => {
+    const response = await api.get('/admin/analytics/system');
+    return response.data;
+  },
+
+  // Generate report
+  generateReport: async (reportType, params = {}) => {
+    const queryParams = new URLSearchParams();
+    Object.keys(params).forEach(key => {
+      if (params[key]) queryParams.append(key, params[key]);
+    });
+    
+    const response = await api.get(`/admin/reports/${reportType}?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  // ============ ADMIN MANAGEMENT ============
+
+  // Get all admins
+  getAdmins: async () => {
+    const response = await api.get('/admin/admins');
+    return response.data;
+  },
+
+  // Create admin
+  createAdmin: async (adminData) => {
+    const response = await api.post('/admin/admins', adminData);
+    return response.data;
+  },
+
+  // Update admin
+  updateAdmin: async (adminId, updateData) => {
+    const response = await api.put(`/admin/admins/${adminId}`, updateData);
+    return response.data;
+  },
+
+  // Update admin profile
+  updateAdminProfile: async (adminData) => {
+    const response = await api.put('/admin/auth/profile', adminData);
+    return response.data;
+  },
+
+  // Change admin password
+  changeAdminPassword: async (passwordData) => {
+    const response = await api.put('/admin/auth/change-password', passwordData);
+    return response.data;
+  },
+
+  // ============ SYSTEM & HEALTH ============
+
+  // Health check
+  healthCheck: async () => {
+    const response = await api.get('/admin/health');
+    return response.data;
+  },
 
   // Get system settings
   getSystemSettings: async () => {
-    const response = await api.get('/admin/system-settings');
+    const response = await api.get('/admin/system/settings');
     return response.data;
   },
 
   // Update system settings
   updateSystemSettings: async (settings) => {
-    const response = await api.put('/admin/system-settings', settings);
+    const response = await api.put('/admin/system/settings', settings);
+    return response.data;
+  },
+
+  // Get backup status
+  getBackupStatus: async () => {
+    const response = await api.get('/admin/system/backup');
+    return response.data;
+  },
+
+  // Create backup
+  createBackup: async () => {
+    const response = await api.post('/admin/system/backup');
+    return response.data;
+  },
+
+  // ============ NOTIFICATIONS ============
+
+  // Get admin notifications
+  getNotifications: async (limit = 10) => {
+    const response = await api.get(`/admin/notifications?limit=${limit}`);
+    return response.data;
+  },
+
+  // Mark notification as read
+  markNotificationAsRead: async (notificationId) => {
+    const response = await api.put(`/admin/notifications/${notificationId}/read`);
+    return response.data;
+  },
+
+  // Clear all notifications
+  clearNotifications: async () => {
+    const response = await api.delete('/admin/notifications');
     return response.data;
   }
 };
