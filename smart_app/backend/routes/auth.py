@@ -6,7 +6,7 @@ import numpy as np
 import base64
 import io
 from PIL import Image
-from smart_app.backend.mongo_models import AuditLog, Voter, FaceEncoding
+from smart_app.backend.mongo_models import Admin, AuditLog, Voter, FaceEncoding
 import bcrypt
 
 logger = logging.getLogger(__name__)
@@ -19,14 +19,29 @@ JWT_SECRET = 'sUJbaMMUAKYojj0dFe94jO'
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION = timedelta(hours=24)
 
-def generate_token(voter_data):
-    """Generate JWT token for authenticated voter"""
-    payload = {
-        'voter_id': voter_data['voter_id'],
-        'email': voter_data['email'],
-        'exp': datetime.utcnow() + JWT_EXPIRATION,
-        'iat': datetime.utcnow()
-    }
+def generate_token(user_data, user_type='voter'):
+    """Generate JWT token for authenticated user (voter or admin)"""
+    if user_type == 'voter':
+        payload = {
+            'user_id': user_data['voter_id'],
+            'email': user_data['email'],
+            'user_type': 'voter',
+            'exp': datetime.utcnow() + JWT_EXPIRATION,
+            'iat': datetime.utcnow()
+        }
+    elif user_type == 'admin':
+        payload = {
+            'user_id': user_data['admin_id'],
+            'username': user_data['username'],
+            'email': user_data['email'],
+            'user_type': 'admin',
+            'role': user_data.get('role', 'admin'),
+            'exp': datetime.utcnow() + JWT_EXPIRATION,
+            'iat': datetime.utcnow()
+        }
+    else:
+        raise ValueError("Invalid user_type. Must be 'voter' or 'admin'")
+    
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def verify_token(token):
@@ -374,7 +389,7 @@ def admin_login():
                 'message': 'Invalid admin credentials'
             }), 401
         
-        print(f"Admin found: {admin['full_name']}")
+        print(f"Admin found: {admin['username']} - {admin.get('admin_id')}")
         
         # Verify password
         if not Admin.verify_password(admin, password):
@@ -406,13 +421,13 @@ def admin_login():
             'last_login': admin.get('last_login')
         }
         
-        # Generate JWT token for admin
+        # Generate JWT token for admin - FIXED: Use user_type='admin'
         admin_token = generate_token({
             'admin_id': admin['admin_id'],
             'username': admin['username'],
             'role': admin['role'],
             'email': admin['email']
-        })
+        }, user_type='admin')
         
         # Update last login
         try:
@@ -679,3 +694,38 @@ def health_check():
         'message': 'Auth service is healthy',
         'timestamp': datetime.utcnow().isoformat()
     })
+    
+@auth_bp.route('/debug/admins', methods=['GET'])
+def debug_admins():
+    """Debug endpoint to list all admins in detail"""
+    try:
+        from smart_app.backend.mongo_models import Admin
+        admins = Admin.find_all({})
+        
+        admin_list = []
+        for admin in admins:
+            admin_list.append({
+                'username': admin.get('username'),
+                'email': admin.get('email'),
+                'role': admin.get('role'),
+                'is_active': admin.get('is_active', True),
+                'has_password': 'password_hash' in admin and admin['password_hash'] is not None,
+                'password_hash_length': len(admin['password_hash']) if 'password_hash' in admin and admin['password_hash'] else 0,
+                'admin_id': admin.get('admin_id'),
+                'created_at': str(admin.get('created_at'))
+            })
+        
+        return jsonify({
+            'success': True,
+            'total_admins': len(admin_list),
+            'admins': admin_list
+        })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+        
