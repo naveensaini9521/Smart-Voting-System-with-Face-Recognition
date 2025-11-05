@@ -787,7 +787,21 @@ class Admin(MongoBase):
     
     @classmethod
     def find_by_username(cls, username):
-        return cls.get_collection().find_one({"username": username})
+        """Find admin by username"""
+        print(f"🔍 Searching for admin with username: '{username}'")
+        try:
+            admin = cls.get_collection().find_one({"username": username})
+            if admin:
+                print(f"Admin found: {admin.get('username')} - {admin.get('admin_id')}")
+            else:
+                print(f"Admin NOT found with username: '{username}'")
+                # Debug: List all usernames in admins collection
+                all_admins = list(cls.get_collection().find({}, {'username': 1}))
+                print(f"   All available usernames: {[a.get('username') for a in all_admins]}")
+            return admin
+        except Exception as e:
+            print(f"Error in find_by_username: {str(e)}")
+            return None
     
     @classmethod
     def find_by_email(cls, email):

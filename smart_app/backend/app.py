@@ -52,7 +52,7 @@ def create_app():
     app.register_blueprint(voting_bp, url_prefix="/api/voter")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
     app.register_blueprint(otp_bp, url_prefix="/api/otp")
-    app.register_blueprint(register_bp, url_prefix="/api")
+    app.register_blueprint(register_bp, url_prefix='/api/register')
     app.register_blueprint(stats_bp, url_prefix="/api")
     app.register_blueprint(home_bp, url_prefix="/api/home")
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
