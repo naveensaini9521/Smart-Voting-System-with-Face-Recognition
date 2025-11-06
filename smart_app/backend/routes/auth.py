@@ -23,7 +23,8 @@ def generate_token(user_data, user_type='voter'):
     """Generate JWT token for authenticated user (voter or admin)"""
     if user_type == 'voter':
         payload = {
-            'user_id': user_data['voter_id'],
+            'user_id': user_data['voter_id'],  # Unified user_id field
+            'voter_id': user_data['voter_id'],
             'email': user_data['email'],
             'user_type': 'voter',
             'exp': datetime.utcnow() + JWT_EXPIRATION,
@@ -31,7 +32,8 @@ def generate_token(user_data, user_type='voter'):
         }
     elif user_type == 'admin':
         payload = {
-            'user_id': user_data['admin_id'],
+            'user_id': user_data['admin_id'],  # Unified user_id field
+            'admin_id': user_data['admin_id'],
             'username': user_data['username'],
             'email': user_data['email'],
             'user_type': 'admin',
@@ -45,7 +47,7 @@ def generate_token(user_data, user_type='voter'):
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def verify_token(token):
-    """Verify JWT token"""
+    """Verify JWT token and return unified payload"""
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload
@@ -53,6 +55,24 @@ def verify_token(token):
         return None
     except jwt.InvalidTokenError:
         return None
+
+def get_user_id_from_payload(payload):
+    """Get user_id from token payload (works for both voter and admin)"""
+    if not payload:
+        return None
+    
+    # Try unified user_id first
+    user_id = payload.get('user_id')
+    if user_id:
+        return user_id
+    
+    # Fallback to type-specific IDs
+    if payload.get('user_type') == 'voter':
+        return payload.get('voter_id')
+    elif payload.get('user_type') == 'admin':
+        return payload.get('admin_id')
+    
+    return None
 
 # Add a test route to verify the blueprint is working
 @auth_bp.route('/test', methods=['GET', 'POST', 'OPTIONS'])
@@ -76,7 +96,7 @@ def login():
         
     try:
         # Log the incoming request for debugging
-        print(f"=== LOGIN REQUEST RECEIVED ===")
+        print(f"=== VOTER LOGIN REQUEST RECEIVED ===")
         print(f"Headers: {dict(request.headers)}")
         print(f"Content-Type: {request.content_type}")
         
@@ -97,7 +117,7 @@ def login():
                 'message': 'Voter ID and password are required'
             }), 400
         
-        print(f"=== LOGIN ATTEMPT ===")
+        print(f"=== VOTER LOGIN ATTEMPT ===")
         print(f"Voter ID: {voter_id}")
         
         # Find voter by voter_id
@@ -207,9 +227,9 @@ def login():
         })
         
     except Exception as e:
-        logger.error(f'Login error: {str(e)}')
+        logger.error(f'Voter login error: {str(e)}')
         import traceback
-        print(f"Login exception: {traceback.format_exc()}")
+        print(f"Voter login exception: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': 'Login failed. Please try again.'
@@ -360,17 +380,75 @@ def admin_login():
         return jsonify({'status': 'ok'}), 200
         
     try:
-        data = request.get_json()
+        print(f"=== ADMIN LOGIN REQUEST ===")
+        print(f"Content-Type: {request.content_type}")
+        print(f"Headers: {dict(request.headers)}")
+        print(f"Method: {request.method}")
+        print(f"Path: {request.path}")
+        
+        # Robust data parsing
+        data = None
+        if request.content_type and 'application/json' in request.content_type:
+            try:
+                data = request.get_json()
+                print(f"Parsed JSON data: {data}")
+            except Exception as json_error:
+                print(f"JSON parsing error: {json_error}")
+                data = None
+        
+        # If JSON parsing failed, try form data
+        if data is None:
+            try:
+                data = request.form.to_dict()
+                print(f"Parsed form data: {data}")
+            except Exception as form_error:
+                print(f"Form parsing error: {form_error}")
+                data = None
+        
+        # If still no data, try raw data
+        if data is None:
+            try:
+                raw_data = request.get_data(as_text=True)
+                print(f"Raw data: {raw_data}")
+                if raw_data:
+                    import json
+                    data = json.loads(raw_data)
+                    print(f"Parsed raw JSON data: {data}")
+            except Exception as raw_error:
+                print(f"Raw data parsing error: {raw_error}")
+                data = None
+        
         if not data:
+            print("No data could be parsed from request")
             return jsonify({
                 'success': False,
-                'message': 'No data provided'
+                'message': 'No valid data provided'
             }), 400
-            
-        username = data.get('username')
-        password = data.get('password')
+        
+        # Debug: Print the actual type and content of data
+        print(f"Data type: {type(data)}")
+        print(f"Data content: {data}")
+        
+        # Handle case where data might be a string
+        if isinstance(data, str):
+            print("Data is string, attempting to parse as JSON")
+            try:
+                import json
+                data = json.loads(data)
+                print(f"Successfully parsed string data: {data}")
+            except json.JSONDecodeError:
+                print("Failed to parse string as JSON")
+                return jsonify({
+                    'success': False,
+                    'message': 'Invalid JSON data'
+                }), 400
+        
+        # Now safely access data as dictionary
+        username = data.get('username') if isinstance(data, dict) else None
+        password = data.get('password') if isinstance(data, dict) else None
         
         if not username or not password:
+            print(f"Missing credentials. Username: {username}, Password: {'*' * len(password) if password else 'None'}")
             return jsonify({
                 'success': False,
                 'message': 'Username and password are required'
@@ -421,7 +499,7 @@ def admin_login():
             'last_login': admin.get('last_login')
         }
         
-        # Generate JWT token for admin - FIXED: Use user_type='admin'
+        # Generate JWT token for admin
         admin_token = generate_token({
             'admin_id': admin['admin_id'],
             'username': admin['username'],
@@ -489,8 +567,15 @@ def admin_verify_token():
             'message': 'Invalid or expired token'
         }), 401
     
+    # Check if user is admin
+    if payload.get('user_type') != 'admin':
+        return jsonify({
+            'success': False,
+            'message': 'Admin access required'
+        }), 403
+    
     # Get fresh admin data
-    admin = Admin.find_by_username(payload['username'])
+    admin = Admin.find_by_admin_id(payload.get('admin_id'))
     if not admin:
         return jsonify({
             'success': False,
@@ -573,27 +658,63 @@ def check_auth():
             'message': 'Invalid or expired token'
         }), 401
     
-    # Get fresh voter data
-    voter = Voter.find_by_voter_id(payload['voter_id'])
-    if not voter:
+    user_type = payload.get('user_type')
+    user_id = get_user_id_from_payload(payload)
+    
+    if user_type == 'voter':
+        # Get fresh voter data
+        voter = Voter.find_by_voter_id(user_id)
+        if not voter:
+            return jsonify({
+                'success': False,
+                'message': 'Voter not found'
+            }), 401
+        
+        voter_data = {
+            'voter_id': voter['voter_id'],
+            'full_name': voter['full_name'],
+            'email': voter['email'],
+            'constituency': voter.get('constituency', ''),
+            'polling_station': voter.get('polling_station', ''),
+            'role': 'voter'
+        }
+        
+        return jsonify({
+            'success': True,
+            'user_type': 'voter',
+            'user_data': voter_data
+        })
+    
+    elif user_type == 'admin':
+        # Get fresh admin data
+        admin = Admin.find_by_admin_id(user_id)
+        if not admin:
+            return jsonify({
+                'success': False,
+                'message': 'Admin not found'
+            }), 401
+        
+        admin_data = {
+            'admin_id': admin['admin_id'],
+            'username': admin['username'],
+            'full_name': admin['full_name'],
+            'email': admin['email'],
+            'role': admin['role'],
+            'department': admin.get('department'),
+            'access_level': admin.get('access_level', 1)
+        }
+        
+        return jsonify({
+            'success': True,
+            'user_type': 'admin',
+            'user_data': admin_data
+        })
+    
+    else:
         return jsonify({
             'success': False,
-            'message': 'Voter not found'
+            'message': 'Unknown user type'
         }), 401
-    
-    voter_data = {
-        'voter_id': voter['voter_id'],
-        'full_name': voter['full_name'],
-        'email': voter['email'],
-        'constituency': voter.get('constituency', ''),
-        'polling_station': voter.get('polling_station', ''),
-        'role': 'voter'
-    }
-    
-    return jsonify({
-        'success': True,
-        'voter_data': voter_data
-    })
 
 # Protected route example
 @auth_bp.route('/protected', methods=['GET', 'OPTIONS'])
@@ -648,11 +769,16 @@ def verify_token_route():
             'message': 'Invalid or expired token'
         }), 401
     
+    user_id = get_user_id_from_payload(payload)
+    
     return jsonify({
         'success': True,
         'message': 'Token is valid',
-        'voter_id': payload['voter_id'],
-        'email': payload['email']
+        'user_id': user_id,
+        'voter_id': payload.get('voter_id'),
+        'admin_id': payload.get('admin_id'),
+        'user_type': payload.get('user_type'),
+        'email': payload.get('email')
     })
     
 @auth_bp.route('/debug/voters', methods=['GET'])
@@ -728,4 +854,3 @@ def debug_admins():
             'error': str(e),
             'traceback': traceback.format_exc()
         }), 500
-        

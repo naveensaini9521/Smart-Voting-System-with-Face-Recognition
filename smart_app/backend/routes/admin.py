@@ -22,6 +22,7 @@ def admin_required(f):
             token = request.headers.get('Authorization')
             
             if not token or not token.startswith('Bearer '):
+                logger.error("No token provided")
                 return jsonify({
                     'success': False,
                     'message': 'Admin authentication required'
@@ -34,14 +35,16 @@ def admin_required(f):
             
             # Check if user is admin
             if payload.get('user_type') != 'admin':
+                logger.error(f"User type is not admin: {payload.get('user_type')}")
                 return jsonify({
                     'success': False,
                     'message': 'Admin access required'
                 }), 403
             
             # Verify admin exists and is active
-            admin = Admin.find_by_admin_id(payload['user_id'])
+            admin = Admin.find_by_admin_id(payload.get('admin_id'))
             if not admin or not admin.get('is_active', True):
+                logger.error(f"Admin not found or inactive: {payload.get('admin_id')}")
                 return jsonify({
                     'success': False,
                     'message': 'Admin account not found or inactive'
@@ -52,11 +55,13 @@ def admin_required(f):
             return f(*args, **kwargs)
             
         except jwt.ExpiredSignatureError:
+            logger.error("Token expired")
             return jsonify({
                 'success': False,
                 'message': 'Token expired'
             }), 401
         except jwt.InvalidTokenError:
+            logger.error("Invalid token")
             return jsonify({
                 'success': False,
                 'message': 'Invalid token'
@@ -84,7 +89,7 @@ def log_admin_action(admin, action, details, resource_id=None):
         logger.error(f"Failed to log admin action: {str(e)}")
 
 # Dashboard Statistics
-@admin_bp.route('/stats', methods=['GET'])
+@admin_bp.route('/dashboard/stats', methods=['GET'])
 @admin_required
 def get_dashboard_stats():
     """Get admin dashboard statistics"""

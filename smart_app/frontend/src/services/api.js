@@ -16,15 +16,25 @@ const api = axios.create({
 // Request interceptor to add auth token if available
 api.interceptors.request.use(
   (config) => {
-    // Try to get admin token first, then voter token
-    const adminToken = localStorage.getItem('adminToken');
-    const voterToken = localStorage.getItem('authToken');
-    
-    if (adminToken) {
-      config.headers.Authorization = `Bearer ${adminToken}`;
-    } else if (voterToken) {
-      config.headers.Authorization = `Bearer ${voterToken}`;
+    // DON'T add Authorization header to login endpoints
+    const isLoginEndpoint = 
+      config.url.includes('/auth/login') || 
+      config.url.includes('/admin/auth/login') ||
+      config.url.includes('/register') ||
+      config.url.includes('/auth/admin/login');
+
+    if (!isLoginEndpoint) {
+      // Try to get admin token first, then voter token
+      const adminToken = localStorage.getItem('adminToken');
+      const voterToken = localStorage.getItem('authToken');
+      
+      if (adminToken) {
+        config.headers.Authorization = `Bearer ${adminToken}`;
+      } else if (voterToken) {
+        config.headers.Authorization = `Bearer ${voterToken}`;
+      }
     }
+    
     return config;
   },
   (error) => {
@@ -290,6 +300,62 @@ export const voterAPI = {
     }
   },
 
+  // ============ REAL-TIME DASHBOARD ENDPOINTS ============
+
+  // Get live elections data
+  getLiveElections: async () => {
+    try {
+      const response = await api.get('/dashboard/elections/live');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to fetch live elections' };
+    }
+  },
+
+  // Get real-time notifications
+  getRealTimeNotifications: async () => {
+    try {
+      const response = await api.get('/dashboard/notifications/real-time');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to fetch real-time notifications' };
+    }
+  },
+
+  // Admin real-time update methods
+  updateElection: async (action, electionData) => {
+    try {
+      const response = await api.post('/dashboard/admin/update-election', {
+        action,
+        election_data: electionData
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to update election' };
+    }
+  },
+
+  updateVoter: async (action, voterData) => {
+    try {
+      const response = await api.post('/dashboard/admin/update-voter', {
+        action,
+        voter_data: voterData
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to update voter' };
+    }
+  },
+
+  // Socket connection helper
+  getSocketConfig: () => {
+    return {
+      url: process.env.NODE_ENV === 'development' ? 'http://localhost:5000' : window.location.origin,
+      path: '/socket.io',
+      transports: ['websocket', 'polling']
+    };
+  },
+
   // ============ NEW DASHBOARD FUNCTIONALITY ============
 
   // Get digital ID
@@ -461,10 +527,20 @@ export const voterAPI = {
 export const adminAPI = {
   // ============ ADMIN AUTHENTICATION ENDPOINTS ============
 
-  // Admin login
+  // Admin login - FIXED: Use the correct endpoint and ensure no token is sent
   login: async (credentials) => {
     console.log('Admin login attempt:', { username: credentials.username });
-    const response = await api.post('/admin/auth/login', credentials);
+    
+    // Create a separate axios instance without interceptors for login
+    const loginApi = axios.create({
+      baseURL: BASE_URL,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000,
+    });
+    
+    const response = await loginApi.post('/auth/admin/login', credentials);
     console.log('Admin login response:', response.data);
     return response.data;
   },
