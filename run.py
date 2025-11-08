@@ -1,7 +1,7 @@
 import os
 from smart_app.backend.app import create_app
 
-app = create_app()
+app, socketio = create_app()
 
 if __name__ == '__main__':
     # Check if React build exists
@@ -10,4 +10,11 @@ if __name__ == '__main__':
         print("Warning: React build not found. Please run 'npm run build' in the frontend directory.")
         print("The app will run but the frontend may not work properly.")
     
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    # Run with Socket.IO support
+    socketio.run(
+        app, 
+        host='127.0.0.1', 
+        port=5000, 
+        debug=True,
+        allow_unsafe_werkzeug=True
+    )
