@@ -237,61 +237,73 @@ const AdminDashboard = () => {
   };
 
   const handleCreateElection = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+  e.preventDefault();
+  setLoading(true);
+  setError('');
+  
+  try {
+    const formData = new FormData();
     
-    try {
-      const formData = new FormData();
-      
-      // Append all election form fields to FormData
-      Object.keys(electionForm).forEach(key => {
-        if (key === 'election_logo' || key === 'election_banner') {
-          if (electionForm[key]) {
-            formData.append(key, electionForm[key]);
-          }
-        } else if (key === 'allowed_voter_groups') {
-          formData.append(key, JSON.stringify(electionForm[key]));
-        } else {
+    // Append all election form fields to FormData
+    Object.keys(electionForm).forEach(key => {
+      if (key === 'election_logo' || key === 'election_banner') {
+        if (electionForm[key]) {
           formData.append(key, electionForm[key]);
         }
-      });
-
-      const response = await adminAPI.createElection(formData);
-      if (response.success) {
-        setSuccess('Election created successfully!');
-        setShowElectionModal(false);
-        setElectionForm({
-          title: '',
-          description: '',
-          election_type: 'national',
-          constituency: '',
-          district: '',
-          state: '',
-          voting_start: '',
-          voting_end: '',
-          registration_start: '',
-          registration_end: '',
-          max_candidates: 1,
-          require_face_verification: true,
-          election_logo: null,
-          election_banner: null,
-          election_rules: '',
-          results_visibility: 'after_voting',
-          minimum_voter_age: 18,
-          allowed_voter_groups: ['all']
-        });
-        loadElections();
+      } else if (key === 'allowed_voter_groups') {
+        // Handle array fields
+        formData.append(key, JSON.stringify(electionForm[key]));
+      } else if (key === 'require_face_verification' || key === 'is_featured') {
+        // Handle boolean fields
+        formData.append(key, electionForm[key].toString());
       } else {
-        setError(response.message || 'Failed to create election');
+        // Handle regular fields
+        formData.append(key, electionForm[key] || '');
       }
-    } catch (error) {
-      console.error('Error creating election:', error);
-      setError('Failed to create election');
-    } finally {
-      setLoading(false);
+    });
+
+    console.log('Sending election data:', Object.fromEntries(formData));
+    
+    const response = await adminAPI.createElection(formData);
+    console.log('Election creation response:', response);
+    
+    if (response.success) {
+      setSuccess('Election created successfully!');
+      setShowElectionModal(false);
+      // Reset form
+      setElectionForm({
+        title: '',
+        description: '',
+        election_type: 'national',
+        constituency: '',
+        district: '',
+        state: '',
+        voting_start: '',
+        voting_end: '',
+        registration_start: '',
+        registration_end: '',
+        max_candidates: 10,
+        require_face_verification: true,
+        election_logo: null,
+        election_banner: null,
+        election_rules: '',
+        results_visibility: 'after_end',
+        minimum_voter_age: 18,
+        allowed_voter_groups: ['all'],
+        is_featured: false
+      });
+      loadElections();
+    } else {
+      setError(response.message || 'Failed to create election');
     }
-  };
+  } catch (error) {
+    console.error('Error creating election:', error);
+    const errorMsg = error.response?.data?.message || error.message || 'Failed to create election';
+    setError(errorMsg);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleCreateCandidate = async (e) => {
     e.preventDefault();

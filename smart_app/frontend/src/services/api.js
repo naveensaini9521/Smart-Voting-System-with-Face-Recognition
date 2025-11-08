@@ -128,6 +128,17 @@ export const voterAPI = {
     return response.data;
   },
 
+  getElectionCandidates: (electionId) =>
+    api.get(`/dashboard/elections/${electionId}/candidates`),
+
+  castVote: (electionId, candidateId) =>
+    api.post(`/dashboard/elections/${electionId}/vote`, {
+      candidate_id: candidateId
+    }),
+
+  getElectionResults: (electionId) =>
+    api.get(`/dashboard/elections/${electionId}/results`),
+
   // ============ REGISTRATION ENDPOINTS ============
 
   // Register new voter - FIXED: Use /register/register endpoint
@@ -588,22 +599,14 @@ export const adminAPI = {
     return response.data;
   },
 
-  // Create election
-  createElection: async (electionData) => {
-    console.log('Creating election:', electionData.title);
-    
-    // Handle FormData for file uploads
-    if (electionData instanceof FormData) {
-      const response = await api.post('/admin/elections', electionData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data;
-    } else {
-      const response = await api.post('/admin/elections', electionData);
-      return response.data;
-    }
+  // Create election with file upload support
+  createElection: (formData) => {
+    return api.post('/admin/elections', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      timeout: 30000 // 30 second timeout for file uploads
+    });
   },
 
   // Update election
@@ -679,22 +682,14 @@ export const adminAPI = {
     return response.data;
   },
 
-  // Create candidate
-  createCandidate: async (candidateData) => {
-    console.log('Creating candidate:', candidateData.full_name);
-    
-    // Handle FormData for file uploads
-    if (candidateData instanceof FormData) {
-      const response = await api.post('/admin/candidates', candidateData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data;
-    } else {
-      const response = await api.post('/admin/candidates', candidateData);
-      return response.data;
-    }
+  // Create candidate with file upload support
+  createCandidate: (formData) => {
+    return api.post('/admin/candidates', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      timeout: 30000
+    });
   },
 
   // Approve candidate

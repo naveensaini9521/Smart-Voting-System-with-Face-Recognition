@@ -1,3 +1,4 @@
+# Updated dashboard.py with election routes
 from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, timedelta
 import logging
@@ -33,41 +34,75 @@ JWT_ALGORITHM = 'HS256'
 # Store connected clients
 connected_clients = {}
 
+# In dashboard.py, update the verify_token function:
+
 def verify_token(token):
-    """Verify JWT token (same as in auth.py)"""
+    """Verify JWT token with better error handling"""
     try:
+        # Remove any "Bearer " prefix if present
+        if token.startswith('Bearer '):
+            token = token.split(' ')[1]
+            
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        
+        # Debug logging
+        logger.info(f"Token payload: {payload}")
+        
         return payload
     except jwt.ExpiredSignatureError:
+        logger.warning("Token expired")
         return None
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid token: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Token verification error: {str(e)}")
         return None
 
 def get_authenticated_voter():
-    """Get authenticated voter from token"""
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        logger.warning("No Bearer token found in Authorization header")
+    """Get authenticated voter from token - specifically for voter routes"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        logger.info(f"Auth header: {auth_header}")
+        
+        if not auth_header:
+            logger.warning("No Authorization header found")
+            return None
+        
+        if not auth_header.startswith('Bearer '):
+            logger.warning(f"Invalid Authorization header format: {auth_header}")
+            return None
+        
+        token = auth_header.split(' ')[1]
+        if not token:
+            logger.warning("Empty token after Bearer prefix")
+            return None
+            
+        payload = verify_token(token)
+        
+        if not payload:
+            logger.warning("Token verification failed")
+            return None
+        
+        # Specifically look for voter_id, not admin_id
+        voter_id = payload.get('voter_id')
+        logger.info(f"Extracted voter_id: {voter_id}")
+        
+        if not voter_id:
+            logger.warning("No voter_id found in token payload - this might be an admin token")
+            return None
+        
+        voter = Voter.find_by_voter_id(voter_id)
+        if not voter:
+            logger.warning(f"Voter not found with ID: {voter_id}")
+            return None
+            
+        logger.info(f"Successfully authenticated voter: {voter_id}")
+        return voter
+        
+    except Exception as e:
+        logger.error(f"Error in get_authenticated_voter: {str(e)}")
         return None
-    
-    token = auth_header.split(' ')[1]
-    payload = verify_token(token)
-    
-    if not payload:
-        logger.warning("Invalid or expired token")
-        return None
-    
-    voter_id = payload.get('voter_id')
-    if not voter_id:
-        logger.warning("No voter_id in token payload")
-        return None
-    
-    voter = Voter.find_by_voter_id(voter_id)
-    if not voter:
-        logger.warning(f"Voter not found with ID: {voter_id}")
-    
-    return voter
-
 def get_authenticated_admin():
     """Get authenticated admin from token"""
     auth_header = request.headers.get('Authorization')
@@ -101,39 +136,411 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# ============ ELECTION ROUTES ============
+
+@dashboard_bp.route('/elections/active', methods=['GET'])
+@cross_origin()
+def get_active_elections_for_voting():
+    """Get active elections available for voting"""
+    try:
+        voter = get_authenticated_voter()
+        if not voter:
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+
+        # Get active elections
+        active_elections = Election.find_all({
+            "status": "active",
+            "is_active": True,
+            "voting_start": {"$lte": datetime.utcnow()},
+            "voting_end": {"$gte": datetime.utcnow()}
+        })
+
+        elections_data = []
+        for election in active_elections:
+            # Check if voter is eligible
+            is_eligible = check_voter_eligibility(voter['voter_id'], election['election_id'])
+            has_voted = Vote.has_voted(election['election_id'], voter['voter_id'])
+            
+            # Get candidates for this election
+            candidates = Candidate.find_all({
+                "election_id": election['election_id'],
+                "is_active": True,
+                "is_approved": True
+            })
+
+            election_data = {
+                'election_id': election['election_id'],
+                'title': election['title'],
+                'description': election.get('description', ''),
+                'election_type': election.get('election_type', 'general'),
+                'voting_start': election['voting_start'].isoformat() if election.get('voting_start') else None,
+                'voting_end': election['voting_end'].isoformat() if election.get('voting_end') else None,
+                'constituency': election.get('constituency', ''),
+                'is_eligible': is_eligible,
+                'has_voted': has_voted,
+                'candidates_count': len(candidates),
+                'total_votes': Vote.count({"election_id": election['election_id']}),
+                'candidates_preview': [{
+                    'candidate_id': cand['candidate_id'],
+                    'full_name': cand['full_name'],
+                    'party': cand.get('party', 'Independent'),
+                    'photo': cand.get('photo')
+                } for cand in candidates[:3]]  # Show first 3 candidates
+            }
+            elections_data.append(election_data)
+
+        return jsonify({
+            'success': True,
+            'elections': elections_data,
+            'total_active': len(elections_data)
+        })
+
+    except Exception as e:
+        logger.error(f"Active elections error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to load active elections'
+        }), 500
+
+@dashboard_bp.route('/elections/<election_id>/candidates', methods=['GET'])
+@cross_origin()
+def get_election_candidates(election_id):
+    """Get all candidates for a specific election"""
+    try:
+        voter = get_authenticated_voter()
+        if not voter:
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+
+        # Verify election exists and is active
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({
+                'success': False,
+                'message': 'Election not found'
+            }), 404
+
+        # Check if election is active
+        if election.get('status') != 'active':
+            return jsonify({
+                'success': False,
+                'message': 'Election is not active for voting'
+            }), 400
+
+        # Get all approved candidates
+        candidates = Candidate.find_all({
+            "election_id": election_id,
+            "is_active": True,
+            "is_approved": True
+        })
+
+        candidates_data = []
+        for candidate in candidates:
+            candidate_data = {
+                'candidate_id': candidate['candidate_id'],
+                'full_name': candidate['full_name'],
+                'party': candidate.get('party', 'Independent'),
+                'party_symbol': candidate.get('party_symbol'),
+                'photo': candidate.get('photo'),
+                'biography': candidate.get('biography', ''),
+                'manifesto': candidate.get('manifesto', ''),
+                'qualifications': candidate.get('qualifications', ''),
+                'agenda': candidate.get('agenda', ''),
+                'candidate_number': candidate.get('candidate_number'),
+                'vote_count': candidate.get('vote_count', 0),
+                'assets_declaration': candidate.get('assets_declaration'),
+                'criminal_records': candidate.get('criminal_records', 'none')
+            }
+            candidates_data.append(candidate_data)
+
+        return jsonify({
+            'success': True,
+            'election': {
+                'election_id': election['election_id'],
+                'title': election['title'],
+                'description': election.get('description', ''),
+                'voting_end': election.get('voting_end')
+            },
+            'candidates': candidates_data,
+            'total_candidates': len(candidates_data)
+        })
+
+    except Exception as e:
+        logger.error(f"Election candidates error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to load candidates'
+        }), 500
+
+@dashboard_bp.route('/elections/<election_id>/vote', methods=['POST'])
+@cross_origin()
+def cast_vote_in_election(election_id):
+    """Cast vote in an election"""
+    try:
+        voter = get_authenticated_voter()
+        if not voter:
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+
+        data = request.get_json()
+        candidate_id = data.get('candidate_id')
+
+        if not candidate_id:
+            return jsonify({
+                'success': False,
+                'message': 'Candidate ID is required'
+            }), 400
+
+        # Verify election exists and is active
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({
+                'success': False,
+                'message': 'Election not found'
+            }), 404
+
+        # Check if election is active
+        current_time = datetime.utcnow()
+        voting_start = election.get('voting_start')
+        voting_end = election.get('voting_end')
+        
+        if not (voting_start and voting_end):
+            return jsonify({
+                'success': False,
+                'message': 'Invalid election configuration'
+            }), 400
+
+        if current_time < voting_start:
+            return jsonify({
+                'success': False,
+                'message': 'Voting has not started yet'
+            }), 400
+
+        if current_time > voting_end:
+            return jsonify({
+                'success': False,
+                'message': 'Voting has ended'
+            }), 400
+
+        # Check if voter has already voted
+        if Vote.has_voted(election_id, voter['voter_id']):
+            return jsonify({
+                'success': False,
+                'message': 'You have already voted in this election'
+            }), 400
+
+        # Verify candidate exists and is approved
+        candidate = Candidate.find_one({
+            "candidate_id": candidate_id,
+            "election_id": election_id,
+            "is_active": True,
+            "is_approved": True
+        })
+        if not candidate:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid candidate'
+            }), 400
+
+        # Check voter eligibility
+        if not check_voter_eligibility(voter['voter_id'], election_id):
+            return jsonify({
+                'success': False,
+                'message': 'You are not eligible to vote in this election'
+            }), 400
+
+        # Create vote record
+        vote_data = {
+            'election_id': election_id,
+            'voter_id': voter['voter_id'],
+            'candidate_id': candidate_id,
+            'face_verified': voter.get('face_verified', False),
+            'ip_address': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent'),
+            'vote_timestamp': datetime.utcnow(),
+            'is_verified': True
+        }
+
+        vote_id = Vote.create_vote(vote_data)
+
+        # Update candidate vote count
+        Candidate.increment_vote_count(candidate_id)
+
+        # Update election total votes
+        Election.get_collection().update_one(
+            {"election_id": election_id},
+            {"$inc": {"total_votes": 1}}
+        )
+
+        # Log the vote
+        AuditLog.create_log(
+            action='vote_cast',
+            user_id=voter['voter_id'],
+            user_type='voter',
+            details={
+                'election_id': election_id,
+                'election_title': election['title'],
+                'candidate_id': candidate_id,
+                'candidate_name': candidate['full_name'],
+                'vote_id': vote_id
+            },
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+
+        # Broadcast real-time update
+        broadcast_election_update('vote_cast', {
+            'election_id': election_id,
+            'voter_id': voter['voter_id'],
+            'total_votes': Vote.count({"election_id": election_id})
+        })
+
+        return jsonify({
+            'success': True,
+            'message': 'Vote cast successfully',
+            'vote_id': vote_id,
+            'candidate_name': candidate['full_name'],
+            'election_title': election['title']
+        })
+
+    except Exception as e:
+        logger.error(f"Vote casting error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to cast vote'
+        }), 500
+
+@dashboard_bp.route('/elections/<election_id>/results', methods=['GET'])
+@cross_origin()
+def get_election_results(election_id):
+    """Get election results (if available)"""
+    try:
+        voter = get_authenticated_voter()
+        if not voter:
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({
+                'success': False,
+                'message': 'Election not found'
+            }), 404
+
+        # Check if results are available
+        current_time = datetime.utcnow()
+        voting_end = election.get('voting_end')
+        results_publish = election.get('results_publish')
+
+        if results_publish and current_time < results_publish:
+            return jsonify({
+                'success': False,
+                'message': 'Results are not available yet'
+            }), 400
+
+        # Get vote counts per candidate
+        pipeline = [
+            {"$match": {"election_id": election_id, "is_verified": True}},
+            {"$group": {
+                "_id": "$candidate_id",
+                "total_votes": {"$sum": 1}
+            }},
+            {"$sort": {"total_votes": -1}}
+        ]
+        
+        vote_results = list(Vote.get_collection().aggregate(pipeline))
+
+        # Get candidate details
+        candidates = Candidate.find_all({"election_id": election_id})
+        candidate_map = {cand['candidate_id']: cand for cand in candidates}
+
+        results_data = []
+        total_votes = 0
+        
+        for result in vote_results:
+            candidate = candidate_map.get(result['_id'])
+            if candidate:
+                vote_count = result['total_votes']
+                total_votes += vote_count
+                results_data.append({
+                    'candidate_id': candidate['candidate_id'],
+                    'full_name': candidate['full_name'],
+                    'party': candidate.get('party', 'Independent'),
+                    'photo': candidate.get('photo'),
+                    'vote_count': vote_count,
+                    'percentage': 0  # Will calculate below
+                })
+
+        # Calculate percentages
+        for result in results_data:
+            if total_votes > 0:
+                result['percentage'] = round((result['vote_count'] / total_votes) * 100, 2)
+
+        return jsonify({
+            'success': True,
+            'election': {
+                'election_id': election['election_id'],
+                'title': election['title'],
+                'total_votes': total_votes,
+                'voting_end': voting_end.isoformat() if voting_end else None
+            },
+            'results': results_data,
+            'results_available': True
+        })
+
+    except Exception as e:
+        logger.error(f"Election results error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to load election results'
+        }), 500
+
 # ============ SOCKETIO EVENT HANDLERS ============
 
 @socketio.on('connect')
 def handle_connect():
-    """Handle client connection"""
+    """Handle client connection with proper voter/admin distinction"""
     try:
         print(f"=== SOCKETIO CONNECTION ATTEMPT ===")
         print(f"Request args: {dict(request.args)}")
         
-        # Get voter_id from query parameters (frontend sends this)
+        # Get parameters from query
         voter_id = request.args.get('voter_id')
+        admin_id = request.args.get('admin_id')
         user_type = request.args.get('user_type', 'voter')
         
-        if not voter_id:
-            logger.warning("No voter_id provided for SocketIO connection")
-            # Try to get from token in headers (alternative approach)
+        # Alternative: try to get from Authorization header
+        if not voter_id and not admin_id:
             auth_header = request.headers.get('Authorization')
             if auth_header and auth_header.startswith('Bearer '):
                 token = auth_header.split(' ')[1]
                 payload = verify_token(token)
-                if payload and payload.get('voter_id'):
-                    voter_id = payload['voter_id']
-                    user_type = 'voter'
-                elif payload and payload.get('admin_id'):
-                    voter_id = payload['admin_id']
-                    user_type = 'admin'
+                if payload:
+                    if payload.get('voter_id'):
+                        voter_id = payload['voter_id']
+                        user_type = 'voter'
+                    elif payload.get('admin_id'):
+                        admin_id = payload['admin_id']
+                        user_type = 'admin'
         
-        if not voter_id:
-            logger.warning("No valid voter_id or admin_id found for SocketIO connection")
-            return False
+        print(f"Connection params - voter_id: {voter_id}, admin_id: {admin_id}, user_type: {user_type}")
         
-        if user_type == 'voter':
-            # Voter connected
+        if user_type == 'voter' and voter_id:
+            # Voter connection
+            voter = Voter.find_by_voter_id(voter_id)
+            if not voter:
+                logger.warning(f"Voter not found: {voter_id}")
+                return False
+                
             join_room(f'voter_{voter_id}')
             join_room('all_voters')
             join_room('public_updates')
@@ -152,27 +559,32 @@ def handle_connect():
                 'voter_id': voter_id
             })
             
-        elif user_type == 'admin':
-            # Admin connected
-            join_room(f'admin_{voter_id}')  # voter_id is actually admin_id here
+        elif user_type == 'admin' and admin_id:
+            # Admin connection
+            admin = Admin.find_by_admin_id(admin_id)
+            if not admin:
+                logger.warning(f"Admin not found: {admin_id}")
+                return False
+                
+            join_room(f'admin_{admin_id}')
             join_room('all_admins')
             join_room('public_updates')
             
             connected_clients[request.sid] = {
                 'type': 'admin',
-                'admin_id': voter_id,  # This is actually admin_id
+                'admin_id': admin_id,
                 'connected_at': datetime.utcnow().isoformat()
             }
             
-            logger.info(f"Admin {voter_id} connected to SocketIO")
+            logger.info(f"Admin {admin_id} connected to SocketIO")
             emit('connection_established', {
                 'status': 'connected',
                 'message': 'Admin real-time updates enabled',
                 'user_type': 'admin',
-                'admin_id': voter_id
+                'admin_id': admin_id
             })
         else:
-            logger.warning(f"Invalid user_type: {user_type}")
+            logger.warning(f"Invalid connection parameters - voter_id: {voter_id}, admin_id: {admin_id}, user_type: {user_type}")
             return False
             
         return True
@@ -952,40 +1364,7 @@ def get_system_status():
         'real_time_connections': get_connected_users_count()
     }
 
-def get_active_elections_count():
-    """Get count of active elections"""
-    return Election.count({
-        "status": "active",
-        "is_active": True,
-        "voting_start": {"$lte": datetime.utcnow()},
-        "voting_end": {"$gte": datetime.utcnow()}
-    })
 
-def get_today_votes_count():
-    """Get votes cast today"""
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    return Vote.count({
-        "vote_timestamp": {"$gte": today_start},
-        "is_verified": True
-    })
-
-def get_active_users_count():
-    """Get count of active users in last 24 hours"""
-    day_ago = datetime.utcnow() - timedelta(hours=24)
-    return Voter.count({
-        "last_login": {"$gte": day_ago},
-        "is_active": True
-    })
-
-def calculate_system_turnout():
-    """Calculate system-wide voter turnout"""
-    total_voters = Voter.count({"is_active": True})
-    total_votes = Vote.count({"is_verified": True})
-    
-    if total_voters == 0:
-        return 0
-    
-    return round((total_votes / total_voters) * 100, 1)
 
 def calculate_membership_duration(registration_date):
     """Calculate how long the voter has been registered"""
@@ -1811,6 +2190,8 @@ def get_election_calendar():
         logger.error(f"Error getting election calendar: {str(e)}")
         return []
 
+# Add these missing helper functions to dashboard.py
+
 def check_voter_eligibility(voter_id, election_id):
     """Check if voter is eligible for election"""
     try:
@@ -1820,24 +2201,94 @@ def check_voter_eligibility(voter_id, election_id):
         if not voter or not election:
             return False
         
+        # Check if voter has already voted
         if Vote.has_voted(election_id, voter_id):
             return False
         
-        if datetime.utcnow() > election.get('registration_end', datetime.utcnow()):
+        # Check if registration period is still open
+        current_time = datetime.utcnow()
+        registration_end = election.get('registration_end')
+        if registration_end and current_time > registration_end:
             return False
         
+        # Check constituency match
         if election.get('constituency') and voter.get('constituency'):
             if election['constituency'] != voter['constituency']:
                 return False
         
+        # Check face verification requirement
         if election.get('require_face_verification', True) and not voter.get('face_verified'):
             return False
         
+        # Check if voter is active and verified
+        if not voter.get('is_active', True):
+            return False
+        
+        # Check basic verifications
+        if not all([
+            voter.get('email_verified', False),
+            voter.get('phone_verified', False),
+            voter.get('id_verified', False)
+        ]):
+            return False
+        
         return True
+        
     except Exception as e:
         logger.error(f"Error checking voter eligibility: {str(e)}")
         return False
 
+def get_active_elections_count():
+    """Get count of active elections"""
+    try:
+        return Election.count({
+            "status": "active",
+            "is_active": True,
+            "voting_start": {"$lte": datetime.utcnow()},
+            "voting_end": {"$gte": datetime.utcnow()}
+        })
+    except Exception as e:
+        logger.error(f"Error counting active elections: {str(e)}")
+        return 0
+
+def get_today_votes_count():
+    """Get votes cast today"""
+    try:
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        return Vote.count({
+            "vote_timestamp": {"$gte": today_start},
+            "is_verified": True
+        })
+    except Exception as e:
+        logger.error(f"Error counting today's votes: {str(e)}")
+        return 0
+
+def get_active_users_count():
+    """Get count of active users in last 24 hours"""
+    try:
+        day_ago = datetime.utcnow() - timedelta(hours=24)
+        return Voter.count({
+            "last_login": {"$gte": day_ago},
+            "is_active": True
+        })
+    except Exception as e:
+        logger.error(f"Error counting active users: {str(e)}")
+        return 0
+
+def calculate_system_turnout():
+    """Calculate system-wide voter turnout"""
+    try:
+        total_voters = Voter.count({"is_active": True})
+        total_votes = Vote.count({"is_verified": True})
+        
+        if total_voters == 0:
+            return 0
+        
+        return round((total_votes / total_voters) * 100, 1)
+    except Exception as e:
+        logger.error(f"Error calculating system turnout: {str(e)}")
+        return 0
+    
 def can_vote(voter):
     """Check if voter can vote in general"""
     return all([
@@ -2180,7 +2631,7 @@ def get_elections():
             'success': False,
             'message': 'Failed to load elections data'
         }), 500
-
+        
 @dashboard_bp.route('/voting-history', methods=['GET', 'OPTIONS'])
 @cross_origin()
 def get_voting_history():
