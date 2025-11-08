@@ -13,6 +13,12 @@ const api = axios.create({
   timeout: 30000, // 30 seconds timeout
 });
 
+// Helper function to get auth header
+const authHeader = () => {
+  const token = localStorage.getItem('authToken') || localStorage.getItem('adminToken');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 // Request interceptor to add auth token if available
 api.interceptors.request.use(
   (config) => {
@@ -33,6 +39,11 @@ api.interceptors.request.use(
       } else if (voterToken) {
         config.headers.Authorization = `Bearer ${voterToken}`;
       }
+    }
+    
+    // Remove Content-Type header for FormData (browser will set it automatically)
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
     }
     
     return config;
@@ -128,20 +139,63 @@ export const voterAPI = {
     return response.data;
   },
 
-  getElectionCandidates: (electionId) =>
-    api.get(`/dashboard/elections/${electionId}/candidates`),
+  // ============ ELECTION ENDPOINTS ============
 
-  castVote: (electionId, candidateId) =>
-    api.post(`/dashboard/elections/${electionId}/vote`, {
-      candidate_id: candidateId
-    }),
+  // Get active elections for voting
+  getActiveElections: async () => {
+    try {
+      const response = await api.get('/dashboard/elections/active');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to fetch active elections' };
+    }
+  },
 
-  getElectionResults: (electionId) =>
-    api.get(`/dashboard/elections/${electionId}/results`),
+  // Get election candidates
+  getElectionCandidates: async (electionId) => {
+    try {
+      const response = await api.get(`/dashboard/elections/${electionId}/candidates`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to fetch election candidates' };
+    }
+  },
+
+  // Cast vote in election
+  castVote: async (electionId, candidateId) => {
+    try {
+      const response = await api.post(`/dashboard/elections/${electionId}/vote`, {
+        candidate_id: candidateId
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to cast vote' };
+    }
+  },
+
+  // Get election results
+  getElectionResults: async (electionId) => {
+    try {
+      const response = await api.get(`/dashboard/elections/${electionId}/results`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to fetch election results' };
+    }
+  },
+
+  // Get elections with filtering
+  getElections: async (type = 'all', status = 'all') => {
+    try {
+      const response = await api.get(`/dashboard/elections?type=${type}&status=${status}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to fetch elections' };
+    }
+  },
 
   // ============ REGISTRATION ENDPOINTS ============
 
-  // Register new voter - FIXED: Use /register/register endpoint
+  // Register new voter
   register: async (voterData) => {
     console.log('Sending registration data:', voterData);
     const response = await api.post('/register/register', voterData);
@@ -149,7 +203,7 @@ export const voterAPI = {
     return response.data;
   },
 
-  // Complete registration - FIXED: Use /register/complete-registration endpoint
+  // Complete registration
   completeRegistration: async (voterId) => {
     console.log('Completing registration for voter:', voterId);
     const response = await api.post(`/register/complete-registration/${voterId}`);
@@ -157,7 +211,7 @@ export const voterAPI = {
     return response.data;
   },
 
-  // Register face - FIXED: Use /register/register-face endpoint
+  // Register face
   registerFace: async (faceData) => {
     console.log('Registering face for voter:', faceData.voter_id);
     const response = await api.post(`/register/register-face/${faceData.voter_id}`, {
@@ -167,7 +221,7 @@ export const voterAPI = {
     return response.data;
   },
 
-  // Check voter status - FIXED: Use /register/check-voter endpoint
+  // Check voter status
   checkVoter: async (voterId) => {
     const response = await api.get(`/register/check-voter/${voterId}`);
     return response.data;
@@ -175,7 +229,7 @@ export const voterAPI = {
 
   // ============ OTP ENDPOINTS ============
 
-  // Send OTP - FIXED: Use /register/send-otp endpoint
+  // Send OTP
   sendOTP: async (otpData) => {
     console.log('Sending OTP for registration:', otpData);
     const response = await api.post('/register/send-otp', otpData);
@@ -183,7 +237,7 @@ export const voterAPI = {
     return response.data;
   },
 
-  // Verify OTP - FIXED: Use /register/verify-otp endpoint
+  // Verify OTP
   verifyOTP: async (otpData) => {
     console.log('Verifying OTP for registration:', otpData);
     const response = await api.post('/register/verify-otp', otpData);
@@ -193,14 +247,14 @@ export const voterAPI = {
 
   // ============ CONTACT VERIFICATION ENDPOINTS ============
 
-  // Send verification OTP - FIXED: Use /register/send-verification-otp endpoint
+  // Send verification OTP
   sendVerificationOTP: async (voterId, data) => {
     console.log(`Sending verification OTP for voter: ${voterId}, type: ${data.type}`);
     const response = await api.post(`/register/send-verification-otp/${voterId}`, data);
     return response.data;
   },
 
-  // Verify contact - FIXED: Use /register/verify-contact endpoint
+  // Verify contact
   verifyContact: async (voterId, data) => {
     console.log(`Verifying contact for voter: ${voterId}, type: ${data.type}`);
     const response = await api.post(`/register/verify-contact/${voterId}`, data);
@@ -281,16 +335,6 @@ export const voterAPI = {
     }
   },
 
-  // Get elections with filtering
-  getElections: async (type = 'all', status = 'all') => {
-    try {
-      const response = await api.get(`/dashboard/elections?type=${type}&status=${status}`);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || { message: 'Failed to fetch elections' };
-    }
-  },
-
   // Get notifications
   getNotifications: async (limit = 10) => {
     try {
@@ -333,38 +377,24 @@ export const voterAPI = {
     }
   },
 
-  // Admin real-time update methods
-  updateElection: async (action, electionData) => {
+  // Get live updates
+  getLiveUpdates: async () => {
     try {
-      const response = await api.post('/dashboard/admin/update-election', {
-        action,
-        election_data: electionData
-      });
+      const response = await api.get('/dashboard/live-updates');
       return response.data;
     } catch (error) {
-      throw error.response?.data || { message: 'Failed to update election' };
+      throw error.response?.data || { message: 'Failed to fetch live updates' };
     }
   },
 
-  updateVoter: async (action, voterData) => {
+  // Get socket connection info
+  getSocketInfo: async () => {
     try {
-      const response = await api.post('/dashboard/admin/update-voter', {
-        action,
-        voter_data: voterData
-      });
+      const response = await api.get('/dashboard/socket-info');
       return response.data;
     } catch (error) {
-      throw error.response?.data || { message: 'Failed to update voter' };
+      throw error.response?.data || { message: 'Failed to fetch socket info' };
     }
-  },
-
-  // Socket connection helper
-  getSocketConfig: () => {
-    return {
-      url: process.env.NODE_ENV === 'development' ? 'http://localhost:5000' : window.location.origin,
-      path: '/socket.io',
-      transports: ['websocket', 'polling']
-    };
   },
 
   // ============ NEW DASHBOARD FUNCTIONALITY ============
@@ -446,45 +476,6 @@ export const voterAPI = {
     }
   },
 
-  // Cast vote
-  castVote: async (electionId, candidateId) => {
-    try {
-      const response = await api.post('/dashboard/cast-vote', {
-        election_id: electionId,
-        candidate_id: candidateId
-      });
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || { message: 'Failed to cast vote' };
-    }
-  },
-
-  // ============ ELECTION ENDPOINTS ============
-
-  // Get active elections
-  getActiveElections: async () => {
-    const response = await api.get('/elections/active');
-    return response.data;
-  },
-
-  // Get election details
-  getElectionDetails: async (electionId) => {
-    const response = await api.get(`/elections/${electionId}`);
-    return response.data;
-  },
-
-  // Get candidates for election
-  getCandidates: async (electionId) => {
-    const response = await api.get(`/elections/${electionId}/candidates`);
-    return response.data;
-  },
-
-  // Check if already voted
-  checkVoteStatus: async (electionId, voterId) => {
-    const response = await api.get(`/vote/status/${electionId}/${voterId}`);
-    return response.data;
-  },
-
   // ============ UTILITY ENDPOINTS ============
 
   // Get system stats
@@ -531,14 +522,25 @@ export const voterAPI = {
   verifySecurityAnswer: async (voterId, answerData) => {
     const response = await api.post(`/auth/security/verify-answer/${voterId}`, answerData);
     return response.data;
+  },
+
+  // ============ SOCKET CONFIGURATION ============
+
+  // Socket connection helper
+  getSocketConfig: () => {
+    return {
+      url: process.env.NODE_ENV === 'development' ? 'http://localhost:5000' : window.location.origin,
+      path: '/socket.io',
+      transports: ['websocket', 'polling']
+    };
   }
 };
 
-// Admin API functions - UPDATED TO MATCH BACKEND ROUTES
+// Admin API functions - CORRECTED ENDPOINTS
 export const adminAPI = {
   // ============ ADMIN AUTHENTICATION ENDPOINTS ============
 
-  // Admin login - FIXED: Use the correct endpoint and ensure no token is sent
+  // Admin login
   login: async (credentials) => {
     console.log('Admin login attempt:', { username: credentials.username });
     
@@ -580,7 +582,7 @@ export const adminAPI = {
     return response.data;
   },
 
-  // Get system statistics (alias for getDashboardStats)
+  // Get system statistics
   getSystemStats: async () => {
     const response = await api.get('/admin/dashboard/stats');
     return response.data;
@@ -594,19 +596,18 @@ export const adminAPI = {
     if (params.page) queryParams.append('page', params.page);
     if (params.per_page) queryParams.append('per_page', params.per_page);
     if (params.status) queryParams.append('status', params.status);
+    if (params.type) queryParams.append('type', params.type);
     
     const response = await api.get(`/admin/elections?${queryParams.toString()}`);
     return response.data;
   },
 
   // Create election with file upload support
-  createElection: (formData) => {
-    return api.post('/admin/elections', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      },
-      timeout: 30000 // 30 second timeout for file uploads
+  createElection: async (formData) => {
+    const response = await api.post('/admin/elections', formData, {
+      timeout: 60000 // 60 second timeout for file uploads
     });
+    return response.data;
   },
 
   // Update election
@@ -627,6 +628,12 @@ export const adminAPI = {
     return response.data;
   },
 
+  // Update election status
+  updateElectionStatus: async (electionId, statusData) => {
+    const response = await api.put(`/admin/elections/${electionId}/status`, statusData);
+    return response.data;
+  },
+
   // ============ VOTER MANAGEMENT ============
 
   // Get voters with pagination
@@ -634,8 +641,8 @@ export const adminAPI = {
     const queryParams = new URLSearchParams();
     if (params.page) queryParams.append('page', params.page);
     if (params.per_page) queryParams.append('per_page', params.per_page);
-    if (params.status) queryParams.append('status', params.status);
-    if (params.verified) queryParams.append('verified', params.verified);
+    if (params.verification) queryParams.append('verification', params.verification);
+    if (params.constituency) queryParams.append('constituency', params.constituency);
     
     const response = await api.get(`/admin/voters?${queryParams.toString()}`);
     return response.data;
@@ -659,15 +666,6 @@ export const adminAPI = {
     return response.data;
   },
 
-  // Bulk verify voters
-  bulkVerifyVoters: async (voterIds, verificationType) => {
-    const response = await api.post('/admin/voters/bulk-verify', {
-      voter_ids: voterIds,
-      verification_type: verificationType
-    });
-    return response.data;
-  },
-
   // ============ CANDIDATE MANAGEMENT ============
 
   // Get candidates with pagination
@@ -676,20 +674,18 @@ export const adminAPI = {
     if (params.page) queryParams.append('page', params.page);
     if (params.per_page) queryParams.append('per_page', params.per_page);
     if (params.election_id) queryParams.append('election_id', params.election_id);
-    if (params.status) queryParams.append('status', params.status);
+    if (params.approval) queryParams.append('approval', params.approval);
     
     const response = await api.get(`/admin/candidates?${queryParams.toString()}`);
     return response.data;
   },
 
   // Create candidate with file upload support
-  createCandidate: (formData) => {
-    return api.post('/admin/candidates', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      },
-      timeout: 30000
+  createCandidate: async (formData) => {
+    const response = await api.post('/admin/candidates', formData, {
+      timeout: 60000 // 60 second timeout for file uploads
     });
+    return response.data;
   },
 
   // Approve candidate
@@ -698,21 +694,9 @@ export const adminAPI = {
     return response.data;
   },
 
-  // Reject candidate
-  rejectCandidate: async (candidateId, reason = '') => {
-    const response = await api.put(`/admin/candidates/${candidateId}/reject`, { reason });
-    return response.data;
-  },
-
   // Get candidate details
   getCandidateDetails: async (candidateId) => {
     const response = await api.get(`/admin/candidates/${candidateId}`);
-    return response.data;
-  },
-
-  // Update candidate
-  updateCandidate: async (candidateId, updateData) => {
-    const response = await api.put(`/admin/candidates/${candidateId}`, updateData);
     return response.data;
   },
 
@@ -725,83 +709,24 @@ export const adminAPI = {
     if (params.per_page) queryParams.append('per_page', params.per_page);
     if (params.action) queryParams.append('action', params.action);
     if (params.user_type) queryParams.append('user_type', params.user_type);
-    if (params.start_date) queryParams.append('start_date', params.start_date);
-    if (params.end_date) queryParams.append('end_date', params.end_date);
     
     const response = await api.get(`/admin/audit-logs?${queryParams.toString()}`);
     return response.data;
   },
 
-  // Get audit log details
-  getAuditLogDetails: async (logId) => {
-    const response = await api.get(`/admin/audit-logs/${logId}`);
+  // ============ BROADCAST & SYSTEM ============
+
+  // Broadcast message
+  broadcastMessage: async (messageData) => {
+    const response = await api.post('/admin/broadcast', messageData);
     return response.data;
   },
 
-  // ============ REPORTS & ANALYTICS ============
-
-  // Get election analytics
-  getElectionAnalytics: async (electionId) => {
-    const response = await api.get(`/admin/analytics/elections/${electionId}`);
+  // Get connected users
+  getConnectedUsers: async () => {
+    const response = await api.get('/admin/connected-users');
     return response.data;
   },
-
-  // Get voter analytics
-  getVoterAnalytics: async () => {
-    const response = await api.get('/admin/analytics/voters');
-    return response.data;
-  },
-
-  // Get system analytics
-  getSystemAnalytics: async () => {
-    const response = await api.get('/admin/analytics/system');
-    return response.data;
-  },
-
-  // Generate report
-  generateReport: async (reportType, params = {}) => {
-    const queryParams = new URLSearchParams();
-    Object.keys(params).forEach(key => {
-      if (params[key]) queryParams.append(key, params[key]);
-    });
-    
-    const response = await api.get(`/admin/reports/${reportType}?${queryParams.toString()}`);
-    return response.data;
-  },
-
-  // ============ ADMIN MANAGEMENT ============
-
-  // Get all admins
-  getAdmins: async () => {
-    const response = await api.get('/admin/admins');
-    return response.data;
-  },
-
-  // Create admin
-  createAdmin: async (adminData) => {
-    const response = await api.post('/admin/admins', adminData);
-    return response.data;
-  },
-
-  // Update admin
-  updateAdmin: async (adminId, updateData) => {
-    const response = await api.put(`/admin/admins/${adminId}`, updateData);
-    return response.data;
-  },
-
-  // Update admin profile
-  updateAdminProfile: async (adminData) => {
-    const response = await api.put('/admin/auth/profile', adminData);
-    return response.data;
-  },
-
-  // Change admin password
-  changeAdminPassword: async (passwordData) => {
-    const response = await api.put('/admin/auth/change-password', passwordData);
-    return response.data;
-  },
-
-  // ============ SYSTEM & HEALTH ============
 
   // Health check
   healthCheck: async () => {
@@ -809,48 +734,52 @@ export const adminAPI = {
     return response.data;
   },
 
-  // Get system settings
-  getSystemSettings: async () => {
-    const response = await api.get('/admin/system/settings');
-    return response.data;
+  // ============ REAL-TIME ADMIN ENDPOINTS ============
+
+  // Update election with real-time broadcast
+  updateElection: async (action, electionData) => {
+    try {
+      const response = await api.post('/dashboard/admin/update-election', {
+        action,
+        election_data: electionData
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to update election' };
+    }
   },
 
-  // Update system settings
-  updateSystemSettings: async (settings) => {
-    const response = await api.put('/admin/system/settings', settings);
-    return response.data;
+  // Update voter with real-time broadcast
+  updateVoter: async (action, voterData) => {
+    try {
+      const response = await api.post('/dashboard/admin/update-voter', {
+        action,
+        voter_data: voterData
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to update voter' };
+    }
   },
 
-  // Get backup status
-  getBackupStatus: async () => {
-    const response = await api.get('/admin/system/backup');
-    return response.data;
+  // Admin broadcast to all voters
+  adminBroadcast: async (messageData) => {
+    try {
+      const response = await api.post('/dashboard/admin/broadcast', messageData);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to send broadcast' };
+    }
   },
 
-  // Create backup
-  createBackup: async () => {
-    const response = await api.post('/admin/system/backup');
-    return response.data;
-  },
-
-  // ============ NOTIFICATIONS ============
-
-  // Get admin notifications
-  getNotifications: async (limit = 10) => {
-    const response = await api.get(`/admin/notifications?limit=${limit}`);
-    return response.data;
-  },
-
-  // Mark notification as read
-  markNotificationAsRead: async (notificationId) => {
-    const response = await api.put(`/admin/notifications/${notificationId}/read`);
-    return response.data;
-  },
-
-  // Clear all notifications
-  clearNotifications: async () => {
-    const response = await api.delete('/admin/notifications');
-    return response.data;
+  // Get connected users info
+  getConnectedUsersInfo: async () => {
+    try {
+      const response = await api.get('/dashboard/admin/connected-users');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to get connected users' };
+    }
   }
 };
 

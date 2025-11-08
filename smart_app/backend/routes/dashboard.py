@@ -103,6 +103,7 @@ def get_authenticated_voter():
     except Exception as e:
         logger.error(f"Error in get_authenticated_voter: {str(e)}")
         return None
+
 def get_authenticated_admin():
     """Get authenticated admin from token"""
     auth_header = request.headers.get('Authorization')
@@ -137,6 +138,44 @@ def admin_required(f):
     return decorated_function
 
 # ============ ELECTION ROUTES ============
+
+@dashboard_bp.route('/elections', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_elections_for_voter():
+    """Get elections data for voter dashboard with filtering"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
+    try:
+        voter = get_authenticated_voter()
+        if not voter:
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+        
+        election_type = request.args.get('type', 'all')
+        status = request.args.get('status', 'all')
+        
+        elections_data = {
+            'upcoming': get_upcoming_elections(voter, election_type),
+            'active': get_active_elections(voter, election_type),
+            'completed': get_past_elections(voter, election_type),
+            'statistics': get_election_statistics(voter['voter_id']),
+            'type_counts': get_election_type_counts()
+        }
+        
+        return jsonify({
+            'success': True,
+            'elections_data': elections_data
+        })
+        
+    except Exception as e:
+        logger.error(f'Elections error: {str(e)}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': 'Failed to load elections data'
+        }), 500
 
 @dashboard_bp.route('/elections/active', methods=['GET'])
 @cross_origin()
@@ -204,6 +243,7 @@ def get_active_elections_for_voting():
             'success': False,
             'message': 'Failed to load active elections'
         }), 500
+        
 
 @dashboard_bp.route('/elections/<election_id>/candidates', methods=['GET'])
 @cross_origin()
@@ -358,6 +398,7 @@ def cast_vote_in_election(election_id):
 
         # Create vote record
         vote_data = {
+            'vote_id': f"VOTE_{election_id}_{voter['voter_id']}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
             'election_id': election_id,
             'voter_id': voter['voter_id'],
             'candidate_id': candidate_id,
@@ -370,8 +411,11 @@ def cast_vote_in_election(election_id):
 
         vote_id = Vote.create_vote(vote_data)
 
-        # Update candidate vote count
-        Candidate.increment_vote_count(candidate_id)
+        # Update candidate vote count - FIXED
+        Candidate.get_collection().update_one(
+            {"candidate_id": candidate_id},
+            {"$inc": {"vote_count": 1}}
+        )
 
         # Update election total votes
         Election.get_collection().update_one(
@@ -1967,7 +2011,7 @@ def get_voter_voting_history(voter_id):
             # Get election details
             election = Election.find_by_election_id(vote['election_id'])
             # Get candidate details if available
-            candidate = Candidate.find_by_candidate_id(vote['candidate_id']) if vote.get('candidate_id') else None
+            candidate = Candidate.find_one({"candidate_id": vote['candidate_id']}) if vote.get('candidate_id') else None
             
             voting_history.append({
                 'election_id': vote['election_id'],
@@ -2594,43 +2638,6 @@ def get_profile():
             'message': 'Failed to load profile'
         }), 500
 
-@dashboard_bp.route('/elections', methods=['GET', 'OPTIONS'])
-@cross_origin()
-def get_elections():
-    """Get elections data with filtering"""
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
-        
-    try:
-        voter = get_authenticated_voter()
-        if not voter:
-            return jsonify({
-                'success': False,
-                'message': 'Authentication required'
-            }), 401
-        
-        election_type = request.args.get('type', 'all')
-        status = request.args.get('status', 'all')
-        
-        elections_data = {
-            'upcoming': get_upcoming_elections(voter, election_type),
-            'active': get_active_elections(voter, election_type),
-            'completed': get_past_elections(voter, election_type),
-            'statistics': get_election_statistics(voter['voter_id']),
-            'type_counts': get_election_type_counts()
-        }
-        
-        return jsonify({
-            'success': True,
-            'elections_data': elections_data
-        })
-        
-    except Exception as e:
-        logger.error(f'Elections error: {str(e)}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': 'Failed to load elections data'
-        }), 500
         
 @dashboard_bp.route('/voting-history', methods=['GET', 'OPTIONS'])
 @cross_origin()
@@ -2759,3 +2766,65 @@ def get_trusted_devices(voter_id):
 # Export the socketio instance for use in app.py
 def get_socketio():
     return socketio
+
+
+# Temporary
+@dashboard_bp.route('/create-test-election', methods=['POST'])
+@admin_required
+def create_test_election():
+    """Create a test election for development"""
+    try:
+        election_data = {
+            'election_id': 'TEST_ELECTION_001',
+            'title': 'Sample General Election 2024',
+            'description': 'This is a test election for development purposes',
+            'election_type': 'general',
+            'status': 'active',
+            'voting_start': datetime.utcnow(),
+            'voting_end': datetime.utcnow() + timedelta(days=7),
+            'registration_start': datetime.utcnow() - timedelta(days=1),
+            'registration_end': datetime.utcnow() + timedelta(days=6),
+            'constituency': 'General Constituency',
+            'is_active': True,
+            'require_face_verification': False
+        }
+        
+        election_id = Election.create_election(election_data)
+        
+        # Create test candidates
+        candidates = [
+            {
+                'candidate_id': 'CAND001',
+                'election_id': 'TEST_ELECTION_001',
+                'full_name': 'John Smith',
+                'party': 'Democratic Party',
+                'biography': 'Experienced leader with 10 years in public service',
+                'is_approved': True,
+                'is_active': True
+            },
+            {
+                'candidate_id': 'CAND002', 
+                'election_id': 'TEST_ELECTION_001',
+                'full_name': 'Sarah Johnson',
+                'party': 'Republican Party',
+                'biography': 'Business leader and community advocate',
+                'is_approved': True,
+                'is_active': True
+            }
+        ]
+        
+        for candidate in candidates:
+            Candidate.create_candidate(candidate)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Test election created successfully',
+            'election_id': election_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Create test election error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to create test election'
+        }), 500

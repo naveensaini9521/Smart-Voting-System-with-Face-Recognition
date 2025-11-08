@@ -1088,16 +1088,23 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon 
     try {
       const response = await voterAPI.getActiveElections();
       if (response.success) {
-        setActiveElections(response.elections);
+        setActiveElections(response.elections || []);
       } else {
         setError(response.message || 'Failed to load elections');
       }
     } catch (err) {
-      setError('Failed to load active elections');
-      console.error('Error loading elections:', err);
-    } finally {
-      setLoading(false);
+    const errorMsg = err.response?.data?.message || err.message || 'Failed to load active elections';
+    setError(errorMsg);
+    console.error('Error loading elections:', err);
+    
+    // If it's an authentication error, redirect to login
+    if (err.response?.status === 401) {
+      // You might want to handle this differently based on your auth setup
+      console.log('Authentication error, redirecting to login...');
     }
+  } finally {
+    setLoading(false);
+  }
   };
 
   const loadElectionCandidates = async (electionId) => {

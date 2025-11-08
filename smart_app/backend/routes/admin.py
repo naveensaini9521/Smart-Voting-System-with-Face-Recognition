@@ -5,7 +5,7 @@ from functools import wraps
 import jwt
 
 from smart_app.backend.mongo_models import Admin, Election, Voter, Vote, Candidate, AuditLog
-from smart_app.backend.routes.dashboard import broadcast_election_update, broadcast_system_update
+from smart_app.backend.routes.dashboard import broadcast_election_update, broadcast_system_update, broadcast_voter_update
 
 admin_bp = Blueprint('admin', __name__)
 logger = logging.getLogger(__name__)
@@ -855,6 +855,12 @@ def update_voter_status(voter_id):
     """Update voter status (active/inactive) with real-time updates"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+            
         status = data.get('status')  # 'active' or 'inactive'
         
         if status not in ['active', 'inactive']:
@@ -878,8 +884,7 @@ def update_voter_status(voter_id):
             {"is_active": is_active, "updated_at": datetime.utcnow()}
         )
         
-        # Broadcast real-time update
-        from smart_app.backend.dashboard import broadcast_voter_update
+        # Broadcast real-time update - use the function defined in this file
         broadcast_voter_update('status_update', {
             'voter_id': voter_id,
             'full_name': voter['full_name'],
@@ -1219,19 +1224,39 @@ def approve_candidate(candidate_id):
 @admin_bp.route('/candidates', methods=['POST'])
 @admin_required
 def create_candidate():
-    """Create a new candidate"""
+    """Create a new candidate - supports both form data and JSON"""
     try:
-        data = request.get_json()
+        # Check content type and parse data accordingly
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            # Handle form data
+            data = {
+                'election_id': request.form.get('election_id'),
+                'full_name': request.form.get('full_name'),
+                'party': request.form.get('party', 'Independent'),
+                'biography': request.form.get('biography', ''),
+                'email': request.form.get('email'),
+                'phone': request.form.get('phone'),
+                'candidate_id': request.form.get('candidate_id'),
+                'agenda': request.form.get('agenda', ''),
+                'qualifications': request.form.get('qualifications', ''),
+                'assets_declaration': request.form.get('assets_declaration'),
+                'criminal_records': request.form.get('criminal_records', 'none'),
+                'symbol_name': request.form.get('symbol_name', '')
+            }
+        else:
+            # Handle JSON data
+            data = request.get_json()
+            if not data:
+                return jsonify({
+                    'success': False,
+                    'message': 'No data provided'
+                }), 400
         
-        if not data:
-            return jsonify({
-                'success': False,
-                'message': 'No data provided'
-            }), 400
+        logger.info(f"Creating candidate with data: {data}")
         
-        required_fields = ['election_id', 'full_name']
+        required_fields = ['election_id', 'full_name', 'candidate_id']
         for field in required_fields:
-            if field not in data:
+            if field not in data or not data[field]:
                 return jsonify({
                     'success': False,
                     'message': f'Missing required field: {field}'
@@ -1245,30 +1270,58 @@ def create_candidate():
                 'message': 'Election not found'
             }), 404
         
+        # Handle file uploads for form data
+        photo = None
+        party_logo = None
+        election_symbol = None
+        
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            if 'photo' in request.files:
+                photo_file = request.files['photo']
+                if photo_file and photo_file.filename:
+                    # In a real implementation, save the file and store path
+                    photo = f"/uploads/candidates/photos/{photo_file.filename}"
+            
+            if 'party_logo' in request.files:
+                party_file = request.files['party_logo']
+                if party_file and party_file.filename:
+                    party_logo = f"/uploads/parties/logos/{party_file.filename}"
+            
+            if 'election_symbol' in request.files:
+                symbol_file = request.files['election_symbol']
+                if symbol_file and symbol_file.filename:
+                    election_symbol = f"/uploads/candidates/symbols/{symbol_file.filename}"
+        
         candidate_data = {
             'election_id': data['election_id'],
             'full_name': data['full_name'],
+            'candidate_id': data['candidate_id'],
             'party': data.get('party', 'Independent'),
-            'party_symbol': data.get('party_symbol'),
-            'photo': data.get('photo'),
+            'party_symbol': party_logo,
+            'photo': photo,
             'biography': data.get('biography', ''),
-            'manifesto': data.get('manifesto', ''),
+            'manifesto': data.get('agenda', ''),
             'qualifications': data.get('qualifications', ''),
-            'experience': data.get('experience', ''),
             'email': data.get('email'),
             'phone': data.get('phone'),
-            'website': data.get('website'),
             'agenda': data.get('agenda', ''),
             'assets_declaration': data.get('assets_declaration'),
             'criminal_records': data.get('criminal_records', 'none'),
-            'is_active': data.get('is_active', True),
-            'is_approved': data.get('is_approved', True),
+            'is_active': True,
+            'is_approved': True,  # Auto-approve when created by admin
             'nominated_by': request.admin['username'],
-            'candidate_number': data.get('candidate_number')
+            'symbol_name': data.get('symbol_name')
         }
         
         candidate_id = Candidate.create_candidate(candidate_data)
         candidate = Candidate.find_by_candidate_id(candidate_id)
+        
+        # Broadcast system update
+        broadcast_system_update('candidate_created', {
+            'candidate_id': candidate_id,
+            'candidate_name': data['full_name'],
+            'election_id': data['election_id']
+        }, request.admin['admin_id'])
         
         # Log the action
         log_admin_action(
@@ -1291,10 +1344,10 @@ def create_candidate():
         })
         
     except Exception as e:
-        logger.error(f"Create candidate error: {str(e)}")
+        logger.error(f"Create candidate error: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': 'Failed to create candidate'
+            'message': f'Failed to create candidate: {str(e)}'
         }), 500
 
 # System broadcast message to all voters
