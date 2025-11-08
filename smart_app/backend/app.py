@@ -4,7 +4,7 @@ from flask_jwt_extended import JWTManager
 import os
 from dotenv import load_dotenv
 from config import config_map 
-from smart_app.backend.extensions import mongo, jwt, mail, bcrypt
+from smart_app.backend.extensions import mongo, jwt, mail, bcrypt, socketio
 from smart_app.backend.create_mongo_collections import create_collections
 
 # Register Blueprints
@@ -18,6 +18,11 @@ from smart_app.backend.routes.stats import stats_bp
 from smart_app.backend.routes.home import home_bp  
 from smart_app.backend.routes.test_mongodb import mongodb_bp 
 from smart_app.backend.routes.dashboard import dashboard_bp
+from smart_app.backend.socket_io import socketio
+
+# Import Socket.IO event handlers
+from smart_app.backend.socket_events import register_socket_events
+
 # Load environment variables
 load_dotenv()
 
@@ -31,21 +36,35 @@ def create_app():
     # Ensure uploads folder exists
     os.makedirs(app.config.get("UPLOAD_FOLDER", "uploads"), exist_ok=True)
     
-    
     # Enable CORS for React dev server - FIXED CONFIGURATION
     # Enable CORS for all relevant origins
     CORS(app, 
-        origins=["http://localhost:5000", "http://127.0.0.1:5000", "http://localhost:3000", "http://127.0.0.1:3000"],
+        origins=[
+            "http://localhost:5000", "http://127.0.0.1:5000", "http://localhost:3000", "http://127.0.0.1:3000",
+            "http://localhost:5173",  # Vite dev server
+            "http://127.0.0.1:5173"   # Vite dev server
+        ],
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
-        supports_credentials=True)    # Enable CORS for React dev server
-    
+        supports_credentials=True)
 
     # Initialize extensions
     mongo.init_app(app)
     jwt.init_app(app)
     mail.init_app(app)
     bcrypt.init_app(app)
+    
+    # Initialize Socket.IO with the app
+    socketio.init_app(
+        app, 
+        cors_allowed_origins=[
+            "http://localhost:5000", "http://127.0.0.1:5000", "http://localhost:3000", "http://127.0.0.1:3000",
+            "http://localhost:5173", "http://127.0.0.1:5173"
+        ],
+        async_mode='threading',
+        logger=True,
+        engineio_logger=False
+    )
 
     # Register API Blueprints
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -60,6 +79,9 @@ def create_app():
 
     # Register React frontend last
     app.register_blueprint(frontend_bp)
+
+    # Register Socket.IO event handlers
+    register_socket_events(socketio)
 
     # Global error handlers (for API routes)
     @app.errorhandler(404)
@@ -77,10 +99,15 @@ def create_app():
     def test_api():
         return jsonify({'message': 'API is working!', 'status': 'success'})
 
+    # Socket.IO test route
+    @app.route('/api/socket-test')
+    def socket_test():
+        return jsonify({'message': 'Socket.IO is available!', 'status': 'success'})
+
     # Create tables
     with app.app_context():
         create_collections(app)
         collections = mongo.db.list_collection_names()
+        print(f"Available collections: {collections}")
 
-
-    return app
+    return app, socketio

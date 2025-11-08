@@ -741,6 +741,7 @@ class Vote(MongoBase):
         return cls.aggregate(pipeline)
 
 
+
 class Admin(MongoBase):
     collection_name = "admins"
     
@@ -797,7 +798,7 @@ class Admin(MongoBase):
                 print(f"Admin NOT found with username: '{username}'")
                 # Debug: List all usernames in admins collection
                 all_admins = list(cls.get_collection().find({}, {'username': 1}))
-                print(f"   All available usernames: {[a.get('username') for a in all_admins]}")
+                print(f"   📋 All available usernames: {[a.get('username') for a in all_admins]}")
             return admin
         except Exception as e:
             print(f"Error in find_by_username: {str(e)}")
@@ -809,18 +810,45 @@ class Admin(MongoBase):
     
     @classmethod
     def find_by_admin_id(cls, admin_id):
-        return cls.get_collection().find_one({"admin_id": admin_id})
+        """Find admin by admin_id"""
+        print(f"🔍 Searching for admin with admin_id: '{admin_id}'")
+        try:
+            admin = cls.get_collection().find_one({"admin_id": admin_id})
+            if admin:
+                print(f"Admin found by admin_id: {admin.get('username')} - {admin.get('admin_id')}")
+            else:
+                print(f"Admin NOT found with admin_id: '{admin_id}'")
+            return admin
+        except Exception as e:
+            print(f"Error in find_by_admin_id: {str(e)}")
+            return None
     
     @classmethod
     def verify_password(cls, admin_doc, password):
         """Verify admin password"""
         if not admin_doc or 'password_hash' not in admin_doc:
+            print("No admin document or password hash found")
             return False
         
-        # Use bcrypt directly with proper encoding
-        password_bytes = password.encode('utf-8')
-        stored_hash_bytes = admin_doc['password_hash'].encode('utf-8')
-        return bcrypt.checkpw(password_bytes, stored_hash_bytes)
+        try:
+            # Use bcrypt directly with proper encoding
+            password_bytes = password.encode('utf-8')
+            stored_hash = admin_doc['password_hash']
+            
+            # Handle both string and bytes stored hash
+            if isinstance(stored_hash, str):
+                stored_hash_bytes = stored_hash.encode('utf-8')
+            else:
+                stored_hash_bytes = stored_hash
+                
+            # Verify password
+            result = bcrypt.checkpw(password_bytes, stored_hash_bytes)
+            print(f"🔐 Password verification result: {result}")
+            return result
+            
+        except Exception as e:
+            print(f"Password verification error: {str(e)}")
+            return False
     
     @classmethod
     def get_all_admins(cls):
