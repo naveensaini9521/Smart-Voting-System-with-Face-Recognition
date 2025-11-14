@@ -4,12 +4,13 @@ import { Container, Spinner } from 'react-bootstrap';
 // Import Components
 import Header from './components/common/Header.jsx';
 import Footer from './components/common/Footer.jsx';
+import VotingPage from './components/VotingPage.jsx';
 // Import Pages
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/registerpage.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
-import VotingPage from './pages/VotingPage.jsx';
+// import VotingPage from './pages/VotingPage.jsx';
 import ResultsPage from './pages/ResultsPage.jsx';
 import AdminLoginPage from './pages/AdminLoginPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';

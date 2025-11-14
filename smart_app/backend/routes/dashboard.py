@@ -1,4 +1,4 @@
-# Updated dashboard.py with election routes
+# Updated dashboard.py with election routes and SocketIO fixes
 from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, timedelta
 import logging
@@ -24,8 +24,16 @@ logger = logging.getLogger(__name__)
 # Create blueprint
 dashboard_bp = Blueprint('dashboard', __name__)
 
-# Initialize SocketIO
-socketio = SocketIO(cors_allowed_origins="*", async_mode='threading')
+# Initialize SocketIO with proper configuration
+socketio = SocketIO(
+    cors_allowed_origins="*", 
+    async_mode='threading',
+    logger=True,
+    engineio_logger=True,
+    ping_timeout=60,
+    ping_interval=25,
+    max_http_buffer_size=1e8
+)
 
 # JWT configuration (should match auth.py)
 JWT_SECRET = 'sUJbaMMUAKYojj0dFe94jO'
@@ -37,16 +45,26 @@ connected_clients = {}
 # In dashboard.py, update the verify_token function:
 
 def verify_token(token):
-    """Verify JWT token with better error handling"""
+    """Verify JWT token with better error handling and debugging"""
     try:
+        if not token:
+            logger.warning("No token provided")
+            return None
+            
         # Remove any "Bearer " prefix if present
         if token.startswith('Bearer '):
-            token = token.split(' ')[1]
+            token = token.split(' ')[1].strip()
+        
+        if not token:
+            logger.warning("Empty token after Bearer prefix removal")
+            return None
             
+        logger.info(f"Verifying token: {token[:20]}...")
+        
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         
         # Debug logging
-        logger.info(f"Token payload: {payload}")
+        logger.info(f"Token payload verified: {list(payload.keys())}")
         
         return payload
     except jwt.ExpiredSignatureError:
@@ -63,17 +81,17 @@ def get_authenticated_voter():
     """Get authenticated voter from token - specifically for voter routes"""
     try:
         auth_header = request.headers.get('Authorization')
-        logger.info(f"Auth header: {auth_header}")
+        logger.info(f"Auth header present: {bool(auth_header)}")
         
         if not auth_header:
             logger.warning("No Authorization header found")
             return None
         
         if not auth_header.startswith('Bearer '):
-            logger.warning(f"Invalid Authorization header format: {auth_header}")
+            logger.warning(f"Invalid Authorization header format: {auth_header[:50]}...")
             return None
         
-        token = auth_header.split(' ')[1]
+        token = auth_header.split(' ')[1].strip()
         if not token:
             logger.warning("Empty token after Bearer prefix")
             return None
@@ -86,7 +104,7 @@ def get_authenticated_voter():
         
         # Specifically look for voter_id, not admin_id
         voter_id = payload.get('voter_id')
-        logger.info(f"Extracted voter_id: {voter_id}")
+        logger.info(f"Extracted voter_id from token: {voter_id}")
         
         if not voter_id:
             logger.warning("No voter_id found in token payload - this might be an admin token")
@@ -102,6 +120,8 @@ def get_authenticated_voter():
         
     except Exception as e:
         logger.error(f"Error in get_authenticated_voter: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None
 
 def get_authenticated_admin():
@@ -136,6 +156,375 @@ def admin_required(f):
         request.admin = admin
         return f(*args, **kwargs)
     return decorated_function
+
+# ============ SOCKETIO FIXES ============
+
+def safe_emit(event, data, room=None, broadcast=False):
+    """Safely emit events with error handling"""
+    try:
+        if room:
+            socketio.emit(event, data, room=room, broadcast=broadcast)
+        else:
+            socketio.emit(event, data, broadcast=broadcast)
+        return True
+    except Exception as e:
+        logger.error(f"Safe emit error for event {event}: {str(e)}")
+        return False
+
+@socketio.on_error_default
+def default_error_handler(e):
+    """Handle SocketIO errors gracefully"""
+    logger.error(f"SocketIO error for event {request.event}: {str(e)}")
+    logger.error(f"Error type: {type(e)}")
+    import traceback
+    logger.error(f"Traceback: {traceback.format_exc()}")
+    
+    # Only emit if we have an active connection
+    try:
+        emit('error', {
+            'message': 'An unexpected error occurred',
+            'event': request.event,
+            'sid': request.sid
+        })
+    except Exception as emit_error:
+        logger.error(f"Could not emit error message: {str(emit_error)}")
+
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection with proper voter/admin distinction"""
+    try:
+        logger.info(f"=== SOCKETIO CONNECTION ATTEMPT ===")
+        logger.info(f"Request SID: {request.sid}")
+        logger.info(f"Request args: {dict(request.args)}")
+        
+        # Get parameters from query string (for direct WebSocket connections)
+        voter_id = request.args.get('voter_id')
+        admin_id = request.args.get('admin_id')
+        user_type = request.args.get('user_type', 'voter')
+        
+        logger.info(f"Query params - voter_id: {voter_id}, admin_id: {admin_id}, user_type: {user_type}")
+        
+        # If no voter_id in query, try to get from token in headers
+        if not voter_id and not admin_id:
+            auth_header = request.headers.get('Authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                try:
+                    token = auth_header.split(' ')[1].strip()
+                    payload = verify_token(token)
+                    if payload:
+                        if payload.get('voter_id'):
+                            voter_id = payload['voter_id']
+                            user_type = 'voter'
+                            logger.info(f"Found voter_id from token: {voter_id}")
+                        elif payload.get('admin_id'):
+                            admin_id = payload['admin_id']
+                            user_type = 'admin'
+                            logger.info(f"Found admin_id from token: {admin_id}")
+                except Exception as token_error:
+                    logger.warning(f"Token parsing error in connect: {str(token_error)}")
+        
+        # Validate and process connection
+        if user_type == 'voter' and voter_id:
+            return handle_voter_connection(voter_id)
+        elif user_type == 'admin' and admin_id:
+            return handle_admin_connection(admin_id)
+        else:
+            logger.warning(f"Invalid connection parameters - voter_id: {voter_id}, admin_id: {admin_id}, user_type: {user_type}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"SocketIO connection error: {str(e)}")
+        import traceback
+        logger.error(f"SocketIO traceback: {traceback.format_exc()}")
+        return False
+
+def handle_voter_connection(voter_id):
+    """Handle voter WebSocket connection"""
+    try:
+        voter = Voter.find_by_voter_id(voter_id)
+        if not voter:
+            logger.warning(f"Voter not found: {voter_id}")
+            return False
+            
+        # Join rooms
+        join_room(f'voter_{voter_id}')
+        join_room('all_voters')
+        join_room('public_updates')
+        
+        # Store connection info
+        connected_clients[request.sid] = {
+            'type': 'voter',
+            'voter_id': voter_id,
+            'connected_at': datetime.utcnow().isoformat()
+        }
+        
+        logger.info(f"Voter {voter_id} connected to SocketIO. SID: {request.sid}")
+        
+        # Emit connection confirmation
+        emit('connection_established', {
+            'status': 'connected',
+            'message': 'Real-time updates enabled',
+            'user_type': 'voter',
+            'voter_id': voter_id,
+            'sid': request.sid
+        })
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Voter connection handler error: {str(e)}")
+        return False
+
+def handle_admin_connection(admin_id):
+    """Handle admin WebSocket connection"""
+    try:
+        admin = Admin.find_by_admin_id(admin_id)
+        if not admin:
+            logger.warning(f"Admin not found: {admin_id}")
+            return False
+            
+        # Join rooms
+        join_room(f'admin_{admin_id}')
+        join_room('all_admins')
+        join_room('public_updates')
+        
+        # Store connection info
+        connected_clients[request.sid] = {
+            'type': 'admin',
+            'admin_id': admin_id,
+            'connected_at': datetime.utcnow().isoformat()
+        }
+        
+        logger.info(f"Admin {admin_id} connected to SocketIO. SID: {request.sid}")
+        
+        # Emit connection confirmation
+        emit('connection_established', {
+            'status': 'connected',
+            'message': 'Admin real-time updates enabled',
+            'user_type': 'admin',
+            'admin_id': admin_id,
+            'sid': request.sid
+        })
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Admin connection handler error: {str(e)}")
+        return False
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection"""
+    try:
+        client_data = connected_clients.pop(request.sid, None)
+        if client_data:
+            user_type = client_data.get('type')
+            user_id = client_data.get('voter_id') or client_data.get('admin_id')
+            logger.info(f"{user_type} {user_id} disconnected from SocketIO")
+            
+    except Exception as e:
+        logger.error(f"SocketIO disconnect error: {str(e)}")
+
+@socketio.on('subscribe_elections')
+def handle_subscribe_elections(data):
+    """Handle election subscription requests"""
+    try:
+        voter_id = data.get('voter_id')
+        if not voter_id:
+            logger.warning("No voter_id provided for election subscription")
+            return
+        
+        # Join election-specific room
+        room_name = f'elections_{voter_id}'
+        join_room(room_name)
+        
+        logger.info(f"Client {request.sid} subscribed to elections for voter {voter_id}")
+        
+        safe_emit('subscription_success', {
+            'message': f'Subscribed to election updates for voter {voter_id}',
+            'room': room_name
+        })
+        
+    except Exception as e:
+        logger.error(f"Election subscription error: {str(e)}")
+        safe_emit('subscription_error', {
+            'message': 'Failed to subscribe to election updates'
+        })
+
+@socketio.on('join_election_updates')
+def handle_join_election_updates(data):
+    """Join election-specific update room"""
+    try:
+        election_id = data.get('election_id')
+        if election_id:
+            join_room(f'election_{election_id}')
+            safe_emit('room_joined', {
+                'room': f'election_{election_id}',
+                'message': f'Subscribed to election {election_id} updates'
+            })
+    except Exception as e:
+        logger.error(f"Error joining election room: {str(e)}")
+
+@socketio.on('leave_election_updates')
+def handle_leave_election_updates(data):
+    """Leave election-specific update room"""
+    try:
+        election_id = data.get('election_id')
+        if election_id:
+            leave_room(f'election_{election_id}')
+            safe_emit('room_left', {
+                'room': f'election_{election_id}',
+                'message': f'Unsubscribed from election {election_id} updates'
+            })
+    except Exception as e:
+        logger.error(f"Error leaving election room: {str(e)}")
+
+@socketio.on('request_dashboard_update')
+def handle_dashboard_update_request():
+    """Handle request for immediate dashboard update"""
+    try:
+        client_data = connected_clients.get(request.sid)
+        if client_data and client_data.get('type') == 'voter':
+            voter_id = client_data.get('voter_id')
+            voter = Voter.find_by_voter_id(voter_id)
+            if voter:
+                dashboard_data = get_enhanced_dashboard_data(voter)
+                safe_emit('dashboard_update', {
+                    'data': dashboard_data,
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'type': 'full_update'
+                })
+    except Exception as e:
+        logger.error(f"Dashboard update request error: {str(e)}")
+
+@socketio.on('admin_broadcast_message')
+def handle_admin_broadcast(data):
+    """Handle admin broadcast messages"""
+    try:
+        client_data = connected_clients.get(request.sid)
+        if not client_data or client_data.get('type') != 'admin':
+            safe_emit('error', {'message': 'Admin access required'})
+            return
+        
+        message = data.get('message')
+        broadcast_type = data.get('type', 'info')  # info, warning, urgent
+        
+        if message:
+            # Broadcast to all voters
+            safe_emit('admin_broadcast', {
+                'message': message,
+                'type': broadcast_type,
+                'admin_id': client_data.get('admin_id'),
+                'timestamp': datetime.utcnow().isoformat()
+            }, room='all_voters', broadcast=True)
+            
+            logger.info(f"Admin {client_data.get('admin_id')} broadcast: {message}")
+            
+    except Exception as e:
+        logger.error(f"Admin broadcast error: {str(e)}")
+
+@socketio.on('vote_cast')
+def handle_vote_cast(data):
+    """Handle real-time vote casting updates"""
+    try:
+        election_id = data.get('election_id')
+        voter_id = data.get('voter_id')
+        
+        # Broadcast vote count update to all clients watching this election
+        vote_count = Vote.count({"election_id": election_id, "is_verified": True})
+        
+        safe_emit('vote_count_update', {
+            'election_id': election_id,
+            'total_votes': vote_count,
+            'timestamp': datetime.utcnow().isoformat()
+        }, room=f'election_{election_id}', broadcast=True)
+        
+    except Exception as e:
+        logger.error(f"Vote cast socket error: {str(e)}")
+
+# ============ REAL-TIME UPDATE FUNCTIONS ============
+
+def broadcast_election_update(action, election_data, admin_id=None):
+    """Broadcast election updates to all connected clients"""
+    try:
+        update_data = {
+            'type': 'election',
+            'action': action,
+            'data': election_data,
+            'timestamp': datetime.utcnow().isoformat(),
+            'admin_id': admin_id
+        }
+        
+        # Broadcast to all voters
+        safe_emit('election_update', update_data, room='all_voters')
+        
+        # Broadcast to specific election room
+        safe_emit('election_update', update_data, room=f'election_{election_data.get("election_id")}')
+        
+        # Also send to admins
+        safe_emit('election_update', update_data, room='all_admins')
+        
+        logger.info(f"Broadcasted election {action}: {election_data.get('election_id')}")
+        
+    except Exception as e:
+        logger.error(f"Error broadcasting election update: {str(e)}")
+
+def broadcast_voter_update(action, voter_data, admin_id=None):
+    """Broadcast voter updates to all connected clients"""
+    try:
+        update_data = {
+            'type': 'voter',
+            'action': action,
+            'data': voter_data,
+            'timestamp': datetime.utcnow().isoformat(),
+            'admin_id': admin_id
+        }
+        
+        # Broadcast to specific voter
+        safe_emit('voter_update', update_data, room=f'voter_{voter_data.get("voter_id")}')
+        
+        # Broadcast to admins
+        safe_emit('voter_update', update_data, room='all_admins')
+        
+        logger.info(f"Broadcasted voter {action}: {voter_data.get('voter_id')}")
+        
+    except Exception as e:
+        logger.error(f"Error broadcasting voter update: {str(e)}")
+
+def broadcast_system_update(action, data, admin_id=None):
+    """Broadcast system-wide updates"""
+    try:
+        update_data = {
+            'type': 'system',
+            'action': action,
+            'data': data,
+            'timestamp': datetime.utcnow().isoformat(),
+            'admin_id': admin_id
+        }
+        
+        # Broadcast to everyone
+        safe_emit('system_update', update_data, broadcast=True)
+        
+        logger.info(f"Broadcasted system update: {action}")
+        
+    except Exception as e:
+        logger.error(f"Error broadcasting system update: {str(e)}")
+
+def send_private_notification(voter_id, notification_data):
+    """Send private notification to specific voter"""
+    try:
+        safe_emit('private_notification', notification_data, room=f'voter_{voter_id}')
+        logger.info(f"Sent private notification to voter {voter_id}")
+    except Exception as e:
+        logger.error(f"Error sending private notification: {str(e)}")
+
+def get_connected_users_count():
+    """Get count of connected users"""
+    return {
+        'total_connected': len(connected_clients),
+        'voters_connected': len([c for c in connected_clients.values() if c.get('type') == 'voter']),
+        'admins_connected': len([c for c in connected_clients.values() if c.get('type') == 'admin'])
+    }
 
 # ============ ELECTION ROUTES ============
 
@@ -243,7 +632,6 @@ def get_active_elections_for_voting():
             'success': False,
             'message': 'Failed to load active elections'
         }), 500
-        
 
 @dashboard_bp.route('/elections/<election_id>/candidates', methods=['GET'])
 @cross_origin()
@@ -256,87 +644,6 @@ def get_election_candidates(election_id):
                 'success': False,
                 'message': 'Authentication required'
             }), 401
-
-        # Verify election exists and is active
-        election = Election.find_by_election_id(election_id)
-        if not election:
-            return jsonify({
-                'success': False,
-                'message': 'Election not found'
-            }), 404
-
-        # Check if election is active
-        if election.get('status') != 'active':
-            return jsonify({
-                'success': False,
-                'message': 'Election is not active for voting'
-            }), 400
-
-        # Get all approved candidates
-        candidates = Candidate.find_all({
-            "election_id": election_id,
-            "is_active": True,
-            "is_approved": True
-        })
-
-        candidates_data = []
-        for candidate in candidates:
-            candidate_data = {
-                'candidate_id': candidate['candidate_id'],
-                'full_name': candidate['full_name'],
-                'party': candidate.get('party', 'Independent'),
-                'party_symbol': candidate.get('party_symbol'),
-                'photo': candidate.get('photo'),
-                'biography': candidate.get('biography', ''),
-                'manifesto': candidate.get('manifesto', ''),
-                'qualifications': candidate.get('qualifications', ''),
-                'agenda': candidate.get('agenda', ''),
-                'candidate_number': candidate.get('candidate_number'),
-                'vote_count': candidate.get('vote_count', 0),
-                'assets_declaration': candidate.get('assets_declaration'),
-                'criminal_records': candidate.get('criminal_records', 'none')
-            }
-            candidates_data.append(candidate_data)
-
-        return jsonify({
-            'success': True,
-            'election': {
-                'election_id': election['election_id'],
-                'title': election['title'],
-                'description': election.get('description', ''),
-                'voting_end': election.get('voting_end')
-            },
-            'candidates': candidates_data,
-            'total_candidates': len(candidates_data)
-        })
-
-    except Exception as e:
-        logger.error(f"Election candidates error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': 'Failed to load candidates'
-        }), 500
-
-@dashboard_bp.route('/elections/<election_id>/vote', methods=['POST'])
-@cross_origin()
-def cast_vote_in_election(election_id):
-    """Cast vote in an election"""
-    try:
-        voter = get_authenticated_voter()
-        if not voter:
-            return jsonify({
-                'success': False,
-                'message': 'Authentication required'
-            }), 401
-
-        data = request.get_json()
-        candidate_id = data.get('candidate_id')
-
-        if not candidate_id:
-            return jsonify({
-                'success': False,
-                'message': 'Candidate ID is required'
-            }), 400
 
         # Verify election exists and is active
         election = Election.find_by_election_id(election_id)
@@ -369,6 +676,130 @@ def cast_vote_in_election(election_id):
                 'message': 'Voting has ended'
             }), 400
 
+        if election.get('status') != 'active':
+            return jsonify({
+                'success': False,
+                'message': 'Election is not currently active for voting'
+            }), 400
+
+        # Check if voter has already voted
+        if Vote.has_voted(election_id, voter['voter_id']):
+            return jsonify({
+                'success': False,
+                'message': 'You have already voted in this election'
+            }), 400
+
+        # Get all approved candidates
+        candidates = Candidate.find_all({
+            "election_id": election_id,
+            "is_active": True,
+            "is_approved": True
+        })
+
+        candidates_data = []
+        for candidate in candidates:
+            candidate_data = {
+                'candidate_id': candidate['candidate_id'],
+                'full_name': candidate['full_name'],
+                'party': candidate.get('party', 'Independent'),
+                'party_symbol': candidate.get('party_symbol'),
+                'photo': candidate.get('photo'),
+                'biography': candidate.get('biography', ''),
+                'manifesto': candidate.get('manifesto', ''),
+                'qualifications': candidate.get('qualifications', ''),
+                'agenda': candidate.get('agenda', ''),
+                'candidate_number': candidate.get('candidate_number'),
+                'symbol_name': candidate.get('symbol_name', ''),
+                'assets_declaration': candidate.get('assets_declaration'),
+                'criminal_records': candidate.get('criminal_records', 'none'),
+                'is_approved': candidate.get('is_approved', False)
+            }
+            candidates_data.append(candidate_data)
+
+        return jsonify({
+            'success': True,
+            'election': {
+                'election_id': election['election_id'],
+                'title': election['title'],
+                'description': election.get('description', ''),
+                'voting_end': election.get('voting_end'),
+                'election_type': election.get('election_type', 'general'),
+                'constituency': election.get('constituency', '')
+            },
+            'candidates': candidates_data,
+            'total_candidates': len(candidates_data),
+            'has_voted': Vote.has_voted(election_id, voter['voter_id'])
+        })
+
+    except Exception as e:
+        logger.error(f"Election candidates error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to load candidates'
+        }), 500
+
+@dashboard_bp.route('/elections/<election_id>/vote', methods=['POST'])
+@cross_origin()
+def cast_vote_in_election(election_id):
+    """Cast vote in an election """
+    try:
+        voter = get_authenticated_voter()
+        if not voter:
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+
+        data = request.get_json()
+        candidate_id = data.get('candidate_id')
+
+        if not candidate_id:
+            return jsonify({
+                'success': False,
+                'message': 'Candidate ID is required'
+            }), 400
+
+        # Verify election exists and is active
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({
+                'success': False,
+                'message': 'Election not found'
+            }), 404
+
+        # Enhanced election status checking
+        current_time = datetime.utcnow()
+        voting_start = election.get('voting_start')
+        voting_end = election.get('voting_end')
+        
+        logger.info(f"Vote attempt - Election: {election['title']}, Voter: {voter['voter_id']}")
+        logger.info(f"Current: {current_time}, Start: {voting_start}, End: {voting_end}")
+        
+        # Check if election is active
+        if not (voting_start and voting_end):
+            return jsonify({
+                'success': False,
+                'message': 'Invalid election configuration'
+            }), 400
+
+        if current_time < voting_start:
+            return jsonify({
+                'success': False,
+                'message': 'Voting has not started yet'
+            }), 400
+
+        if current_time > voting_end:
+            return jsonify({
+                'success': False,
+                'message': 'Voting has ended'
+            }), 400
+
+        if election.get('status') != 'active':
+            return jsonify({
+                'success': False,
+                'message': 'Election is not currently active for voting'
+            }), 400
+
         # Check if voter has already voted
         if Vote.has_voted(election_id, voter['voter_id']):
             return jsonify({
@@ -386,17 +817,17 @@ def cast_vote_in_election(election_id):
         if not candidate:
             return jsonify({
                 'success': False,
-                'message': 'Invalid candidate'
+                'message': 'Invalid candidate or candidate not approved'
             }), 400
 
-        # Check voter eligibility
+        # Enhanced voter eligibility check
         if not check_voter_eligibility(voter['voter_id'], election_id):
             return jsonify({
                 'success': False,
                 'message': 'You are not eligible to vote in this election'
             }), 400
 
-        # Create vote record
+        # Create vote record with enhanced data
         vote_data = {
             'vote_id': f"VOTE_{election_id}_{voter['voter_id']}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
             'election_id': election_id,
@@ -406,12 +837,17 @@ def cast_vote_in_election(election_id):
             'ip_address': request.remote_addr,
             'user_agent': request.headers.get('User-Agent'),
             'vote_timestamp': datetime.utcnow(),
-            'is_verified': True
+            'is_verified': True,
+            'location_data': {
+                'ip': request.remote_addr,
+                'user_agent': request.headers.get('User-Agent')
+            }
         }
 
         vote_id = Vote.create_vote(vote_data)
+        logger.info(f"Vote recorded: {vote_id}")
 
-        # Update candidate vote count - FIXED
+        # Update candidate vote count
         Candidate.get_collection().update_one(
             {"candidate_id": candidate_id},
             {"$inc": {"vote_count": 1}}
@@ -433,7 +869,8 @@ def cast_vote_in_election(election_id):
                 'election_title': election['title'],
                 'candidate_id': candidate_id,
                 'candidate_name': candidate['full_name'],
-                'vote_id': vote_id
+                'vote_id': vote_id,
+                'party': candidate.get('party', 'Independent')
             },
             ip_address=request.remote_addr,
             user_agent=request.headers.get('User-Agent')
@@ -443,22 +880,202 @@ def cast_vote_in_election(election_id):
         broadcast_election_update('vote_cast', {
             'election_id': election_id,
             'voter_id': voter['voter_id'],
-            'total_votes': Vote.count({"election_id": election_id})
+            'candidate_id': candidate_id,
+            'total_votes': Vote.count({"election_id": election_id}),
+            'timestamp': datetime.utcnow().isoformat()
+        })
+
+        # Send confirmation to voter
+        send_private_notification(voter['voter_id'], {
+            'type': 'vote_confirmation',
+            'title': 'Vote Cast Successfully!',
+            'message': f'Your vote for {candidate["full_name"]} in {election["title"]} has been recorded.',
+            'timestamp': datetime.utcnow().isoformat(),
+            'election_id': election_id,
+            'candidate_name': candidate['full_name']
         })
 
         return jsonify({
             'success': True,
-            'message': 'Vote cast successfully',
+            'message': 'Vote cast successfully!',
             'vote_id': vote_id,
             'candidate_name': candidate['full_name'],
-            'election_title': election['title']
+            'candidate_party': candidate.get('party', 'Independent'),
+            'election_title': election['title'],
+            'vote_timestamp': datetime.utcnow().isoformat(),
+            'confirmation_number': vote_id
         })
 
     except Exception as e:
-        logger.error(f"Vote casting error: {str(e)}")
+        logger.error(f"Vote casting error: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': 'Failed to cast vote'
+            'message': 'Failed to cast vote. Please try again.'
+        }), 500
+
+@dashboard_bp.route('/elections/<election_id>/start-voting', methods=['POST', 'OPTIONS'])
+@cross_origin()
+def start_voting_session(election_id):
+    """Start a voting session for a voter"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
+    try:
+        voter = get_authenticated_voter()
+        if not voter:
+            return jsonify({
+                'success': False,
+                'message': 'Authentication required'
+            }), 401
+
+        logger.info(f"Starting voting session for election: {election_id}, voter: {voter['voter_id']}")
+
+        # Verify election exists and is active
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            logger.error(f"Election not found: {election_id}")
+            return jsonify({
+                'success': False,
+                'message': 'Election not found'
+            }), 404
+
+        # Enhanced election status checking
+        current_time = datetime.utcnow()
+        voting_start = election.get('voting_start')
+        voting_end = election.get('voting_end')
+        
+        logger.info(f"📊 Election status check - Current: {current_time}, Start: {voting_start}, End: {voting_end}")
+        
+        # Check if election is active
+        if not (voting_start and voting_end):
+            logger.error("❌ Invalid election configuration - missing voting dates")
+            return jsonify({
+                'success': False,
+                'message': 'Invalid election configuration'
+            }), 400
+
+        if current_time < voting_start:
+            logger.warning(f"⚠️ Voting not started yet - Election: {election_id}")
+            return jsonify({
+                'success': False,
+                'message': 'Voting has not started yet'
+            }), 400
+
+        if current_time > voting_end:
+            logger.warning(f"⚠️ Voting ended - Election: {election_id}")
+            return jsonify({
+                'success': False,
+                'message': 'Voting has ended'
+            }), 400
+
+        if election.get('status') != 'active':
+            logger.warning(f"⚠️ Election not active - Status: {election.get('status')}")
+            return jsonify({
+                'success': False,
+                'message': 'Election is not currently active for voting'
+            }), 400
+
+        # Check if voter has already voted
+        if Vote.has_voted(election_id, voter['voter_id']):
+            logger.warning(f"⚠️ Voter already voted - Election: {election_id}, Voter: {voter['voter_id']}")
+            return jsonify({
+                'success': False,
+                'message': 'You have already voted in this election'
+            }), 400
+
+        # Enhanced voter eligibility check
+        if not check_voter_eligibility(voter['voter_id'], election_id):
+            logger.warning(f"⚠️ Voter not eligible - Election: {election_id}, Voter: {voter['voter_id']}")
+            return jsonify({
+                'success': False,
+                'message': 'You are not eligible to vote in this election'
+            }), 400
+
+        # Create voting session record
+        session_data = {
+            'session_id': f"SESSION_{election_id}_{voter['voter_id']}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            'election_id': election_id,
+            'voter_id': voter['voter_id'],
+            'started_at': datetime.utcnow(),
+            'ip_address': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent'),
+            'status': 'active',
+            'expires_at': datetime.utcnow() + timedelta(minutes=30)  # 30-minute session
+        }
+
+        # Store session in database (you might want to create a VotingSession collection)
+        # For now, we'll log it and return success
+        logger.info(f"Voting session created: {session_data['session_id']}")
+
+        # Log the session start
+        AuditLog.create_log(
+            action='voting_session_start',
+            user_id=voter['voter_id'],
+            user_type='voter',
+            details={
+                'election_id': election_id,
+                'election_title': election['title'],
+                'session_id': session_data['session_id'],
+                'ip_address': request.remote_addr
+            },
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+
+        # Get candidates for the election
+        candidates = Candidate.find_all({
+            "election_id": election_id,
+            "is_active": True,
+            "is_approved": True
+        })
+
+        candidates_data = []
+        for candidate in candidates:
+            candidate_data = {
+                'candidate_id': candidate['candidate_id'],
+                'full_name': candidate['full_name'],
+                'party': candidate.get('party', 'Independent'),
+                'party_symbol': candidate.get('party_symbol'),
+                'photo': candidate.get('photo'),
+                'biography': candidate.get('biography', ''),
+                'manifesto': candidate.get('manifesto', ''),
+                'qualifications': candidate.get('qualifications', ''),
+                'agenda': candidate.get('agenda', ''),
+                'candidate_number': candidate.get('candidate_number'),
+                'symbol_name': candidate.get('symbol_name', '')
+            }
+            candidates_data.append(candidate_data)
+
+        response_data = {
+            'success': True,
+            'message': 'Voting session started successfully',
+            'session_id': session_data['session_id'],
+            'election': {
+                'election_id': election['election_id'],
+                'title': election['title'],
+                'description': election.get('description', ''),
+                'voting_end': election.get('voting_end').isoformat() if election.get('voting_end') else None,
+                'election_type': election.get('election_type', 'general'),
+                'constituency': election.get('constituency', '')
+            },
+            'candidates': candidates_data,
+            'total_candidates': len(candidates_data),
+            'session_expires': session_data['expires_at'].isoformat(),
+            'voting_instructions': [
+                'Review all candidates before making your selection',
+                'Your vote is final and cannot be changed once submitted',
+                'Voting session will expire in 30 minutes'
+            ]
+        }
+
+        logger.info(f"Voting session ready - Election: {election_id}, Candidates: {len(candidates_data)}")
+        return jsonify(response_data)
+
+    except Exception as e:
+        logger.error(f"Voting session error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': 'Failed to start voting session. Please try again.'
         }), 500
 
 @dashboard_bp.route('/elections/<election_id>/results', methods=['GET'])
@@ -548,291 +1165,49 @@ def get_election_results(election_id):
             'message': 'Failed to load election results'
         }), 500
 
-# ============ SOCKETIO EVENT HANDLERS ============
-
-@socketio.on('connect')
-def handle_connect():
-    """Handle client connection with proper voter/admin distinction"""
+@dashboard_bp.route('/update-election-statuses', methods=['POST'])
+def update_election_statuses_endpoint():
+    """Endpoint to manually trigger election status updates"""
     try:
-        print(f"=== SOCKETIO CONNECTION ATTEMPT ===")
-        print(f"Request args: {dict(request.args)}")
-        
-        # Get parameters from query
-        voter_id = request.args.get('voter_id')
-        admin_id = request.args.get('admin_id')
-        user_type = request.args.get('user_type', 'voter')
-        
-        # Alternative: try to get from Authorization header
-        if not voter_id and not admin_id:
-            auth_header = request.headers.get('Authorization')
-            if auth_header and auth_header.startswith('Bearer '):
-                token = auth_header.split(' ')[1]
-                payload = verify_token(token)
-                if payload:
-                    if payload.get('voter_id'):
-                        voter_id = payload['voter_id']
-                        user_type = 'voter'
-                    elif payload.get('admin_id'):
-                        admin_id = payload['admin_id']
-                        user_type = 'admin'
-        
-        print(f"Connection params - voter_id: {voter_id}, admin_id: {admin_id}, user_type: {user_type}")
-        
-        if user_type == 'voter' and voter_id:
-            # Voter connection
-            voter = Voter.find_by_voter_id(voter_id)
-            if not voter:
-                logger.warning(f"Voter not found: {voter_id}")
-                return False
-                
-            join_room(f'voter_{voter_id}')
-            join_room('all_voters')
-            join_room('public_updates')
-            
-            connected_clients[request.sid] = {
-                'type': 'voter',
-                'voter_id': voter_id,
-                'connected_at': datetime.utcnow().isoformat()
-            }
-            
-            logger.info(f"Voter {voter_id} connected to SocketIO")
-            emit('connection_established', {
-                'status': 'connected',
-                'message': 'Real-time updates enabled',
-                'user_type': 'voter',
-                'voter_id': voter_id
-            })
-            
-        elif user_type == 'admin' and admin_id:
-            # Admin connection
-            admin = Admin.find_by_admin_id(admin_id)
-            if not admin:
-                logger.warning(f"Admin not found: {admin_id}")
-                return False
-                
-            join_room(f'admin_{admin_id}')
-            join_room('all_admins')
-            join_room('public_updates')
-            
-            connected_clients[request.sid] = {
-                'type': 'admin',
-                'admin_id': admin_id,
-                'connected_at': datetime.utcnow().isoformat()
-            }
-            
-            logger.info(f"Admin {admin_id} connected to SocketIO")
-            emit('connection_established', {
-                'status': 'connected',
-                'message': 'Admin real-time updates enabled',
-                'user_type': 'admin',
-                'admin_id': admin_id
-            })
-        else:
-            logger.warning(f"Invalid connection parameters - voter_id: {voter_id}, admin_id: {admin_id}, user_type: {user_type}")
-            return False
-            
-        return True
-            
+        update_election_statuses()
+        return jsonify({
+            'success': True,
+            'message': 'Election statuses updated successfully'
+        })
     except Exception as e:
-        logger.error(f"SocketIO connection error: {str(e)}")
-        import traceback
-        logger.error(f"SocketIO traceback: {traceback.format_exc()}")
-        return False
+        return jsonify({
+            'success': False,
+            'message': f'Failed to update election statuses: {str(e)}'
+        }), 500
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Handle client disconnection"""
+def update_election_statuses():
+    """Automatically update election statuses based on current time"""
     try:
-        client_data = connected_clients.pop(request.sid, None)
-        if client_data:
-            user_type = client_data.get('type')
-            user_id = client_data.get('voter_id') or client_data.get('admin_id')
-            logger.info(f"{user_type} {user_id} disconnected from SocketIO")
-            
-    except Exception as e:
-        logger.error(f"SocketIO disconnect error: {str(e)}")
-
-@socketio.on('subscribe_elections')
-def handle_subscribe_elections(data):
-    """Handle election subscription requests"""
-    try:
-        voter_id = data.get('voter_id')
-        if not voter_id:
-            logger.warning("No voter_id provided for election subscription")
-            return
+        current_time = datetime.utcnow()
         
-        # Join election-specific room
-        room_name = f'elections_{voter_id}'
-        join_room(room_name)
-        
-        logger.info(f"Client {request.sid} subscribed to elections for voter {voter_id}")
-        
-        emit('subscription_success', {
-            'message': f'Subscribed to election updates for voter {voter_id}',
-            'room': room_name
+        # Update scheduled elections to active if voting has started
+        Election.get_collection().update_many({
+            "status": "scheduled",
+            "voting_start": {"$lte": current_time},
+            "voting_end": {"$gte": current_time},
+            "is_active": True
+        }, {
+            "$set": {"status": "active", "updated_at": current_time}
         })
         
-    except Exception as e:
-        logger.error(f"Election subscription error: {str(e)}")
-        emit('subscription_error', {
-            'message': 'Failed to subscribe to election updates'
+        # Update active elections to completed if voting has ended
+        Election.get_collection().update_many({
+            "status": "active", 
+            "voting_end": {"$lt": current_time},
+            "is_active": True
+        }, {
+            "$set": {"status": "completed", "updated_at": current_time}
         })
-
-@socketio.on('join_election_updates')
-def handle_join_election_updates(data):
-    """Join election-specific update room"""
-    try:
-        election_id = data.get('election_id')
-        if election_id:
-            join_room(f'election_{election_id}')
-            emit('room_joined', {
-                'room': f'election_{election_id}',
-                'message': f'Subscribed to election {election_id} updates'
-            })
-    except Exception as e:
-        logger.error(f"Error joining election room: {str(e)}")
-
-@socketio.on('leave_election_updates')
-def handle_leave_election_updates(data):
-    """Leave election-specific update room"""
-    try:
-        election_id = data.get('election_id')
-        if election_id:
-            leave_room(f'election_{election_id}')
-            emit('room_left', {
-                'room': f'election_{election_id}',
-                'message': f'Unsubscribed from election {election_id} updates'
-            })
-    except Exception as e:
-        logger.error(f"Error leaving election room: {str(e)}")
-
-@socketio.on('request_dashboard_update')
-def handle_dashboard_update_request():
-    """Handle request for immediate dashboard update"""
-    try:
-        client_data = connected_clients.get(request.sid)
-        if client_data and client_data.get('type') == 'voter':
-            voter_id = client_data.get('voter_id')
-            voter = Voter.find_by_voter_id(voter_id)
-            if voter:
-                dashboard_data = get_enhanced_dashboard_data(voter)
-                emit('dashboard_update', {
-                    'data': dashboard_data,
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'type': 'full_update'
-                })
-    except Exception as e:
-        logger.error(f"Dashboard update request error: {str(e)}")
-
-@socketio.on('admin_broadcast_message')
-def handle_admin_broadcast(data):
-    """Handle admin broadcast messages"""
-    try:
-        client_data = connected_clients.get(request.sid)
-        if not client_data or client_data.get('type') != 'admin':
-            emit('error', {'message': 'Admin access required'})
-            return
         
-        message = data.get('message')
-        broadcast_type = data.get('type', 'info')  # info, warning, urgent
-        
-        if message:
-            # Broadcast to all voters
-            emit('admin_broadcast', {
-                'message': message,
-                'type': broadcast_type,
-                'admin_id': client_data.get('admin_id'),
-                'timestamp': datetime.utcnow().isoformat()
-            }, room='all_voters', broadcast=True)
-            
-            logger.info(f"Admin {client_data.get('admin_id')} broadcast: {message}")
-            
-    except Exception as e:
-        logger.error(f"Admin broadcast error: {str(e)}")
-
-# ============ REAL-TIME UPDATE FUNCTIONS ============
-
-def broadcast_election_update(action, election_data, admin_id=None):
-    """Broadcast election updates to all connected clients"""
-    try:
-        update_data = {
-            'type': 'election',
-            'action': action,
-            'data': election_data,
-            'timestamp': datetime.utcnow().isoformat(),
-            'admin_id': admin_id
-        }
-        
-        # Broadcast to all voters
-        socketio.emit('election_update', update_data, room='all_voters')
-        
-        # Broadcast to specific election room
-        socketio.emit('election_update', update_data, room=f'election_{election_data.get("election_id")}')
-        
-        # Also send to admins
-        socketio.emit('election_update', update_data, room='all_admins')
-        
-        logger.info(f"Broadcasted election {action}: {election_data.get('election_id')}")
+        print("Election statuses updated successfully")
         
     except Exception as e:
-        logger.error(f"Error broadcasting election update: {str(e)}")
-
-def broadcast_voter_update(action, voter_data, admin_id=None):
-    """Broadcast voter updates to all connected clients"""
-    try:
-        update_data = {
-            'type': 'voter',
-            'action': action,
-            'data': voter_data,
-            'timestamp': datetime.utcnow().isoformat(),
-            'admin_id': admin_id
-        }
-        
-        # Broadcast to specific voter
-        socketio.emit('voter_update', update_data, room=f'voter_{voter_data.get("voter_id")}')
-        
-        # Broadcast to admins
-        socketio.emit('voter_update', update_data, room='all_admins')
-        
-        logger.info(f"Broadcasted voter {action}: {voter_data.get('voter_id')}")
-        
-    except Exception as e:
-        logger.error(f"Error broadcasting voter update: {str(e)}")
-
-def broadcast_system_update(action, data, admin_id=None):
-    """Broadcast system-wide updates"""
-    try:
-        update_data = {
-            'type': 'system',
-            'action': action,
-            'data': data,
-            'timestamp': datetime.utcnow().isoformat(),
-            'admin_id': admin_id
-        }
-        
-        # Broadcast to everyone
-        socketio.emit('system_update', update_data, broadcast=True)
-        
-        logger.info(f"Broadcasted system update: {action}")
-        
-    except Exception as e:
-        logger.error(f"Error broadcasting system update: {str(e)}")
-
-def send_private_notification(voter_id, notification_data):
-    """Send private notification to specific voter"""
-    try:
-        socketio.emit('private_notification', notification_data, room=f'voter_{voter_id}')
-        logger.info(f"Sent private notification to voter {voter_id}")
-    except Exception as e:
-        logger.error(f"Error sending private notification: {str(e)}")
-
-def get_connected_users_count():
-    """Get count of connected users"""
-    return {
-        'total_connected': len(connected_clients),
-        'voters_connected': len([c for c in connected_clients.values() if c.get('type') == 'voter']),
-        'admins_connected': len([c for c in connected_clients.values() if c.get('type') == 'admin'])
-    }
+        print(f"Error updating election statuses: {str(e)}")
 
 # ============ ENHANCED DASHBOARD ROUTES ============
 
@@ -927,6 +1302,30 @@ def get_socket_info():
             'success': False,
             'message': 'Failed to get socket info'
         }), 500
+
+@dashboard_bp.route('/socket-health', methods=['GET'])
+@cross_origin()
+def socket_health_check():
+    """Health check for Socket.IO connections"""
+    return jsonify({
+        'success': True,
+        'socket_io_connected': True,
+        'connected_clients': len(connected_clients),
+        'server_time': datetime.utcnow().isoformat()
+    })
+
+@dashboard_bp.route('/debug-socket', methods=['GET'])
+@cross_origin()
+def debug_socket():
+    """Debug Socket.IO connections"""
+    return jsonify({
+        'connected_clients': connected_clients,
+        'total_connections': len(connected_clients),
+        'server_info': {
+            'async_mode': socketio.async_mode,
+            'cors_allowed_origins': socketio.cors_allowed_origins
+        }
+    })
 
 # ============ ADMIN REAL-TIME ENDPOINTS ============
 
@@ -1039,7 +1438,7 @@ def admin_broadcast():
             }), 400
         
         # Use SocketIO to broadcast
-        socketio.emit('admin_broadcast', {
+        safe_emit('admin_broadcast', {
             'message': message,
             'type': broadcast_type,
             'admin_id': request.admin['admin_id'],
@@ -1108,7 +1507,7 @@ def notify_voters_about_new_election(election):
         }
         
         # Broadcast to all voters
-        socketio.emit('election_notification', notification_data, room='all_voters')
+        safe_emit('election_notification', notification_data, room='all_voters')
         
     except Exception as e:
         logger.error(f"Error notifying voters about new election: {str(e)}")
@@ -1407,8 +1806,6 @@ def get_system_status():
         'total_voters': Voter.count({"is_active": True}),
         'real_time_connections': get_connected_users_count()
     }
-
-
 
 def calculate_membership_duration(registration_date):
     """Calculate how long the voter has been registered"""
@@ -1856,25 +2253,39 @@ def get_upcoming_elections(voter, election_type='all'):
         return []
 
 def get_active_elections(voter, election_type='all'):
-    """Get active elections for voter"""
+    """Get active elections for voter - FIXED VERSION"""
     try:
+        current_time = datetime.utcnow()
+        print(f"🔍 Looking for active elections at: {current_time}")
+        
+        # Build query for active elections
         query = {
-            "voting_start": {"$lte": datetime.utcnow()},
-            "voting_end": {"$gte": datetime.utcnow()},
             "status": "active",
-            "is_active": True
+            "is_active": True,
+            "voting_start": {"$lte": current_time},
+            "voting_end": {"$gte": current_time}
         }
         
         if election_type != 'all':
             query["election_type"] = election_type
         
+        print(f"📋 Active elections query: {query}")
+        
         elections = Election.find_all(query, sort=[("voting_end", 1)])
+        print(f"Found {len(elections)} active elections")
         
         enhanced_elections = []
         for election in elections:
+            # Debug print each election
+            print(f"Election: {election.get('title')} | "
+                  f"Start: {election.get('voting_start')} | "
+                  f"End: {election.get('voting_end')} | "
+                  f"Status: {election.get('status')}")
+                  
             has_voted = Vote.has_voted(election.get('election_id', 'unknown'), voter['voter_id'])
+            
             enhanced_elections.append({
-                'id': election.get('election_id', 'unknown'),
+                'election_id': election.get('election_id', 'unknown'),
                 'title': election.get('title', 'Unknown Election'),
                 'type': election.get('election_type', 'general'),
                 'date': election.get('voting_start', datetime.utcnow()).isoformat(),
@@ -1884,12 +2295,17 @@ def get_active_elections(voter, election_type='all'):
                 'status': 'active',
                 'has_voted': has_voted,
                 'can_vote': not has_voted and check_voter_eligibility(voter['voter_id'], election.get('election_id', 'unknown')),
-                'candidates_count': len(Candidate.find_all({"election_id": election.get('election_id', 'unknown')}))
+                'candidates_count': len(Candidate.find_all({"election_id": election.get('election_id', 'unknown')})),
+                'voting_start': election.get('voting_start').isoformat() if election.get('voting_start') else None,
+                'voting_end': election.get('voting_end').isoformat() if election.get('voting_end') else None
             })
         
         return enhanced_elections
+        
     except Exception as e:
-        logger.error(f"Error getting active elections: {str(e)}")
+        print(f"Error getting active elections: {str(e)}")
+        import traceback
+        print(f"📝 Traceback: {traceback.format_exc()}")
         return []
 
 def get_past_elections(voter, election_type='all'):
@@ -2234,10 +2650,10 @@ def get_election_calendar():
         logger.error(f"Error getting election calendar: {str(e)}")
         return []
 
-# Add these missing helper functions to dashboard.py
+# Add these helper functions to dashboard.py
 
 def check_voter_eligibility(voter_id, election_id):
-    """Check if voter is eligible for election"""
+    """Enhanced voter eligibility check"""
     try:
         voter = Voter.find_by_voter_id(voter_id)
         election = Election.find_by_election_id(election_id)
@@ -2245,43 +2661,53 @@ def check_voter_eligibility(voter_id, election_id):
         if not voter or not election:
             return False
         
-        # Check if voter has already voted
-        if Vote.has_voted(election_id, voter_id):
-            return False
-        
-        # Check if registration period is still open
-        current_time = datetime.utcnow()
-        registration_end = election.get('registration_end')
-        if registration_end and current_time > registration_end:
-            return False
-        
-        # Check constituency match
-        if election.get('constituency') and voter.get('constituency'):
-            if election['constituency'] != voter['constituency']:
-                return False
-        
-        # Check face verification requirement
-        if election.get('require_face_verification', True) and not voter.get('face_verified'):
-            return False
-        
-        # Check if voter is active and verified
+        # Check if voter is active
         if not voter.get('is_active', True):
+            logger.info(f"Voter {voter_id} is not active")
             return False
         
         # Check basic verifications
-        if not all([
-            voter.get('email_verified', False),
-            voter.get('phone_verified', False),
-            voter.get('id_verified', False)
-        ]):
+        required_verifications = ['email_verified', 'phone_verified', 'id_verified']
+        for verification in required_verifications:
+            if not voter.get(verification, False):
+                logger.info(f"Voter {voter_id} missing {verification}")
+                return False
+        
+        # Check face verification if required by election
+        if election.get('require_face_verification', True) and not voter.get('face_verified', False):
+            logger.info(f"Voter {voter_id} missing face verification")
             return False
         
+        # Check constituency match
+        voter_constituency = voter.get('constituency')
+        election_constituency = election.get('constituency')
+        
+        if election_constituency and voter_constituency:
+            if election_constituency != voter_constituency:
+                logger.info(f"Voter {voter_id} constituency mismatch")
+                return False
+        
+        # Check if voting period is active
+        current_time = datetime.utcnow()
+        voting_start = election.get('voting_start')
+        voting_end = election.get('voting_end')
+        
+        if not (voting_start <= current_time <= voting_end):
+            logger.info(f"Voter {voter_id} - election not in voting period")
+            return False
+        
+        # Check if already voted
+        if Vote.has_voted(election_id, voter_id):
+            logger.info(f"Voter {voter_id} already voted in this election")
+            return False
+        
+        logger.info(f"Voter {voter_id} is eligible for election {election_id}")
         return True
         
     except Exception as e:
         logger.error(f"Error checking voter eligibility: {str(e)}")
         return False
-
+    
 def get_active_elections_count():
     """Get count of active elections"""
     try:
@@ -2638,7 +3064,6 @@ def get_profile():
             'message': 'Failed to load profile'
         }), 500
 
-        
 @dashboard_bp.route('/voting-history', methods=['GET', 'OPTIONS'])
 @cross_origin()
 def get_voting_history():
@@ -2766,7 +3191,6 @@ def get_trusted_devices(voter_id):
 # Export the socketio instance for use in app.py
 def get_socketio():
     return socketio
-
 
 # Temporary
 @dashboard_bp.route('/create-test-election', methods=['POST'])

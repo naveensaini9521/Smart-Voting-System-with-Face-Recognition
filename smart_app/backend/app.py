@@ -17,7 +17,7 @@ from smart_app.backend.routes.register import register_bp
 from smart_app.backend.routes.stats import stats_bp
 from smart_app.backend.routes.home import home_bp  
 from smart_app.backend.routes.test_mongodb import mongodb_bp 
-from smart_app.backend.routes.dashboard import dashboard_bp
+from smart_app.backend.routes.dashboard import dashboard_bp, get_socketio, socketio
 from smart_app.backend.socket_io import socketio
 
 # Import Socket.IO event handlers
@@ -32,6 +32,7 @@ def create_app():
 
     # Load configuration
     app.config.from_object(config_map[os.environ["ENVIRONMENT"]])
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 
     # Ensure uploads folder exists
     os.makedirs(app.config.get("UPLOAD_FOLDER", "uploads"), exist_ok=True)

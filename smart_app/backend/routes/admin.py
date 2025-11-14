@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 import logging
 from functools import wraps
 import jwt
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from smart_app.backend.mongo_models import Admin, Election, Voter, Vote, Candidate, AuditLog
-from smart_app.backend.routes.dashboard import broadcast_election_update, broadcast_system_update, broadcast_voter_update
 
 admin_bp = Blueprint('admin', __name__)
 logger = logging.getLogger(__name__)
@@ -13,6 +13,62 @@ logger = logging.getLogger(__name__)
 # JWT configuration (should match your auth.py)
 JWT_SECRET = 'sUJbaMMUAKYojj0dFe94jO'
 JWT_ALGORITHM = 'HS256'
+
+# Import socketio locally to avoid circular imports
+def get_socketio():
+    from smart_app.backend.routes.dashboard import socketio
+    return socketio
+
+# Broadcast functions to avoid circular imports
+def broadcast_election_update(action, data, admin_id):
+    """Broadcast election updates to all connected clients"""
+    try:
+        socketio = get_socketio()
+        socketio.emit('election_update', {
+            'action': action,
+            'data': data,
+            'admin_id': admin_id,
+            'timestamp': datetime.utcnow().isoformat()
+        }, room='all_admins', broadcast=True)
+    except Exception as e:
+        logger.error(f"Broadcast election update failed: {str(e)}")
+
+def broadcast_system_update(action, data, admin_id):
+    """Broadcast system updates to all connected clients"""
+    try:
+        socketio = get_socketio()
+        socketio.emit('system_update', {
+            'action': action,
+            'data': data,
+            'admin_id': admin_id,
+            'timestamp': datetime.utcnow().isoformat()
+        }, room='all_admins', broadcast=True)
+    except Exception as e:
+        logger.error(f"Broadcast system update failed: {str(e)}")
+
+def broadcast_voter_update(action, data, admin_id):
+    """Broadcast voter updates to specific voter and admins"""
+    try:
+        socketio = get_socketio()
+        
+        # Broadcast to admins
+        socketio.emit('voter_update', {
+            'action': action,
+            'data': data,
+            'admin_id': admin_id,
+            'timestamp': datetime.utcnow().isoformat()
+        }, room='all_admins', broadcast=True)
+        
+        # Broadcast to specific voter if voter_id is available
+        voter_id = data.get('voter_id')
+        if voter_id:
+            socketio.emit('voter_status_update', {
+                'action': action,
+                'data': data,
+                'timestamp': datetime.utcnow().isoformat()
+            }, room=f'voter_{voter_id}', broadcast=True)
+    except Exception as e:
+        logger.error(f"Broadcast voter update failed: {str(e)}")
 
 # Helper function to check admin privileges
 def admin_required(f):
@@ -88,6 +144,14 @@ def log_admin_action(admin, action, details, resource_id=None):
         )
     except Exception as e:
         logger.error(f"Failed to log admin action: {str(e)}")
+
+@admin_bp.errorhandler(RequestEntityTooLarge)
+def handle_file_too_large(error):
+    """Handle file size too large errors"""
+    return jsonify({
+        'success': False,
+        'message': 'File size too large. Please upload files smaller than 16MB.'
+    }), 413
 
 # Enhanced Dashboard Statistics
 @admin_bp.route('/dashboard/stats', methods=['GET'])
@@ -197,19 +261,21 @@ def get_elections():
         if election_type != 'all':
             query["election_type"] = election_type
         
-        # Get elections with pagination
-        elections = Election.find_all(
+        # Get all elections first, then manually paginate
+        all_elections = Election.find_all(
             query=query,
-            sort=[("created_at", -1)],
-            limit=per_page
+            sort=[("created_at", -1)]
         )
         
-        # Get total count for pagination
-        total_elections = Election.count(query)
+        # Manual pagination
+        total_elections = len(all_elections)
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_elections = all_elections[start_idx:end_idx]
         
         # Format elections data
         elections_data = []
-        for election in elections:
+        for election in paginated_elections:
             # Get vote count for this election
             vote_count = Vote.count({"election_id": election.get('election_id'), "is_verified": True})
             
@@ -278,14 +344,13 @@ def get_elections():
         }), 500
 
 # Enhanced Create new election with real-time updates
-# Enhanced Create new election with real-time updates
 @admin_bp.route('/elections', methods=['POST'])
 @admin_required
 def create_election():
-    """Create a new election with real-time broadcasting"""
+    """Create a new election with real-time broadcasting and automatic status handling"""
     try:
         # Check content type and parse data accordingly
-        if request.content_type.startswith('multipart/form-data'):
+        if request.content_type and request.content_type.startswith('multipart/form-data'):
             # Handle form data
             data = {
                 'title': request.form.get('title'),
@@ -363,11 +428,27 @@ def create_election():
                 'message': 'Registration start must be before registration end'
             }), 400
         
+        # Determine election status based on current time
+        current_time = datetime.utcnow()
+        logger.info(f"Current time: {current_time}, Voting start: {voting_start}, Voting end: {voting_end}")
+        
+        if current_time < voting_start:
+            status = "scheduled"
+            status_message = "Election is scheduled for future"
+        elif voting_start <= current_time <= voting_end:
+            status = "active"
+            status_message = "Election is now active for voting"
+        else:
+            status = "completed"
+            status_message = "Election voting period has ended"
+        
+        logger.info(f"Determined election status: {status} - {status_message}")
+        
         # Handle file uploads for form data
         election_logo = None
         election_banner = None
         
-        if request.content_type.startswith('multipart/form-data'):
+        if request.content_type and request.content_type.startswith('multipart/form-data'):
             if 'election_logo' in request.files:
                 logo_file = request.files['election_logo']
                 if logo_file and logo_file.filename:
@@ -379,7 +460,7 @@ def create_election():
                 if banner_file and banner_file.filename:
                     election_banner = f"/uploads/elections/banners/{banner_file.filename}"
         
-        # Create election data
+        # Create election data with automatic status
         election_data = {
             'title': data['title'],
             'description': data.get('description', ''),
@@ -393,7 +474,7 @@ def create_election():
             'voting_start': voting_start,
             'voting_end': voting_end,
             'results_publish': data.get('results_publish'),
-            'status': data.get('status', 'scheduled'),
+            'status': status,  # Automatically determined based on current time
             'max_candidates': data.get('max_candidates', 10),
             'allow_write_ins': data.get('allow_write_ins', False),
             'require_face_verification': data.get('require_face_verification', True),
@@ -403,21 +484,40 @@ def create_election():
             'election_rules': data.get('election_rules', ''),
             'is_featured': data.get('is_featured', False),
             'election_logo': election_logo,
-            'election_banner': election_banner
+            'election_banner': election_banner,
+            'total_votes': 0,
+            'voter_turnout': 0,
+            'is_active': True
         }
         
         election_id = Election.create_election(election_data)
         election = Election.find_by_election_id(election_id)
         
-        # Broadcast real-time update to all voters
-        broadcast_election_update('create', {
+        # Broadcast appropriate real-time update based on status
+        broadcast_data = {
             'election_id': election_id,
             'title': data['title'],
             'election_type': data['election_type'],
             'voting_start': voting_start.isoformat(),
             'voting_end': voting_end.isoformat(),
-            'status': 'scheduled'
-        }, request.admin['admin_id'])
+            'status': status,
+            'message': status_message
+        }
+        
+        if status == "active":
+            broadcast_election_update('activate', broadcast_data, request.admin['admin_id'])
+            logger.info(f"📢 Broadcasted election activation: {data['title']}")
+        else:
+            broadcast_election_update('create', broadcast_data, request.admin['admin_id'])
+            logger.info(f"📢 Broadcasted election creation: {data['title']}")
+        
+        # If election is active, notify all voters immediately
+        if status == "active":
+            try:
+                from smart_app.backend.routes.dashboard import notify_voters_about_new_election
+                notify_voters_about_new_election(election)
+            except Exception as notify_error:
+                logger.warning(f"Failed to notify voters: {notify_error}")
         
         # Log the action
         log_admin_action(
@@ -427,16 +527,20 @@ def create_election():
                 "election_id": election_id,
                 "title": data['title'],
                 "type": data['election_type'],
-                "voting_period": f"{voting_start} to {voting_end}"
+                "status": status,
+                "voting_period": f"{voting_start} to {voting_end}",
+                "determined_status": status_message
             },
             election_id
         )
         
         return jsonify({
             'success': True,
-            'message': 'Election created successfully',
+            'message': f'Election created successfully - {status_message}',
             'election_id': election_id,
             'election': election,
+            'status': status,
+            'status_message': status_message,
             'broadcast_sent': True
         })
         
@@ -692,20 +796,23 @@ def get_voters():
         if constituency != 'all':
             query["constituency"] = constituency
         
-        # Get voters with pagination
-        voters = Voter.find_all(
+        # Get all voters first, then manually paginate
+        all_voters = Voter.find_all(
             query=query,
-            sort=[("created_at", -1)],
-            limit=per_page
+            sort=[("created_at", -1)]
         )
         
-        total_voters = Voter.count(query)
+        # Manual pagination
+        total_voters = len(all_voters)
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_voters = all_voters[start_idx:end_idx]
         
         # Get unique constituencies for filter
         constituencies = Voter.get_collection().distinct("constituency", {"is_active": True})
         
         voters_data = []
-        for voter in voters:
+        for voter in paginated_voters:
             # Calculate age
             age = Voter.calculate_age(voter.get('date_of_birth')) if voter.get('date_of_birth') else 0
             
@@ -815,7 +922,6 @@ def verify_voter(voter_id):
         updated_voter = Voter.find_by_voter_id(voter_id)
         
         # Broadcast real-time update to the specific voter
-        from smart_app.backend.dashboard import broadcast_voter_update
         broadcast_voter_update('verify', {
             'voter_id': voter_id,
             'verification_type': verification_type,
@@ -884,7 +990,7 @@ def update_voter_status(voter_id):
             {"is_active": is_active, "updated_at": datetime.utcnow()}
         )
         
-        # Broadcast real-time update - use the function defined in this file
+        # Broadcast real-time update
         broadcast_voter_update('status_update', {
             'voter_id': voter_id,
             'full_name': voter['full_name'],
@@ -1022,21 +1128,24 @@ def get_audit_logs():
         if user_type != 'all':
             query["user_type"] = user_type
         
-        # Get audit logs with pagination
-        audit_logs = AuditLog.find_all(
+        # Get all audit logs first, then manually paginate
+        all_logs = AuditLog.find_all(
             query=query,
-            sort=[("timestamp", -1)],
-            limit=per_page
+            sort=[("timestamp", -1)]
         )
         
-        total_logs = AuditLog.count(query)
+        # Manual pagination
+        total_logs = len(all_logs)
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_logs = all_logs[start_idx:end_idx]
         
         # Get unique actions and user types for filters
         actions = AuditLog.get_collection().distinct("action")
         user_types = AuditLog.get_collection().distinct("user_type")
         
         logs_data = []
-        for log in audit_logs:
+        for log in paginated_logs:
             logs_data.append({
                 'log_id': log.get('log_id'),
                 'action': log.get('action'),
@@ -1092,20 +1201,23 @@ def get_candidates():
         if election_id != 'all':
             query["election_id"] = election_id
         
-        # Get candidates with pagination
-        candidates = Candidate.find_all(
+        # Get all candidates first, then manually paginate
+        all_candidates = Candidate.find_all(
             query=query,
-            sort=[("created_at", -1)],
-            limit=per_page
+            sort=[("created_at", -1)]
         )
         
-        total_candidates = Candidate.count(query)
+        # Manual pagination
+        total_candidates = len(all_candidates)
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_candidates = all_candidates[start_idx:end_idx]
         
         # Get elections for filter
         elections = Election.find_all({"is_active": True}, {"election_id": 1, "title": 1})
         
         candidates_data = []
-        for candidate in candidates:
+        for candidate in paginated_candidates:
             # Get election title
             election = Election.find_by_election_id(candidate.get('election_id'))
             election_title = election['title'] if election else 'Unknown Election'
@@ -1224,11 +1336,11 @@ def approve_candidate(candidate_id):
 @admin_bp.route('/candidates', methods=['POST'])
 @admin_required
 def create_candidate():
-    """Create a new candidate - supports both form data and JSON"""
+    """Create a new candidate with better file handling"""
     try:
         # Check content type and parse data accordingly
         if request.content_type and 'multipart/form-data' in request.content_type:
-            # Handle form data
+            # Handle form data with file size validation
             data = {
                 'election_id': request.form.get('election_id'),
                 'full_name': request.form.get('full_name'),
@@ -1270,27 +1382,43 @@ def create_candidate():
                 'message': 'Election not found'
             }), 404
         
-        # Handle file uploads for form data
+        # Handle file uploads for form data with size validation
         photo = None
         party_logo = None
         election_symbol = None
         
         if request.content_type and 'multipart/form-data' in request.content_type:
+            # Check photo file
             if 'photo' in request.files:
                 photo_file = request.files['photo']
-                if photo_file and photo_file.filename:
-                    # In a real implementation, save the file and store path
-                    photo = f"/uploads/candidates/photos/{photo_file.filename}"
+                if photo_file and photo_file.filename and photo_file.filename != '':
+                    # Check if file is actually selected (not empty)
+                    if photo_file.content_length == 0:
+                        logger.warning("Empty photo file uploaded")
+                    else:
+                        # In a real implementation, save the file and store path
+                        photo = f"/uploads/candidates/photos/{photo_file.filename}"
+                        logger.info(f"Photo file: {photo_file.filename}, size: {photo_file.content_length} bytes")
             
+            # Check party logo file
             if 'party_logo' in request.files:
                 party_file = request.files['party_logo']
-                if party_file and party_file.filename:
-                    party_logo = f"/uploads/parties/logos/{party_file.filename}"
+                if party_file and party_file.filename and party_file.filename != '':
+                    if party_file.content_length == 0:
+                        logger.warning("Empty party logo file uploaded")
+                    else:
+                        party_logo = f"/uploads/parties/logos/{party_file.filename}"
+                        logger.info(f"Party logo file: {party_file.filename}, size: {party_file.content_length} bytes")
             
+            # Check election symbol file
             if 'election_symbol' in request.files:
                 symbol_file = request.files['election_symbol']
-                if symbol_file and symbol_file.filename:
-                    election_symbol = f"/uploads/candidates/symbols/{symbol_file.filename}"
+                if symbol_file and symbol_file.filename and symbol_file.filename != '':
+                    if symbol_file.content_length == 0:
+                        logger.warning("Empty election symbol file uploaded")
+                    else:
+                        election_symbol = f"/uploads/candidates/symbols/{symbol_file.filename}"
+                        logger.info(f"Election symbol file: {symbol_file.filename}, size: {symbol_file.content_length} bytes")
         
         candidate_data = {
             'election_id': data['election_id'],
@@ -1310,18 +1438,22 @@ def create_candidate():
             'is_active': True,
             'is_approved': True,  # Auto-approve when created by admin
             'nominated_by': request.admin['username'],
-            'symbol_name': data.get('symbol_name')
+            'symbol_name': data.get('symbol_name', ''),
+            'created_at': datetime.utcnow()
         }
         
         candidate_id = Candidate.create_candidate(candidate_data)
         candidate = Candidate.find_by_candidate_id(candidate_id)
         
         # Broadcast system update
-        broadcast_system_update('candidate_created', {
-            'candidate_id': candidate_id,
-            'candidate_name': data['full_name'],
-            'election_id': data['election_id']
-        }, request.admin['admin_id'])
+        try:
+            broadcast_system_update('candidate_created', {
+                'candidate_id': candidate_id,
+                'candidate_name': data['full_name'],
+                'election_id': data['election_id']
+            }, request.admin['admin_id'])
+        except Exception as broadcast_error:
+            logger.warning(f"Broadcast failed but candidate created: {broadcast_error}")
         
         # Log the action
         log_admin_action(
@@ -1343,6 +1475,12 @@ def create_candidate():
             'candidate': candidate
         })
         
+    except RequestEntityTooLarge:
+        logger.error("File size too large when creating candidate")
+        return jsonify({
+            'success': False,
+            'message': 'File size too large. Please upload files smaller than 16MB.'
+        }), 413
     except Exception as e:
         logger.error(f"Create candidate error: {str(e)}", exc_info=True)
         return jsonify({
@@ -1367,7 +1505,7 @@ def broadcast_message():
             }), 400
         
         # Use SocketIO to broadcast
-        from smart_app.backend.routes.dashboard import socketio
+        socketio = get_socketio()
         socketio.emit('admin_broadcast', {
             'message': message,
             'type': broadcast_type,
@@ -1418,3 +1556,32 @@ def admin_health_check():
         'timestamp': datetime.utcnow().isoformat(),
         'version': '2.0.0'
     })
+
+def update_election_statuses():
+    """Automatically update election statuses based on current time"""
+    try:
+        current_time = datetime.utcnow()
+        
+        # Update scheduled elections to active if voting has started
+        Election.get_collection().update_many({
+            "status": "scheduled",
+            "voting_start": {"$lte": current_time},
+            "voting_end": {"$gte": current_time},
+            "is_active": True
+        }, {
+            "$set": {"status": "active", "updated_at": current_time}
+        })
+        
+        # Update active elections to completed if voting has ended
+        Election.get_collection().update_many({
+            "status": "active", 
+            "voting_end": {"$lt": current_time},
+            "is_active": True
+        }, {
+            "$set": {"status": "completed", "updated_at": current_time}
+        })
+        
+        print("Election statuses updated successfully")
+        
+    except Exception as e:
+        print(f"Error updating election statuses: {str(e)}")

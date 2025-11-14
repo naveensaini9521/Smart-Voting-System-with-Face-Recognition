@@ -57,6 +57,8 @@ const AdminDashboard = () => {
   const [showElectionModal, setShowElectionModal] = useState(false);
   const [showCandidateModal, setShowCandidateModal] = useState(false);
   const [showElectionDetailModal, setShowElectionDetailModal] = useState(false);
+  const [showEditElectionModal, setShowEditElectionModal] = useState(false);
+  const [showEditCandidateModal, setShowEditCandidateModal] = useState(false);
   
   // Form states
   const [electionForm, setElectionForm] = useState({
@@ -77,7 +79,8 @@ const AdminDashboard = () => {
     election_rules: '',
     results_visibility: 'after_voting',
     minimum_voter_age: 18,
-    allowed_voter_groups: ['all']
+    allowed_voter_groups: ['all'],
+    is_featured: false
   });
   
   const [candidateForm, setCandidateForm] = useState({
@@ -95,10 +98,13 @@ const AdminDashboard = () => {
     assets_declaration: '',
     criminal_records: 'none',
     election_symbol: null,
-    symbol_name: ''
+    symbol_name: '',
+    is_approved: false
   });
 
   const [selectedElection, setSelectedElection] = useState(null);
+  const [editingElection, setEditingElection] = useState(null);
+  const [editingCandidate, setEditingCandidate] = useState(null);
 
   // Pagination states
   const [pagination, setPagination] = useState({
@@ -237,73 +243,74 @@ const AdminDashboard = () => {
   };
 
   const handleCreateElection = async (e) => {
-  e.preventDefault();
-  setLoading(true);
-  setError('');
-  
-  try {
-    const formData = new FormData();
+    e.preventDefault();
+    setLoading(true);
+    setError('');
     
-    // Append all election form fields to FormData
-    Object.keys(electionForm).forEach(key => {
-      if (key === 'election_logo' || key === 'election_banner') {
-        if (electionForm[key]) {
-          formData.append(key, electionForm[key]);
+    try {
+      const formData = new FormData();
+      
+      // Append all election form fields to FormData
+      Object.keys(electionForm).forEach(key => {
+        if (key === 'election_logo' || key === 'election_banner') {
+          if (electionForm[key]) {
+            formData.append(key, electionForm[key]);
+          }
+        } else if (key === 'allowed_voter_groups') {
+          // Handle array fields
+          formData.append(key, JSON.stringify(electionForm[key]));
+        } else if (key === 'require_face_verification' || key === 'is_featured') {
+          // Handle boolean fields
+          formData.append(key, electionForm[key].toString());
+        } else {
+          // Handle regular fields
+          formData.append(key, electionForm[key] || '');
         }
-      } else if (key === 'allowed_voter_groups') {
-        // Handle array fields
-        formData.append(key, JSON.stringify(electionForm[key]));
-      } else if (key === 'require_face_verification' || key === 'is_featured') {
-        // Handle boolean fields
-        formData.append(key, electionForm[key].toString());
-      } else {
-        // Handle regular fields
-        formData.append(key, electionForm[key] || '');
-      }
-    });
-
-    console.log('Sending election data:', Object.fromEntries(formData));
-    
-    const response = await adminAPI.createElection(formData);
-    console.log('Election creation response:', response);
-    
-    if (response.success) {
-      setSuccess('Election created successfully!');
-      setShowElectionModal(false);
-      // Reset form
-      setElectionForm({
-        title: '',
-        description: '',
-        election_type: 'national',
-        constituency: '',
-        district: '',
-        state: '',
-        voting_start: '',
-        voting_end: '',
-        registration_start: '',
-        registration_end: '',
-        max_candidates: 10,
-        require_face_verification: true,
-        election_logo: null,
-        election_banner: null,
-        election_rules: '',
-        results_visibility: 'after_end',
-        minimum_voter_age: 18,
-        allowed_voter_groups: ['all'],
-        is_featured: false
       });
-      loadElections();
-    } else {
-      setError(response.message || 'Failed to create election');
+
+      console.log('Creating election with data:', Object.fromEntries(formData));
+      
+      const response = await adminAPI.createElection(formData);
+      console.log('Election creation response:', response);
+      
+      if (response.success) {
+        setSuccess(`Election created successfully! Status: ${response.status_message}`);
+        setShowElectionModal(false);
+        
+        // Reset form
+        setElectionForm({
+          title: '',
+          description: '',
+          election_type: 'national',
+          constituency: '',
+          district: '',
+          state: '',
+          voting_start: '',
+          voting_end: '',
+          registration_start: '',
+          registration_end: '',
+          max_candidates: 10,
+          require_face_verification: true,
+          election_logo: null,
+          election_banner: null,
+          election_rules: '',
+          results_visibility: 'after_end',
+          minimum_voter_age: 18,
+          allowed_voter_groups: ['all'],
+          is_featured: false
+        });
+        loadElections();
+      } else {
+        setError(response.message || 'Failed to create election');
+      }
+    } catch (error) {
+      console.error('Error creating election:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to create election';
+      setError(errorMsg);
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error('Error creating election:', error);
-    const errorMsg = error.response?.data?.message || error.message || 'Failed to create election';
-    setError(errorMsg);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const handleCreateCandidate = async (e) => {
     e.preventDefault();
@@ -343,7 +350,8 @@ const AdminDashboard = () => {
           assets_declaration: '',
           criminal_records: 'none',
           election_symbol: null,
-          symbol_name: ''
+          symbol_name: '',
+          is_approved: false
         });
         loadCandidates();
       } else {
@@ -352,6 +360,225 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Error creating candidate:', error);
       setError('Failed to create candidate');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Edit Election Handler
+  const handleEditElection = async (election) => {
+    setLoading(true);
+    try {
+      const response = await adminAPI.getElectionForEdit(election.election_id);
+      if (response.success) {
+        const electionData = response.election;
+        
+        // Format dates for datetime-local input
+        const formatDateForInput = (dateString) => {
+          if (!dateString) return '';
+          const date = new Date(dateString);
+          return date.toISOString().slice(0, 16);
+        };
+        
+        setEditingElection(electionData);
+        setElectionForm({
+          title: electionData.title || '',
+          description: electionData.description || '',
+          election_type: electionData.election_type || 'national',
+          constituency: electionData.constituency || '',
+          district: electionData.district || '',
+          state: electionData.state || '',
+          voting_start: formatDateForInput(electionData.voting_start),
+          voting_end: formatDateForInput(electionData.voting_end),
+          registration_start: formatDateForInput(electionData.registration_start),
+          registration_end: formatDateForInput(electionData.registration_end),
+          max_candidates: electionData.max_candidates || 10,
+          require_face_verification: electionData.require_face_verification !== false,
+          election_logo: null, // Don't pre-fill files
+          election_banner: null,
+          election_rules: electionData.election_rules || '',
+          results_visibility: electionData.results_visibility || 'after_end',
+          minimum_voter_age: electionData.minimum_voter_age || 18,
+          allowed_voter_groups: electionData.allowed_voter_groups || ['all'],
+          is_featured: electionData.is_featured || false
+        });
+        setShowEditElectionModal(true);
+      }
+    } catch (error) {
+      console.error('Error loading election for edit:', error);
+      setError('Failed to load election details for editing');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update Election Handler
+  const handleUpdateElection = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    
+    try {
+      const formData = new FormData();
+      
+      // Append all election form fields to FormData
+      Object.keys(electionForm).forEach(key => {
+        if (key === 'election_logo' || key === 'election_banner') {
+          if (electionForm[key]) {
+            formData.append(key, electionForm[key]);
+          }
+        } else if (key === 'allowed_voter_groups') {
+          formData.append(key, JSON.stringify(electionForm[key]));
+        } else if (key === 'require_face_verification' || key === 'is_featured') {
+          formData.append(key, electionForm[key].toString());
+        } else {
+          formData.append(key, electionForm[key] || '');
+        }
+      });
+
+      const response = await adminAPI.updateElection(editingElection.election_id, formData);
+      
+      if (response.success) {
+        setSuccess('Election updated successfully!');
+        setShowEditElectionModal(false);
+        setEditingElection(null);
+        
+        // Reset form
+        setElectionForm({
+          title: '',
+          description: '',
+          election_type: 'national',
+          constituency: '',
+          district: '',
+          state: '',
+          voting_start: '',
+          voting_end: '',
+          registration_start: '',
+          registration_end: '',
+          max_candidates: 10,
+          require_face_verification: true,
+          election_logo: null,
+          election_banner: null,
+          election_rules: '',
+          results_visibility: 'after_end',
+          minimum_voter_age: 18,
+          allowed_voter_groups: ['all'],
+          is_featured: false
+        });
+        
+        // Reload data
+        if (activeTab === 'dashboard') {
+          loadDashboardData();
+        } else if (activeTab === 'elections') {
+          loadElections();
+        }
+      } else {
+        setError(response.message || 'Failed to update election');
+      }
+    } catch (error) {
+      console.error('Error updating election:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to update election';
+      setError(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Edit Candidate Handler
+  const handleEditCandidate = async (candidate) => {
+    setLoading(true);
+    try {
+      const response = await adminAPI.getCandidateForEdit(candidate.candidate_id);
+      if (response.success) {
+        const candidateData = response.candidate;
+        setEditingCandidate(candidateData);
+        setCandidateForm({
+          election_id: candidateData.election_id || '',
+          full_name: candidateData.full_name || '',
+          party: candidateData.party || '',
+          party_logo: null,
+          biography: candidateData.biography || '',
+          email: candidateData.email || '',
+          phone: candidateData.phone || '',
+          photo: null,
+          candidate_id: candidateData.candidate_id || '',
+          agenda: candidateData.agenda || candidateData.manifesto || '',
+          qualifications: candidateData.qualifications || '',
+          assets_declaration: candidateData.assets_declaration || '',
+          criminal_records: candidateData.criminal_records || 'none',
+          election_symbol: null,
+          symbol_name: candidateData.symbol_name || '',
+          is_approved: candidateData.is_approved || false
+        });
+        setShowEditCandidateModal(true);
+      }
+    } catch (error) {
+      console.error('Error loading candidate for edit:', error);
+      setError('Failed to load candidate details for editing');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update Candidate Handler
+  const handleUpdateCandidate = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    
+    try {
+      const formData = new FormData();
+      
+      // Append all candidate form fields to FormData
+      Object.keys(candidateForm).forEach(key => {
+        if (key === 'photo' || key === 'party_logo' || key === 'election_symbol') {
+          if (candidateForm[key]) {
+            formData.append(key, candidateForm[key]);
+          }
+        } else if (key === 'is_approved') {
+          formData.append(key, candidateForm[key].toString());
+        } else {
+          formData.append(key, candidateForm[key] || '');
+        }
+      });
+
+      const response = await adminAPI.updateCandidate(editingCandidate.candidate_id, formData);
+      
+      if (response.success) {
+        setSuccess('Candidate updated successfully!');
+        setShowEditCandidateModal(false);
+        setEditingCandidate(null);
+        
+        // Reset form
+        setCandidateForm({
+          election_id: '',
+          full_name: '',
+          party: '',
+          party_logo: null,
+          biography: '',
+          email: '',
+          phone: '',
+          photo: null,
+          candidate_id: '',
+          agenda: '',
+          qualifications: '',
+          assets_declaration: '',
+          criminal_records: 'none',
+          election_symbol: null,
+          symbol_name: '',
+          is_approved: false
+        });
+        
+        // Reload data
+        if (activeTab === 'candidates') {
+          loadCandidates();
+        }
+      } else {
+        setError(response.message || 'Failed to update candidate');
+      }
+    } catch (error) {
+      console.error('Error updating candidate:', error);
+      setError('Failed to update candidate');
     } finally {
       setLoading(false);
     }
@@ -415,6 +642,26 @@ const AdminDashboard = () => {
       } else if (formType === 'candidate') {
         setCandidateForm(prev => ({ ...prev, [fieldName]: file }));
       }
+    }
+  };
+
+  const handleUpdateElectionStatus = async (electionId, status) => {
+    try {
+      const response = await adminAPI.updateElectionStatus(electionId, { status });
+      if (response.success) {
+        setSuccess(`Election status updated to ${status}`);
+        if (activeTab === 'dashboard') {
+          loadDashboardData();
+        } else if (activeTab === 'elections') {
+          loadElections();
+        }
+        setShowElectionDetailModal(false);
+      } else {
+        setError(response.message || 'Failed to update election status');
+      }
+    } catch (error) {
+      console.error('Error updating election status:', error);
+      setError('Failed to update election status');
     }
   };
 
@@ -556,6 +803,15 @@ const AdminDashboard = () => {
                       >
                         <FaEye />
                       </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline-warning" 
+                        className="ms-1"
+                        title="Edit Election"
+                        onClick={() => handleEditElection(election)}
+                      >
+                        <FaEdit />
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -688,7 +944,13 @@ const AdminDashboard = () => {
                       >
                         <FaEye />
                       </Button>
-                      <Button size="sm" variant="outline-warning" className="me-1" title="Edit">
+                      <Button 
+                        size="sm" 
+                        variant="outline-warning" 
+                        className="me-1" 
+                        title="Edit"
+                        onClick={() => handleEditElection(election)}
+                      >
                         <FaEdit />
                       </Button>
                       <Button size="sm" variant="outline-danger" title="Delete">
@@ -972,7 +1234,13 @@ const AdminDashboard = () => {
                       <Button size="sm" variant="outline-primary" className="me-1" title="View">
                         <FaEye />
                       </Button>
-                      <Button size="sm" variant="outline-warning" className="me-1" title="Edit">
+                      <Button 
+                        size="sm" 
+                        variant="outline-warning" 
+                        className="me-1" 
+                        title="Edit"
+                        onClick={() => handleEditCandidate(candidate)}
+                      >
                         <FaEdit />
                       </Button>
                       <Button size="sm" variant="outline-danger" title="Delete">
@@ -1014,115 +1282,115 @@ const AdminDashboard = () => {
     </Card>
   );
 
- const renderAuditLogs = () => (
-  <Card className="border-0 shadow-sm">
-    <Card.Header className="bg-white">
-      <h5 className="mb-0">Audit Logs ({pagination.audit.total})</h5>
-    </Card.Header>
-    <Card.Body>
-      {auditLogs.length === 0 ? (
-        <div className="text-center py-5">
-          <FaClipboardList className="text-muted fa-3x mb-3" />
-          <h5>No audit logs found</h5>
-          <p className="text-muted">System activities will be logged here</p>
-        </div>
-      ) : (
-        <>
-          <Table responsive hover>
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Action</th>
-                <th>User</th>
-                <th>Details</th>
-                <th>IP Address</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditLogs.map(log => (
-                <tr key={log.log_id}>
-                  <td>
-                    <small>{new Date(log.timestamp).toLocaleString()}</small>
-                  </td>
-                  <td>
-                    <Badge bg={
-                      log.action === 'login' ? 'success' :
-                      log.action === 'logout' ? 'secondary' :
-                      log.action === 'create' ? 'primary' :
-                      log.action === 'update' ? 'warning' :
-                      log.action === 'delete' ? 'danger' : 'info'
-                    }>
-                      {log.action}
-                    </Badge>
-                  </td>
-                  <td>
-                    <div>
-                      <code>{log.user_id}</code>
-                      <br />
-                      <small className="text-muted">{log.user_type}</small>
-                    </div>
-                  </td>
-                  <td>
-                    {/* Safely render details - handle both string and object */}
-                    {typeof log.details === 'string' ? (
-                      log.details
-                    ) : log.details && typeof log.details === 'object' ? (
-                      <div>
-                        {Object.entries(log.details).map(([key, value]) => (
-                          <div key={key}>
-                            <small>
-                              <strong>{key}:</strong> {String(value)}
-                            </small>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      'No details'
-                    )}
-                  </td>
-                  <td>
-                    <code>{log.ip_address || 'N/A'}</code>
-                  </td>
-                  <td>
-                    <Badge bg={log.status === 'success' ? 'success' : 'danger'}>
-                      {log.status || 'unknown'}
-                    </Badge>
-                  </td>
+  const renderAuditLogs = () => (
+    <Card className="border-0 shadow-sm">
+      <Card.Header className="bg-white">
+        <h5 className="mb-0">Audit Logs ({pagination.audit.total})</h5>
+      </Card.Header>
+      <Card.Body>
+        {auditLogs.length === 0 ? (
+          <div className="text-center py-5">
+            <FaClipboardList className="text-muted fa-3x mb-3" />
+            <h5>No audit logs found</h5>
+            <p className="text-muted">System activities will be logged here</p>
+          </div>
+        ) : (
+          <>
+            <Table responsive hover>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Action</th>
+                  <th>User</th>
+                  <th>Details</th>
+                  <th>IP Address</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </Table>
-          
-          {/* Pagination */}
-          {pagination.audit.total_pages > 1 && (
-            <div className="d-flex justify-content-center mt-3">
-              <Pagination>
-                <Pagination.Prev 
-                  disabled={pagination.audit.page === 1}
-                  onClick={() => loadAuditLogs(pagination.audit.page - 1)}
-                />
-                {[...Array(pagination.audit.total_pages)].map((_, i) => (
-                  <Pagination.Item
-                    key={i + 1}
-                    active={i + 1 === pagination.audit.page}
-                    onClick={() => loadAuditLogs(i + 1)}
-                  >
-                    {i + 1}
-                  </Pagination.Item>
+              </thead>
+              <tbody>
+                {auditLogs.map(log => (
+                  <tr key={log.log_id}>
+                    <td>
+                      <small>{new Date(log.timestamp).toLocaleString()}</small>
+                    </td>
+                    <td>
+                      <Badge bg={
+                        log.action === 'login' ? 'success' :
+                        log.action === 'logout' ? 'secondary' :
+                        log.action === 'create' ? 'primary' :
+                        log.action === 'update' ? 'warning' :
+                        log.action === 'delete' ? 'danger' : 'info'
+                      }>
+                        {log.action}
+                      </Badge>
+                    </td>
+                    <td>
+                      <div>
+                        <code>{log.user_id}</code>
+                        <br />
+                        <small className="text-muted">{log.user_type}</small>
+                      </div>
+                    </td>
+                    <td>
+                      {/* Safely render details - handle both string and object */}
+                      {typeof log.details === 'string' ? (
+                        log.details
+                      ) : log.details && typeof log.details === 'object' ? (
+                        <div>
+                          {Object.entries(log.details).map(([key, value]) => (
+                            <div key={key}>
+                              <small>
+                                <strong>{key}:</strong> {String(value)}
+                              </small>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        'No details'
+                      )}
+                    </td>
+                    <td>
+                      <code>{log.ip_address || 'N/A'}</code>
+                    </td>
+                    <td>
+                      <Badge bg={log.status === 'success' ? 'success' : 'danger'}>
+                        {log.status || 'unknown'}
+                      </Badge>
+                    </td>
+                  </tr>
                 ))}
-                <Pagination.Next 
-                  disabled={pagination.audit.page === pagination.audit.total_pages}
-                  onClick={() => loadAuditLogs(pagination.audit.page + 1)}
-                />
-              </Pagination>
-            </div>
-          )}
-        </>
-      )}
-    </Card.Body>
-  </Card>
-);
+              </tbody>
+            </Table>
+            
+            {/* Pagination */}
+            {pagination.audit.total_pages > 1 && (
+              <div className="d-flex justify-content-center mt-3">
+                <Pagination>
+                  <Pagination.Prev 
+                    disabled={pagination.audit.page === 1}
+                    onClick={() => loadAuditLogs(pagination.audit.page - 1)}
+                  />
+                  {[...Array(pagination.audit.total_pages)].map((_, i) => (
+                    <Pagination.Item
+                      key={i + 1}
+                      active={i + 1 === pagination.audit.page}
+                      onClick={() => loadAuditLogs(i + 1)}
+                    >
+                      {i + 1}
+                    </Pagination.Item>
+                  ))}
+                  <Pagination.Next 
+                    disabled={pagination.audit.page === pagination.audit.total_pages}
+                    onClick={() => loadAuditLogs(pagination.audit.page + 1)}
+                  />
+                </Pagination>
+              </div>
+            )}
+          </>
+        )}
+      </Card.Body>
+    </Card>
+  );
 
   const renderReports = () => (
     <Card className="border-0 shadow-sm">
@@ -1509,6 +1777,14 @@ const AdminDashboard = () => {
               onChange={(e) => setElectionForm({...electionForm, require_face_verification: e.target.checked})}
               className="mb-3"
             />
+
+            <Form.Check
+              type="checkbox"
+              label="Feature this election"
+              checked={electionForm.is_featured}
+              onChange={(e) => setElectionForm({...electionForm, is_featured: e.target.checked})}
+              className="mb-3"
+            />
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowElectionModal(false)}>
@@ -1516,6 +1792,210 @@ const AdminDashboard = () => {
             </Button>
             <Button variant="primary" type="submit" disabled={loading}>
               {loading ? <Spinner size="sm" /> : 'Create Election'}
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      {/* Edit Election Modal */}
+      <Modal show={showEditElectionModal} onHide={() => setShowEditElectionModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Edit Election: {editingElection?.title}</Modal.Title>
+        </Modal.Header>
+        <Form onSubmit={handleUpdateElection}>
+          <Modal.Body>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election Title *</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter election title"
+                    value={electionForm.title}
+                    onChange={(e) => setElectionForm({...electionForm, title: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election Type *</Form.Label>
+                  <Form.Select
+                    value={electionForm.election_type}
+                    onChange={(e) => setElectionForm({...electionForm, election_type: e.target.value})}
+                  >
+                    <option value="national">National</option>
+                    <option value="state">State</option>
+                    <option value="local">Local</option>
+                    <option value="organizational">Organizational</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+            </Row>
+            
+            <Form.Group className="mb-3">
+              <Form.Label>Description</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={3} 
+                placeholder="Enter election description"
+                value={electionForm.description}
+                onChange={(e) => setElectionForm({...electionForm, description: e.target.value})}
+              />
+            </Form.Group>
+
+            {/* Election Logo and Banner */}
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election Logo</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'election_logo', 'election')}
+                  />
+                  <Form.Text className="text-muted">
+                    {editingElection?.election_logo ? 'Current logo uploaded. Upload new to replace.' : 'Upload a logo for this election'}
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election Banner</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'election_banner', 'election')}
+                  />
+                  <Form.Text className="text-muted">
+                    {editingElection?.election_banner ? 'Current banner uploaded. Upload new to replace.' : 'Upload a banner image for this election'}
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Voting Start *</Form.Label>
+                  <Form.Control 
+                    type="datetime-local"
+                    value={electionForm.voting_start}
+                    onChange={(e) => setElectionForm({...electionForm, voting_start: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Voting End *</Form.Label>
+                  <Form.Control 
+                    type="datetime-local"
+                    value={electionForm.voting_end}
+                    onChange={(e) => setElectionForm({...electionForm, voting_end: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={4}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Constituency</Form.Label>
+                  <Form.Control 
+                    type="text"
+                    placeholder="Enter constituency"
+                    value={electionForm.constituency}
+                    onChange={(e) => setElectionForm({...electionForm, constituency: e.target.value})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group className="mb-3">
+                  <Form.Label>District</Form.Label>
+                  <Form.Control 
+                    type="text"
+                    placeholder="Enter district"
+                    value={electionForm.district}
+                    onChange={(e) => setElectionForm({...electionForm, district: e.target.value})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group className="mb-3">
+                  <Form.Label>State</Form.Label>
+                  <Form.Control 
+                    type="text"
+                    placeholder="Enter state"
+                    value={electionForm.state}
+                    onChange={(e) => setElectionForm({...electionForm, state: e.target.value})}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Results Visibility</Form.Label>
+                  <Form.Select
+                    value={electionForm.results_visibility}
+                    onChange={(e) => setElectionForm({...electionForm, results_visibility: e.target.value})}
+                  >
+                    <option value="after_voting">After Voting Period</option>
+                    <option value="immediate">Immediate</option>
+                    <option value="manual">Manual Release</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Minimum Voter Age</Form.Label>
+                  <Form.Control 
+                    type="number"
+                    min="18"
+                    max="100"
+                    value={electionForm.minimum_voter_age}
+                    onChange={(e) => setElectionForm({...electionForm, minimum_voter_age: parseInt(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Election Rules</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={3} 
+                placeholder="Enter election rules and guidelines"
+                value={electionForm.election_rules}
+                onChange={(e) => setElectionForm({...electionForm, election_rules: e.target.value})}
+              />
+            </Form.Group>
+
+            <Form.Check
+              type="checkbox"
+              label="Require Face Verification"
+              checked={electionForm.require_face_verification}
+              onChange={(e) => setElectionForm({...electionForm, require_face_verification: e.target.checked})}
+              className="mb-3"
+            />
+
+            <Form.Check
+              type="checkbox"
+              label="Feature this election"
+              checked={electionForm.is_featured}
+              onChange={(e) => setElectionForm({...electionForm, is_featured: e.target.checked})}
+              className="mb-3"
+            />
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="secondary" onClick={() => setShowEditElectionModal(false)}>
+              Cancel
+            </Button>
+            <Button variant="warning" type="submit" disabled={loading}>
+              {loading ? <Spinner size="sm" /> : 'Update Election'}
             </Button>
           </Modal.Footer>
         </Form>
@@ -1744,6 +2224,239 @@ const AdminDashboard = () => {
         </Form>
       </Modal>
 
+      {/* Edit Candidate Modal */}
+      <Modal show={showEditCandidateModal} onHide={() => setShowEditCandidateModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Edit Candidate: {editingCandidate?.full_name}</Modal.Title>
+        </Modal.Header>
+        <Form onSubmit={handleUpdateCandidate}>
+          <Modal.Body>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Full Name *</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter candidate's full name"
+                    value={candidateForm.full_name}
+                    onChange={(e) => setCandidateForm({...candidateForm, full_name: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Candidate ID *</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter candidate ID"
+                    value={candidateForm.candidate_id}
+                    onChange={(e) => setCandidateForm({...candidateForm, candidate_id: e.target.value})}
+                    required
+                    disabled // Usually candidate ID shouldn't be changed
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election *</Form.Label>
+                  <Form.Select
+                    value={candidateForm.election_id}
+                    onChange={(e) => setCandidateForm({...candidateForm, election_id: e.target.value})}
+                    required
+                  >
+                    <option value="">Select Election</option>
+                    {elections.map(election => (
+                      <option key={election.election_id} value={election.election_id}>
+                        {election.title}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Political Party *</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter political party"
+                    value={candidateForm.party}
+                    onChange={(e) => setCandidateForm({...candidateForm, party: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            {/* Candidate Photo and Party Logo */}
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Candidate Photo</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'photo', 'candidate')}
+                  />
+                  <Form.Text className="text-muted">
+                    {editingCandidate?.photo ? 'Current photo uploaded. Upload new to replace.' : 'Upload candidate\'s photo'}
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Party Logo</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'party_logo', 'candidate')}
+                  />
+                  <Form.Text className="text-muted">
+                    {editingCandidate?.party_logo ? 'Current logo uploaded. Upload new to replace.' : 'Upload party logo'}
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Email *</Form.Label>
+                  <Form.Control 
+                    type="email" 
+                    placeholder="Enter email address"
+                    value={candidateForm.email}
+                    onChange={(e) => setCandidateForm({...candidateForm, email: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Phone *</Form.Label>
+                  <Form.Control 
+                    type="tel" 
+                    placeholder="Enter phone number"
+                    value={candidateForm.phone}
+                    onChange={(e) => setCandidateForm({...candidateForm, phone: e.target.value})}
+                    required
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Biography</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={3} 
+                placeholder="Enter candidate's biography"
+                value={candidateForm.biography}
+                onChange={(e) => setCandidateForm({...candidateForm, biography: e.target.value})}
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Political Agenda</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={3} 
+                placeholder="Enter candidate's political agenda and promises"
+                value={candidateForm.agenda}
+                onChange={(e) => setCandidateForm({...candidateForm, agenda: e.target.value})}
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Qualifications</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={2} 
+                placeholder="Enter candidate's qualifications and experience"
+                value={candidateForm.qualifications}
+                onChange={(e) => setCandidateForm({...candidateForm, qualifications: e.target.value})}
+              />
+            </Form.Group>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Assets Declaration</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter declared assets"
+                    value={candidateForm.assets_declaration}
+                    onChange={(e) => setCandidateForm({...candidateForm, assets_declaration: e.target.value})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Criminal Records</Form.Label>
+                  <Form.Select
+                    value={candidateForm.criminal_records}
+                    onChange={(e) => setCandidateForm({...candidateForm, criminal_records: e.target.value})}
+                  >
+                    <option value="none">No Criminal Records</option>
+                    <option value="pending">Cases Pending</option>
+                    <option value="convicted">Convicted</option>
+                    <option value="acquitted">Acquitted</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+            </Row>
+
+            {/* Election Symbol */}
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Election Symbol</Form.Label>
+                  <Form.Control 
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'election_symbol', 'candidate')}
+                  />
+                  <Form.Text className="text-muted">
+                    {editingCandidate?.election_symbol ? 'Current symbol uploaded. Upload new to replace.' : 'Upload election symbol'}
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Symbol Name</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Enter symbol name"
+                    value={candidateForm.symbol_name}
+                    onChange={(e) => setCandidateForm({...candidateForm, symbol_name: e.target.value})}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            {/* Approval Toggle */}
+            <Form.Check
+              type="checkbox"
+              label="Approved Candidate"
+              checked={candidateForm.is_approved}
+              onChange={(e) => setCandidateForm({...candidateForm, is_approved: e.target.checked})}
+              className="mb-3"
+            />
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="secondary" onClick={() => setShowEditCandidateModal(false)}>
+              Cancel
+            </Button>
+            <Button variant="warning" type="submit" disabled={loading}>
+              {loading ? <Spinner size="sm" /> : 'Update Candidate'}
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
       {/* Election Detail Modal */}
       <Modal show={showElectionDetailModal} onHide={() => setShowElectionDetailModal(false)} size="lg">
         <Modal.Header closeButton>
@@ -1772,6 +2485,9 @@ const AdminDashboard = () => {
                     </div>
                     <div className="mb-2">
                       <strong>Voter Turnout:</strong> {selectedElection.voter_turnout || 'N/A'}%
+                    </div>
+                    <div className="mb-2">
+                      <strong>Featured:</strong> {selectedElection.is_featured ? 'Yes' : 'No'}
                     </div>
                   </Card.Body>
                 </Card>
@@ -1833,6 +2549,21 @@ const AdminDashboard = () => {
                     {selectedElection.election_rules}
                   </div>
                 )}
+
+                {/* Status Management */}
+                <Form.Group className="mb-3">
+                  <Form.Label>Change Status</Form.Label>
+                  <Form.Select
+                    value={selectedElection.status}
+                    onChange={(e) => handleUpdateElectionStatus(selectedElection.election_id, e.target.value)}
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="active">Active</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </Form.Select>
+                </Form.Group>
               </Col>
             </Row>
           )}
@@ -1841,7 +2572,13 @@ const AdminDashboard = () => {
           <Button variant="secondary" onClick={() => setShowElectionDetailModal(false)}>
             Close
           </Button>
-          <Button variant="primary">
+          <Button 
+            variant="warning" 
+            onClick={() => {
+              setShowElectionDetailModal(false);
+              handleEditElection(selectedElection);
+            }}
+          >
             <FaEdit className="me-1" /> Edit Election
           </Button>
         </Modal.Footer>

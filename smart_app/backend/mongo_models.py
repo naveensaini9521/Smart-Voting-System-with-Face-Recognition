@@ -679,6 +679,11 @@ class Candidate(MongoBase):
             {"$inc": {"vote_count": 1}}
         )
 
+    # In mongo_models.py - Add to Candidate class
+    @classmethod
+    def find_by_candidate_id(cls, candidate_id):
+        """Find candidate by candidate_id"""
+        return cls.find_one({"candidate_id": candidate_id})
 class Vote(MongoBase):
     collection_name = "votes"
     
@@ -716,9 +721,10 @@ class Vote(MongoBase):
     @classmethod
     def find_by_election_and_voter(cls, election_id, voter_id):
         """Find vote by election and voter"""
-        return cls.get_collection().find_one({
+        return cls.find_one({
             "election_id": election_id,
-            "voter_id": voter_id
+            "voter_id": voter_id,
+            "is_verified": True
         })
     
     @classmethod
