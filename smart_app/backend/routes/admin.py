@@ -460,12 +460,15 @@ def create_election():
                 if banner_file and banner_file.filename:
                     election_banner = f"/uploads/elections/banners/{banner_file.filename}"
         
+        # Set constituency to 'General' by default to allow all voters
+        constituency = data.get('constituency', 'General')
+        
         # Create election data with automatic status
         election_data = {
             'title': data['title'],
             'description': data.get('description', ''),
             'election_type': data['election_type'],
-            'constituency': data.get('constituency', ''),
+            'constituency': data.get('constituency', 'General'),
             'district': data.get('district', ''),
             'state': data.get('state', ''),
             'country': data.get('country', 'India'),
