@@ -82,6 +82,19 @@ api.interceptors.response.use(
   }
 );
 
+// Helper function to get auth header
+const getAuthHeader = () => {
+  const adminToken = localStorage.getItem('adminToken');
+  const voterToken = localStorage.getItem('authToken');
+  
+  if (adminToken) {
+    return { Authorization: `Bearer ${adminToken}` };
+  } else if (voterToken) {
+    return { Authorization: `Bearer ${voterToken}` };
+  }
+  return {};
+};
+
 // Voter API functions
 export const voterAPI = {
   // ============ AUTHENTICATION ENDPOINTS ============
@@ -135,28 +148,54 @@ export const voterAPI = {
 
   // ============ VOTING & ELECTIONS ENDPOINTS ============
 
-  // Get active elections for voting
+  // Get active elections for voting - ENHANCED
   getActiveElections: async () => {
     try {
-      console.log('Fetching active elections...');
+      console.log('🔄 Fetching active elections...');
       const response = await api.get('/dashboard/elections/active');
-      console.log('Active elections response:', response.data);
+      console.log('✅ Active elections response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching active elections:', error);
+      console.error('❌ Error fetching active elections:', error);
       throw error.response?.data || { message: 'Failed to fetch active elections' };
+    }
+  },
+
+  // Get upcoming elections
+  getUpcomingElections: async () => {
+    try {
+      console.log('🔄 Fetching upcoming elections...');
+      const response = await api.get('/dashboard/elections/upcoming');
+      console.log('✅ Upcoming elections response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching upcoming elections:', error);
+      throw error.response?.data || { message: 'Failed to fetch upcoming elections' };
+    }
+  },
+
+  // Get completed elections
+  getCompletedElections: async () => {
+    try {
+      console.log('🔄 Fetching completed elections...');
+      const response = await api.get('/dashboard/elections/completed');
+      console.log('✅ Completed elections response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching completed elections:', error);
+      throw error.response?.data || { message: 'Failed to fetch completed elections' };
     }
   },
 
   // Get election candidates
   getElectionCandidates: async (electionId) => {
     try {
-      console.log(`Fetching candidates for election: ${electionId}`);
+      console.log(`🔄 Fetching candidates for election: ${electionId}`);
       const response = await api.get(`/dashboard/elections/${electionId}/candidates`);
-      console.log('Candidates response:', response.data);
+      console.log('✅ Candidates response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching candidates:', error);
+      console.error('❌ Error fetching candidates:', error);
       throw error.response?.data || { message: 'Failed to fetch election candidates' };
     }
   },
@@ -164,14 +203,14 @@ export const voterAPI = {
   // Cast vote in election
   castVote: async (electionId, candidateId) => {
     try {
-      console.log(`Casting vote - Election: ${electionId}, Candidate: ${candidateId}`);
+      console.log(`🗳️ Casting vote - Election: ${electionId}, Candidate: ${candidateId}`);
       const response = await api.post(`/dashboard/elections/${electionId}/vote`, {
         candidate_id: candidateId
       });
-      console.log('Vote cast response:', response.data);
+      console.log('✅ Vote cast response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error casting vote:', error);
+      console.error('❌ Error casting vote:', error);
       throw error.response?.data || { message: 'Failed to cast vote' };
     }
   },
@@ -179,12 +218,12 @@ export const voterAPI = {
   // Get election results
   getElectionResults: async (electionId) => {
     try {
-      console.log(`Fetching results for election: ${electionId}`);
+      console.log(`📊 Fetching results for election: ${electionId}`);
       const response = await api.get(`/dashboard/elections/${electionId}/results`);
-      console.log('Election results response:', response.data);
+      console.log('✅ Election results response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching election results:', error);
+      console.error('❌ Error fetching election results:', error);
       throw error.response?.data || { message: 'Failed to fetch election results' };
     }
   },
@@ -206,12 +245,12 @@ export const voterAPI = {
   // Check voter eligibility for election
   checkVoterEligibility: async (electionId) => {
     try {
-      console.log(`Checking eligibility for election: ${electionId}`);
+      console.log(`🔍 Checking eligibility for election: ${electionId}`);
       const response = await api.get(`/dashboard/elections/${electionId}/check-eligibility`);
-      console.log('Eligibility check response:', response.data);
+      console.log('✅ Eligibility check response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error checking eligibility:', error);
+      console.error('❌ Error checking eligibility:', error);
       throw error.response?.data || { message: 'Failed to check voter eligibility' };
     }
   },
@@ -228,28 +267,85 @@ export const voterAPI = {
 
   // ============ VOTING PAGE SPECIFIC ENDPOINTS ============
 
-  // Start voting session
+  // Start voting session - ENHANCED with better error handling
   startVotingSession: async (electionId) => {
     try {
-      console.log(`Starting voting session for election: ${electionId}`);
+      console.log(`🚀 Starting voting session for election: ${electionId}`);
+      
+      // Clear any existing session data first
+      localStorage.removeItem(`voting_session_${electionId}`);
+      
       const response = await api.post(`/dashboard/elections/${electionId}/start-voting`);
-      console.log('Voting session started:', response.data);
+      console.log('✅ Voting session started:', response.data);
+      
+      // Store session data for the voting page
+      if (response.data.success) {
+        localStorage.setItem(`voting_session_${electionId}`, JSON.stringify({
+          sessionId: response.data.session_id,
+          expires: response.data.session_expires,
+          election: response.data.election,
+          candidates: response.data.candidates,
+          startedAt: new Date().toISOString()
+        }));
+      }
+      
       return response.data;
     } catch (error) {
-      console.error('Error starting voting session:', error);
-      throw error.response?.data || { message: 'Failed to start voting session' };
+      console.error('❌ Error starting voting session:', error);
+      
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Failed to start voting session';
+      
+      if (error.response?.data) {
+        const errorData = error.response.data;
+        errorMessage = errorData.message || errorMessage;
+        
+        // Handle specific error cases
+        if (errorData.message?.includes('already voted')) {
+          errorMessage = 'You have already voted in this election.';
+        } else if (errorData.message?.includes('not started')) {
+          errorMessage = 'Voting has not started yet for this election.';
+        } else if (errorData.message?.includes('ended')) {
+          errorMessage = 'Voting has ended for this election.';
+        } else if (errorData.message?.includes('not eligible')) {
+          errorMessage = 'You are not eligible to vote in this election.';
+        } else if (errorData.message?.includes('not active')) {
+          errorMessage = 'This election is not currently active for voting.';
+        }
+      }
+      
+      throw {
+        success: false,
+        message: errorMessage,
+        has_voted: errorMessage.includes('already voted'),
+        session_expired: errorMessage.includes('ended') || errorMessage.includes('expired')
+      };
     }
   },
 
   // Get complete voting page data (election + candidates)
   getVotingPageData: async (electionId) => {
     try {
-      console.log(`Loading voting page data for election: ${electionId}`);
-      const response = await api.get(`/dashboard/elections/${electionId}/voting-page`);
-      console.log('Voting page data response:', response.data);
-      return response.data;
+      console.log(`📄 Loading voting page data for election: ${electionId}`);
+      
+      // First try to get session data from localStorage
+      const sessionData = localStorage.getItem(`voting_session_${electionId}`);
+      if (sessionData) {
+        const parsedData = JSON.parse(sessionData);
+        console.log('✅ Using cached voting session data');
+        return {
+          success: true,
+          session_data: parsedData,
+          election: parsedData.election,
+          candidates: parsedData.candidates
+        };
+      }
+      
+      // If no cached data, start a new session
+      const sessionResponse = await voterAPI.startVotingSession(electionId);
+      return sessionResponse;
     } catch (error) {
-      console.error('Error loading voting page data:', error);
+      console.error('❌ Error loading voting page data:', error);
       throw error.response?.data || { message: 'Failed to load voting page data' };
     }
   },
@@ -257,25 +353,54 @@ export const voterAPI = {
   // Verify voting session
   verifyVotingSession: async (electionId) => {
     try {
-      console.log(`Verifying voting session for election: ${electionId}`);
-      const response = await api.get(`/dashboard/elections/${electionId}/verify-session`);
-      console.log('Voting session verification:', response.data);
-      return response.data;
+      console.log(`🔒 Verifying voting session for election: ${electionId}`);
+      
+      // Check localStorage first
+      const sessionData = localStorage.getItem(`voting_session_${electionId}`);
+      if (!sessionData) {
+        throw new Error('No active voting session found');
+      }
+      
+      const parsedData = JSON.parse(sessionData);
+      const expiresAt = new Date(parsedData.expires);
+      const now = new Date();
+      
+      if (now > expiresAt) {
+        localStorage.removeItem(`voting_session_${electionId}`);
+        throw new Error('Voting session has expired');
+      }
+      
+      return {
+        success: true,
+        session_valid: true,
+        session_data: parsedData,
+        time_remaining: Math.max(0, expiresAt - now)
+      };
     } catch (error) {
-      console.error('Error verifying voting session:', error);
-      throw error.response?.data || { message: 'Failed to verify voting session' };
+      console.error('❌ Error verifying voting session:', error);
+      throw { 
+        success: false, 
+        message: error.message || 'Failed to verify voting session',
+        session_expired: error.message.includes('expired')
+      };
     }
   },
 
   // Submit vote with enhanced validation
   submitVote: async (voteData) => {
     try {
-      console.log('Submitting vote with enhanced validation:', voteData);
+      console.log('🗳️ Submitting vote with enhanced validation:', voteData);
       const response = await api.post('/dashboard/vote/submit', voteData);
-      console.log('Vote submission response:', response.data);
+      console.log('✅ Vote submission response:', response.data);
+      
+      // Clear session data after successful vote
+      if (response.data.success && voteData.election_id) {
+        localStorage.removeItem(`voting_session_${voteData.election_id}`);
+      }
+      
       return response.data;
     } catch (error) {
-      console.error('Error submitting vote:', error);
+      console.error('❌ Error submitting vote:', error);
       throw error.response?.data || { message: 'Failed to submit vote' };
     }
   },
@@ -283,12 +408,12 @@ export const voterAPI = {
   // Get vote confirmation details
   getVoteConfirmation: async (voteId) => {
     try {
-      console.log(`Getting vote confirmation for: ${voteId}`);
+      console.log(`📝 Getting vote confirmation for: ${voteId}`);
       const response = await api.get(`/dashboard/vote/confirmation/${voteId}`);
-      console.log('Vote confirmation response:', response.data);
+      console.log('✅ Vote confirmation response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error getting vote confirmation:', error);
+      console.error('❌ Error getting vote confirmation:', error);
       throw error.response?.data || { message: 'Failed to get vote confirmation' };
     }
   },
@@ -298,12 +423,12 @@ export const voterAPI = {
   // Get dashboard data
   getDashboardData: async () => {
     try {
-      console.log('Fetching dashboard data...');
+      console.log('🏠 Fetching dashboard data...');
       const response = await api.get('/dashboard/data');
-      console.log('Dashboard data response:', response.data);
+      console.log('✅ Dashboard data response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      console.error('❌ Error fetching dashboard data:', error);
       throw error.response?.data || { message: 'Failed to fetch dashboard data' };
     }
   },
@@ -395,12 +520,12 @@ export const voterAPI = {
   // Get digital ID
   getDigitalID: async () => {
     try {
-      console.log('Fetching digital ID...');
+      console.log('🆔 Fetching digital ID...');
       const response = await api.get('/dashboard/digital-id');
-      console.log('Digital ID response:', response.data);
+      console.log('✅ Digital ID response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching digital ID:', error);
+      console.error('❌ Error fetching digital ID:', error);
       throw error.response?.data || { message: 'Failed to fetch digital ID' };
     }
   },
@@ -408,12 +533,12 @@ export const voterAPI = {
   // Export data
   exportData: async (format = 'json') => {
     try {
-      console.log(`Exporting data in ${format} format...`);
+      console.log(`📤 Exporting data in ${format} format...`);
       const response = await api.get(`/dashboard/export-data?format=${format}`);
-      console.log('Export data response:', response.data);
+      console.log('✅ Export data response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error exporting data:', error);
+      console.error('❌ Error exporting data:', error);
       throw error.response?.data || { message: 'Failed to export data' };
     }
   },
@@ -421,14 +546,14 @@ export const voterAPI = {
   // Download voter slip
   downloadVoterSlip: async () => {
     try {
-      console.log('Downloading voter slip...');
+      console.log('📄 Downloading voter slip...');
       const response = await api.get('/dashboard/download-voter-slip', {
         responseType: 'blob'
       });
-      console.log('Voter slip download response received');
+      console.log('✅ Voter slip download response received');
       return response.data;
     } catch (error) {
-      console.error('Error downloading voter slip:', error);
+      console.error('❌ Error downloading voter slip:', error);
       throw error.response?.data || { message: 'Failed to download voter slip' };
     }
   },
@@ -484,27 +609,27 @@ export const voterAPI = {
 
   // Register new voter
   register: async (voterData) => {
-    console.log('Sending registration data:', voterData);
+    console.log('📝 Sending registration data:', voterData);
     const response = await api.post('/register/register', voterData);
-    console.log('Registration response:', response.data);
+    console.log('✅ Registration response:', response.data);
     return response.data;
   },
 
   // Complete registration
   completeRegistration: async (voterId) => {
-    console.log('Completing registration for voter:', voterId);
+    console.log('✅ Completing registration for voter:', voterId);
     const response = await api.post(`/register/complete-registration/${voterId}`);
-    console.log('Complete registration response:', response.data);
+    console.log('✅ Complete registration response:', response.data);
     return response.data;
   },
 
   // Register face
   registerFace: async (faceData) => {
-    console.log('Registering face for voter:', faceData.voter_id);
+    console.log('👤 Registering face for voter:', faceData.voter_id);
     const response = await api.post(`/register/register-face/${faceData.voter_id}`, {
       image_data: faceData.image_data
     });
-    console.log('Face registration response:', response.data);
+    console.log('✅ Face registration response:', response.data);
     return response.data;
   },
 
@@ -518,17 +643,17 @@ export const voterAPI = {
 
   // Send OTP
   sendOTP: async (otpData) => {
-    console.log('Sending OTP for registration:', otpData);
+    console.log('📱 Sending OTP for registration:', otpData);
     const response = await api.post('/register/send-otp', otpData);
-    console.log('Send OTP response:', response.data);
+    console.log('✅ Send OTP response:', response.data);
     return response.data;
   },
 
   // Verify OTP
   verifyOTP: async (otpData) => {
-    console.log('Verifying OTP for registration:', otpData);
+    console.log('🔐 Verifying OTP for registration:', otpData);
     const response = await api.post('/register/verify-otp', otpData);
-    console.log('Verify OTP response:', response.data);
+    console.log('✅ Verify OTP response:', response.data);
     return response.data;
   },
 
@@ -536,14 +661,14 @@ export const voterAPI = {
 
   // Send verification OTP
   sendVerificationOTP: async (voterId, data) => {
-    console.log(`Sending verification OTP for voter: ${voterId}, type: ${data.type}`);
+    console.log(`📱 Sending verification OTP for voter: ${voterId}, type: ${data.type}`);
     const response = await api.post(`/register/send-verification-otp/${voterId}`, data);
     return response.data;
   },
 
   // Verify contact
   verifyContact: async (voterId, data) => {
-    console.log(`Verifying contact for voter: ${voterId}, type: ${data.type}`);
+    console.log(`✅ Verifying contact for voter: ${voterId}, type: ${data.type}`);
     const response = await api.post(`/register/verify-contact/${voterId}`, data);
     return response.data;
   },
@@ -647,6 +772,10 @@ export const voterAPI = {
       console.log(`Ending voting session for election: ${electionId}`);
       const response = await api.post(`/dashboard/elections/${electionId}/end-session`);
       console.log('Voting session ended:', response.data);
+      
+      // Clear session data
+      localStorage.removeItem(`voting_session_${electionId}`);
+      
       return response.data;
     } catch (error) {
       console.error('Error ending voting session:', error);
@@ -658,6 +787,25 @@ export const voterAPI = {
   getVotingSessionStatus: async (electionId) => {
     try {
       console.log(`Getting voting session status for election: ${electionId}`);
+      
+      // Check localStorage first for session data
+      const sessionData = localStorage.getItem(`voting_session_${electionId}`);
+      if (sessionData) {
+        const parsedData = JSON.parse(sessionData);
+        const expiresAt = new Date(parsedData.expires);
+        const now = new Date();
+        const timeRemaining = Math.max(0, expiresAt - now);
+        
+        return {
+          success: true,
+          session_active: timeRemaining > 0,
+          session_data: parsedData,
+          time_remaining: timeRemaining,
+          expires_at: expiresAt.toISOString()
+        };
+      }
+      
+      // If no local session, check with server
       const response = await api.get(`/dashboard/elections/${electionId}/session-status`);
       console.log('Voting session status:', response.data);
       return response.data;
@@ -665,6 +813,12 @@ export const voterAPI = {
       console.error('Error getting voting session status:', error);
       throw error.response?.data || { message: 'Failed to get voting session status' };
     }
+  },
+
+  // Clear voting session data
+  clearVotingSession: (electionId) => {
+    localStorage.removeItem(`voting_session_${electionId}`);
+    console.log(`🗑️ Cleared voting session data for election: ${electionId}`);
   },
 
   // ============ NEW ENHANCED ENDPOINTS ============
@@ -767,10 +921,107 @@ export const voterAPI = {
     } catch (error) {
       throw error.response?.data || { message: 'Failed to refresh token' };
     }
+  },
+
+  // ============ NEW VOTING FLOW ENDPOINTS ============
+
+  // Check if voter can vote in election
+  canVoteInElection: async (electionId) => {
+    try {
+      console.log(`Checking if voter can vote in election: ${electionId}`);
+      const response = await api.get(`/dashboard/elections/${electionId}/can-vote`);
+      console.log('Can vote check response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error checking voting eligibility:', error);
+      throw error.response?.data || { message: 'Failed to check voting eligibility' };
+    }
+  },
+
+  // Get voting instructions
+  getVotingInstructions: async (electionId) => {
+    try {
+      console.log(`Getting voting instructions for election: ${electionId}`);
+      const response = await api.get(`/dashboard/elections/${electionId}/instructions`);
+      console.log('Voting instructions response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching voting instructions:', error);
+      throw error.response?.data || { message: 'Failed to fetch voting instructions' };
+    }
+  },
+
+  // Validate vote before casting
+  validateVote: async (electionId, candidateId) => {
+    try {
+      console.log(`Validating vote - Election: ${electionId}, Candidate: ${candidateId}`);
+      const response = await api.post(`/dashboard/elections/${electionId}/validate-vote`, {
+        candidate_id: candidateId
+      });
+      console.log('Vote validation response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error validating vote:', error);
+      throw error.response?.data || { message: 'Failed to validate vote' };
+    }
+  },
+
+  // Get vote receipt
+  getVoteReceipt: async (voteId) => {
+    try {
+      console.log(`Getting vote receipt for: ${voteId}`);
+      const response = await api.get(`/dashboard/vote/receipt/${voteId}`);
+      console.log('Vote receipt response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching vote receipt:', error);
+      throw error.response?.data || { message: 'Failed to fetch vote receipt' };
+    }
+  },
+
+  // ============ VOTING SESSION UTILITIES ============
+
+  // Get cached voting session data
+  getCachedVotingSession: (electionId) => {
+    try {
+      const sessionData = localStorage.getItem(`voting_session_${electionId}`);
+      if (!sessionData) return null;
+      
+      const parsedData = JSON.parse(sessionData);
+      const expiresAt = new Date(parsedData.expires);
+      const now = new Date();
+      
+      // Check if session is still valid
+      if (now > expiresAt) {
+        localStorage.removeItem(`voting_session_${electionId}`);
+        return null;
+      }
+      
+      return parsedData;
+    } catch (error) {
+      console.error('Error getting cached voting session:', error);
+      return null;
+    }
+  },
+
+  // Check if voting session is active
+  isVotingSessionActive: (electionId) => {
+    const sessionData = voterAPI.getCachedVotingSession(electionId);
+    return sessionData !== null;
+  },
+
+  // Get time remaining for voting session
+  getVotingSessionTimeRemaining: (electionId) => {
+    const sessionData = voterAPI.getCachedVotingSession(electionId);
+    if (!sessionData) return 0;
+    
+    const expiresAt = new Date(sessionData.expires);
+    const now = new Date();
+    return Math.max(0, expiresAt - now);
   }
 };
 
-// Admin API functions - CORRECTED ENDPOINTS
+// Admin API functions - COMPLETE AND CORRECTED
 export const adminAPI = {
   // ============ ADMIN AUTHENTICATION ENDPOINTS ============
 
@@ -839,6 +1090,7 @@ export const adminAPI = {
   // Create election with file upload support
   createElection: async (formData) => {
     const response = await api.post('/admin/elections', formData, {
+      headers: getAuthHeader(),
       timeout: 60000 // 60 second timeout for file uploads
     });
     return response.data;
@@ -846,31 +1098,41 @@ export const adminAPI = {
 
   // Update election
   updateElection: async (electionId, updateData) => {
-    const response = await api.put(`/admin/elections/${electionId}`, updateData);
+    const response = await api.put(`/admin/elections/${electionId}`, updateData, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Delete election
   deleteElection: async (electionId) => {
-    const response = await api.delete(`/admin/elections/${electionId}`);
+    const response = await api.delete(`/admin/elections/${electionId}`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Get election details
   getElectionDetails: async (electionId) => {
-    const response = await api.get(`/admin/elections/${electionId}`);
+    const response = await api.get(`/admin/elections/${electionId}`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Update election status
   updateElectionStatus: async (electionId, statusData) => {
-    const response = await api.put(`/admin/elections/${electionId}/status`, statusData);
+    const response = await api.put(`/admin/elections/${electionId}/status`, statusData, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Get election for edit
   getElectionForEdit: async (electionId) => {
-    const response = await api.get(`/admin/elections/${electionId}/edit`);
+    const response = await api.get(`/admin/elections/${electionId}/edit`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
@@ -884,25 +1146,41 @@ export const adminAPI = {
     if (params.verification) queryParams.append('verification', params.verification);
     if (params.constituency) queryParams.append('constituency', params.constituency);
     
-    const response = await api.get(`/admin/voters?${queryParams.toString()}`);
+    const response = await api.get(`/admin/voters?${queryParams.toString()}`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Get voter details
   getVoterDetails: async (voterId) => {
-    const response = await api.get(`/admin/voters/${voterId}`);
+    const response = await api.get(`/admin/voters/${voterId}`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Verify voter
   verifyVoter: async (voterId, verificationData) => {
-    const response = await api.post(`/admin/voters/${voterId}/verify`, verificationData);
+    const response = await api.post(`/admin/voters/${voterId}/verify`, verificationData, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Update voter status
   updateVoterStatus: async (voterId, statusData) => {
-    const response = await api.put(`/admin/voters/${voterId}/status`, statusData);
+    const response = await api.put(`/admin/voters/${voterId}/status`, statusData, {
+      headers: getAuthHeader()
+    });
+    return response.data;
+  },
+
+  // Delete voter
+  deleteVoter: async (voterId) => {
+    const response = await api.delete(`/admin/voters/${voterId}`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
@@ -916,13 +1194,16 @@ export const adminAPI = {
     if (params.election_id) queryParams.append('election_id', params.election_id);
     if (params.approval) queryParams.append('approval', params.approval);
     
-    const response = await api.get(`/admin/candidates?${queryParams.toString()}`);
+    const response = await api.get(`/admin/candidates?${queryParams.toString()}`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Create candidate with file upload support
   createCandidate: async (formData) => {
     const response = await api.post('/admin/candidates', formData, {
+      headers: getAuthHeader(),
       timeout: 60000 // 60 second timeout for file uploads
     });
     return response.data;
@@ -930,25 +1211,41 @@ export const adminAPI = {
 
   // Update candidate
   updateCandidate: async (candidateId, updateData) => {
-    const response = await api.put(`/admin/candidates/${candidateId}`, updateData);
+    const response = await api.put(`/admin/candidates/${candidateId}`, updateData, {
+      headers: getAuthHeader()
+    });
+    return response.data;
+  },
+
+  // Delete candidate
+  deleteCandidate: async (candidateId) => {
+    const response = await api.delete(`/admin/candidates/${candidateId}`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Approve candidate
   approveCandidate: async (candidateId) => {
-    const response = await api.put(`/admin/candidates/${candidateId}/approve`);
+    const response = await api.put(`/admin/candidates/${candidateId}/approve`, {}, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Get candidate details
   getCandidateDetails: async (candidateId) => {
-    const response = await api.get(`/admin/candidates/${candidateId}`);
+    const response = await api.get(`/admin/candidates/${candidateId}`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Get candidate for edit
   getCandidateForEdit: async (candidateId) => {
-    const response = await api.get(`/admin/candidates/${candidateId}/edit`);
+    const response = await api.get(`/admin/candidates/${candidateId}/edit`, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
@@ -962,7 +1259,27 @@ export const adminAPI = {
     if (params.action) queryParams.append('action', params.action);
     if (params.user_type) queryParams.append('user_type', params.user_type);
     
-    const response = await api.get(`/admin/audit-logs?${queryParams.toString()}`);
+    const response = await api.get(`/admin/audit-logs?${queryParams.toString()}`, {
+      headers: getAuthHeader()
+    });
+    return response.data;
+  },
+
+  // ============ SYSTEM SETTINGS ============
+
+  // Get system settings
+  getSystemSettings: async () => {
+    const response = await api.get('/admin/settings', {
+      headers: getAuthHeader()
+    });
+    return response.data;
+  },
+
+  // Update system settings
+  updateSystemSettings: async (settings) => {
+    const response = await api.put('/admin/settings', settings, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
@@ -970,30 +1287,46 @@ export const adminAPI = {
 
   // Broadcast message
   broadcastMessage: async (messageData) => {
-    const response = await api.post('/admin/broadcast', messageData);
+    const response = await api.post('/admin/broadcast', messageData, {
+      headers: getAuthHeader()
+    });
+    return response.data;
+  },
+
+  // Send broadcast (alias for broadcastMessage)
+  sendBroadcast: async (messageData) => {
+    const response = await api.post('/admin/broadcast', messageData, {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Get connected users
   getConnectedUsers: async () => {
-    const response = await api.get('/admin/connected-users');
+    const response = await api.get('/admin/connected-users', {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // Health check
   healthCheck: async () => {
-    const response = await api.get('/admin/health');
+    const response = await api.get('/admin/health', {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 
   // ============ REAL-TIME ADMIN ENDPOINTS ============
 
   // Update election with real-time broadcast
-  updateElection: async (action, electionData) => {
+  updateElectionRealTime: async (action, electionData) => {
     try {
       const response = await api.post('/dashboard/admin/update-election', {
         action,
         election_data: electionData
+      }, {
+        headers: getAuthHeader()
       });
       return response.data;
     } catch (error) {
@@ -1002,11 +1335,13 @@ export const adminAPI = {
   },
 
   // Update voter with real-time broadcast
-  updateVoter: async (action, voterData) => {
+  updateVoterRealTime: async (action, voterData) => {
     try {
       const response = await api.post('/dashboard/admin/update-voter', {
         action,
         voter_data: voterData
+      }, {
+        headers: getAuthHeader()
       });
       return response.data;
     } catch (error) {
@@ -1017,7 +1352,9 @@ export const adminAPI = {
   // Admin broadcast to all voters
   adminBroadcast: async (messageData) => {
     try {
-      const response = await api.post('/dashboard/admin/broadcast', messageData);
+      const response = await api.post('/dashboard/admin/broadcast', messageData, {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to send broadcast' };
@@ -1027,7 +1364,9 @@ export const adminAPI = {
   // Get connected users info
   getConnectedUsersInfo: async () => {
     try {
-      const response = await api.get('/dashboard/admin/connected-users');
+      const response = await api.get('/dashboard/admin/connected-users', {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to get connected users' };
@@ -1039,7 +1378,9 @@ export const adminAPI = {
   // Get election votes
   getElectionVotes: async (electionId) => {
     try {
-      const response = await api.get(`/admin/elections/${electionId}/votes`);
+      const response = await api.get(`/admin/elections/${electionId}/votes`, {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch election votes' };
@@ -1049,7 +1390,9 @@ export const adminAPI = {
   // Get vote statistics
   getVoteStatistics: async (electionId) => {
     try {
-      const response = await api.get(`/admin/elections/${electionId}/vote-stats`);
+      const response = await api.get(`/admin/elections/${electionId}/vote-stats`, {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch vote statistics' };
@@ -1060,7 +1403,8 @@ export const adminAPI = {
   exportElectionResults: async (electionId, format = 'csv') => {
     try {
       const response = await api.get(`/admin/elections/${electionId}/export-results?format=${format}`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        headers: getAuthHeader()
       });
       return response.data;
     } catch (error) {
@@ -1074,7 +1418,9 @@ export const adminAPI = {
   startVotingSession: async (electionId) => {
     try {
       console.log(`Admin starting voting session for election: ${electionId}`);
-      const response = await api.post(`/admin/elections/${electionId}/start-voting`);
+      const response = await api.post(`/admin/elections/${electionId}/start-voting`, {}, {
+        headers: getAuthHeader()
+      });
       console.log('Voting session started by admin:', response.data);
       return response.data;
     } catch (error) {
@@ -1087,7 +1433,9 @@ export const adminAPI = {
   endVotingSession: async (electionId) => {
     try {
       console.log(`Admin ending voting session for election: ${electionId}`);
-      const response = await api.post(`/admin/elections/${electionId}/end-voting`);
+      const response = await api.post(`/admin/elections/${electionId}/end-voting`, {}, {
+        headers: getAuthHeader()
+      });
       console.log('Voting session ended by admin:', response.data);
       return response.data;
     } catch (error) {
@@ -1100,7 +1448,9 @@ export const adminAPI = {
   getVotingAnalytics: async (electionId) => {
     try {
       console.log(`Getting voting analytics for election: ${electionId}`);
-      const response = await api.get(`/admin/elections/${electionId}/voting-analytics`);
+      const response = await api.get(`/admin/elections/${electionId}/voting-analytics`, {
+        headers: getAuthHeader()
+      });
       console.log('Voting analytics:', response.data);
       return response.data;
     } catch (error) {
@@ -1114,7 +1464,9 @@ export const adminAPI = {
   // Get election analytics
   getElectionAnalytics: async (electionId) => {
     try {
-      const response = await api.get(`/admin/elections/${electionId}/analytics`);
+      const response = await api.get(`/admin/elections/${electionId}/analytics`, {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch election analytics' };
@@ -1124,7 +1476,9 @@ export const adminAPI = {
   // Get voter statistics
   getVoterStatistics: async () => {
     try {
-      const response = await api.get('/admin/statistics/voters');
+      const response = await api.get('/admin/statistics/voters', {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch voter statistics' };
@@ -1134,7 +1488,9 @@ export const adminAPI = {
   // Get system analytics
   getSystemAnalytics: async () => {
     try {
-      const response = await api.get('/admin/analytics/system');
+      const response = await api.get('/admin/analytics/system', {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch system analytics' };
@@ -1145,7 +1501,8 @@ export const adminAPI = {
   exportVoterData: async (format = 'csv') => {
     try {
       const response = await api.get(`/admin/voters/export?format=${format}`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        headers: getAuthHeader()
       });
       return response.data;
     } catch (error) {
@@ -1157,7 +1514,8 @@ export const adminAPI = {
   exportCandidateData: async (format = 'csv') => {
     try {
       const response = await api.get(`/admin/candidates/export?format=${format}`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        headers: getAuthHeader()
       });
       return response.data;
     } catch (error) {
@@ -1168,7 +1526,9 @@ export const adminAPI = {
   // Get real-time system status
   getRealTimeSystemStatus: async () => {
     try {
-      const response = await api.get('/admin/system/status');
+      const response = await api.get('/admin/system/status', {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch system status' };
@@ -1178,20 +1538,12 @@ export const adminAPI = {
   // Get admin dashboard widgets
   getDashboardWidgets: async () => {
     try {
-      const response = await api.get('/admin/dashboard/widgets');
+      const response = await api.get('/admin/dashboard/widgets', {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch dashboard widgets' };
-    }
-  },
-
-  // Update system settings
-  updateSystemSettings: async (settings) => {
-    try {
-      const response = await api.post('/admin/system/settings', settings);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || { message: 'Failed to update system settings' };
     }
   },
 
@@ -1202,7 +1554,9 @@ export const adminAPI = {
       if (params.page) queryParams.append('page', params.page);
       if (params.per_page) queryParams.append('per_page', params.per_page);
       
-      const response = await api.get(`/admin/activity-logs?${queryParams.toString()}`);
+      const response = await api.get(`/admin/activity-logs?${queryParams.toString()}`, {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch admin activity logs' };
@@ -1212,7 +1566,9 @@ export const adminAPI = {
   // Get election reports
   getElectionReports: async (electionId) => {
     try {
-      const response = await api.get(`/admin/elections/${electionId}/reports`);
+      const response = await api.get(`/admin/elections/${electionId}/reports`, {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch election reports' };
@@ -1224,6 +1580,8 @@ export const adminAPI = {
     try {
       const response = await api.post(`/admin/elections/${electionId}/generate-report`, {
         report_type: reportType
+      }, {
+        headers: getAuthHeader()
       });
       return response.data;
     } catch (error) {
@@ -1239,7 +1597,9 @@ export const adminAPI = {
       if (params.per_page) queryParams.append('per_page', params.per_page);
       if (params.status) queryParams.append('status', params.status);
       
-      const response = await api.get(`/admin/candidates/applications?${queryParams.toString()}`);
+      const response = await api.get(`/admin/candidates/applications?${queryParams.toString()}`, {
+        headers: getAuthHeader()
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to fetch candidate applications' };
@@ -1251,10 +1611,59 @@ export const adminAPI = {
     try {
       const response = await api.post(`/admin/candidates/${candidateId}/review`, {
         decision: decision
+      }, {
+        headers: getAuthHeader()
       });
       return response.data;
     } catch (error) {
       throw error.response?.data || { message: 'Failed to review candidate application' };
+    }
+  },
+
+  // ============ NEW VOTING MANAGEMENT ENDPOINTS ============
+
+  // Get election voting statistics
+  getElectionVotingStats: async (electionId) => {
+    try {
+      console.log(`📊 Getting voting statistics for election: ${electionId}`);
+      const response = await api.get(`/admin/elections/${electionId}/voting-stats`, {
+        headers: getAuthHeader()
+      });
+      console.log('Voting statistics:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error getting voting statistics:', error);
+      throw error.response?.data || { message: 'Failed to get voting statistics' };
+    }
+  },
+
+  // Get real-time vote counts
+  getRealTimeVoteCounts: async (electionId) => {
+    try {
+      console.log(`Getting real-time vote counts for election: ${electionId}`);
+      const response = await api.get(`/admin/elections/${electionId}/real-time-votes`, {
+        headers: getAuthHeader()
+      });
+      console.log('Real-time vote counts:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error getting real-time vote counts:', error);
+      throw error.response?.data || { message: 'Failed to get real-time vote counts' };
+    }
+  },
+
+  // Reset election votes (for testing)
+  resetElectionVotes: async (electionId) => {
+    try {
+      console.log(`Resetting votes for election: ${electionId}`);
+      const response = await api.post(`/admin/elections/${electionId}/reset-votes`, {}, {
+        headers: getAuthHeader()
+      });
+      console.log('Election votes reset:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error resetting election votes:', error);
+      throw error.response?.data || { message: 'Failed to reset election votes' };
     }
   }
 };

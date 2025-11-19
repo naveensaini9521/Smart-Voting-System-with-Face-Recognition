@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { voterAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { io } from 'socket.io-client';
+
 import { 
   FaTachometerAlt, FaUser, FaVoteYea, FaHistory, FaSignOutAlt,
   FaCheckCircle, FaClock, FaMapMarkerAlt, FaIdCard, FaEnvelope,
@@ -43,65 +44,132 @@ const Dashboard = () => {
   const [realTimeUpdates, setRealTimeUpdates] = useState([]);
   const [liveStats, setLiveStats] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [hasVoted, setHasVoted] = useState({}); // Track voted status per election
 
   // Use FaSignal as alternative to FaBroadcast
   const BroadcastIcon = FaSignal;
 
-  // Initialize Socket connection
+  // Enhanced SocketIO connection with better error handling
   useEffect(() => {
     if (isAuthenticated && user) {
+      console.log('🔌 Initializing SocketIO connection...');
+      
       const newSocket = io(SOCKET_URL, {
         path: '/socket.io',
         transports: ['websocket', 'polling'],
+        upgrade: true,
+        rememberUpgrade: true,
         query: {
           voter_id: user.voter_id,
-          user_type: 'voter'
-        }
+          user_type: 'voter',
+          timestamp: Date.now()
+        },
+        timeout: 10000,
+        forceNew: true,
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000
       });
 
+      // Connection successful
       newSocket.on('connect', () => {
-        console.log('Connected to real-time updates');
+        console.log('✅ Connected to real-time updates');
         setIsConnected(true);
         
         // Subscribe to election updates
         newSocket.emit('subscribe_elections', {
           voter_id: user.voter_id
         });
+        
+        // Join voter-specific room
+        newSocket.emit('join_election_updates', { voter_id: user.voter_id });
       });
 
-      newSocket.on('disconnect', () => {
-        console.log('Disconnected from real-time updates');
+      // Connection failed
+      newSocket.on('connect_error', (error) => {
+        console.error('💥 SocketIO connection error:', error);
         setIsConnected(false);
+        setError('Real-time updates unavailable. Some features may be limited.');
       });
 
+      // Disconnected
+      newSocket.on('disconnect', (reason) => {
+        console.log('❌ Disconnected from real-time updates:', reason);
+        setIsConnected(false);
+        
+        if (reason === 'io server disconnect') {
+          // Server disconnected, need to manually reconnect
+          setTimeout(() => {
+            newSocket.connect();
+          }, 1000);
+        }
+      });
+
+      // Connection established confirmation
+      newSocket.on('connection_established', (data) => {
+        console.log('✅ Socket connection established:', data);
+        setIsConnected(true);
+      });
+
+      // Real-time event handlers
       newSocket.on('election_update', (data) => {
-        console.log('Received election update:', data);
+        console.log('📢 Received election update:', data);
         handleElectionUpdate(data);
       });
 
       newSocket.on('voter_update', (data) => {
-        console.log('Received voter update:', data);
+        console.log('📢 Received voter update:', data);
         handleVoterUpdate(data);
       });
 
       newSocket.on('system_update', (data) => {
-        console.log('Received system update:', data);
+        console.log('📢 Received system update:', data);
         handleSystemUpdate(data);
       });
 
       newSocket.on('admin_broadcast', (data) => {
-        console.log('Received admin broadcast:', data);
+        console.log('📢 Received admin broadcast:', data);
         handleAdminBroadcast(data);
       });
 
-      newSocket.on('connection_established', (data) => {
-        console.log('Socket connection established:', data);
+      newSocket.on('voting_session_started', (data) => {
+        console.log('🗳️ Voting session started:', data);
+        // Handle voting session start if needed
+      });
+
+      newSocket.on('vote_count_update', (data) => {
+        console.log('📊 Vote count update:', data);
+        // Update election stats in real-time
+        updateElectionStats(data);
+      });
+
+      // Reconnection events
+      newSocket.on('reconnect_attempt', (attempt) => {
+        console.log(`🔄 SocketIO reconnection attempt: ${attempt}`);
+      });
+
+      newSocket.on('reconnect', (attempt) => {
+        console.log(`✅ SocketIO reconnected after ${attempt} attempts`);
+        setIsConnected(true);
+      });
+
+      newSocket.on('reconnect_error', (error) => {
+        console.error('💥 SocketIO reconnection error:', error);
+      });
+
+      newSocket.on('reconnect_failed', () => {
+        console.error('🚨 SocketIO reconnection failed');
+        setIsConnected(false);
       });
 
       setSocket(newSocket);
 
       return () => {
-        newSocket.close();
+        console.log('🔌 Cleaning up SocketIO connection...');
+        if (newSocket) {
+          newSocket.close();
+        }
       };
     }
   }, [isAuthenticated, user]);
@@ -138,7 +206,8 @@ const Dashboard = () => {
       message,
       timestamp,
       admin_id,
-      electionData
+      electionData,
+      urgent: action === 'delete' || action === 'status_update'
     }, ...prev.slice(0, 9)]); // Keep last 10 updates
 
     // Refresh dashboard data if this update affects the current view
@@ -158,7 +227,8 @@ const Dashboard = () => {
       message: `Your account verification status has been updated`,
       timestamp,
       admin_id,
-      voterData
+      voterData,
+      urgent: true
     }, ...prev.slice(0, 9)]);
 
     // Refresh profile data if this is the current user
@@ -201,6 +271,25 @@ const Dashboard = () => {
     }, ...prev.slice(0, 9)]);
   }, []);
 
+  const updateElectionStats = useCallback((data) => {
+    // Update election stats in real-time without full refresh
+    setDashboardData(prev => {
+      if (!prev) return prev;
+      
+      return {
+        ...prev,
+        election_info: {
+          ...prev.election_info,
+          active_elections: prev.election_info?.active_elections?.map(election => 
+            election.election_id === data.election_id 
+              ? { ...election, total_votes: data.total_votes }
+              : election
+          ) || []
+        }
+      };
+    });
+  }, []);
+
   // Enhanced data loading with real-time support
   const loadDashboardData = async () => {
     try {
@@ -226,6 +315,13 @@ const Dashboard = () => {
           last_updated: new Date().toISOString()
         };
         setLiveStats(liveStatsData);
+
+        // Update voted status
+        const votedStatus = {};
+        activeElections.forEach(election => {
+          votedStatus[election.election_id] = election.has_voted || false;
+        });
+        setHasVoted(votedStatus);
       } else {
         setError(dashboardResponse.message || 'Failed to load dashboard data');
       }
@@ -257,16 +353,16 @@ const Dashboard = () => {
     }
   };
 
-  // Auto-refresh data every 30 seconds
+  // Auto-refresh data every 30 seconds only when connected
   useEffect(() => {
-    if (isAuthenticated && !loading) {
+    if (isAuthenticated && !loading && isConnected) {
       const interval = setInterval(() => {
         loadDashboardData();
       }, 30000);
 
       return () => clearInterval(interval);
     }
-  }, [isAuthenticated, loading]);
+  }, [isAuthenticated, loading, isConnected]);
 
   // Initial data load
   useEffect(() => {
@@ -407,26 +503,89 @@ const Dashboard = () => {
     loadDashboardData();
   };
 
-  // New function to handle voting page navigation with session start
+  // Enhanced voting session start with better error handling
   const handleStartVoting = async (election) => {
     try {
       console.log(`🚀 Starting voting process for election: ${election.election_id}`);
-      
+      setLoading(true);
+      setError('');
+
+      // Clear any previous session data
+      voterAPI.clearVotingSession(election.election_id);
+
       // Start voting session
       const sessionResponse = await voterAPI.startVotingSession(election.election_id);
+      console.log('📋 Session response:', sessionResponse);
       
       if (sessionResponse.success) {
         console.log('✅ Voting session started, navigating to voting page...');
         
-        // Navigate to voting page
-        navigate(`/vote/${election.election_id}`);
+        // Store session info in localStorage for the voting page
+        localStorage.setItem(`voting_session_${election.election_id}`, JSON.stringify({
+          sessionId: sessionResponse.session_id,
+          expires: sessionResponse.session_expires,
+          election: sessionResponse.election,
+          candidates: sessionResponse.candidates,
+          startedAt: new Date().toISOString()
+        }));
+        
+        // Update voted status
+        setHasVoted(prev => ({
+          ...prev,
+          [election.election_id]: false
+        }));
+
+        // Navigate to voting page with state
+        navigate(`/vote/${election.election_id}`, { 
+          state: { 
+            votingSession: sessionResponse,
+            electionData: sessionResponse.election,
+            fromDashboard: true
+          }
+        });
       } else {
-        setError(sessionResponse.message || 'Failed to start voting session');
+        // Handle specific error cases
+        if (sessionResponse.has_voted) {
+          setError('You have already voted in this election.');
+          setHasVoted(prev => ({
+            ...prev,
+            [election.election_id]: true
+          }));
+        } else {
+          setError(sessionResponse.message || 'Failed to start voting session');
+        }
       }
     } catch (error) {
       console.error('❌ Error starting voting session:', error);
       const errorMsg = error.response?.data?.message || error.message || 'Failed to start voting session';
       setError(errorMsg);
+      
+      // Handle specific error cases
+      if (errorMsg.includes('already voted')) {
+        setHasVoted(prev => ({
+          ...prev,
+          [election.election_id]: true
+        }));
+      }
+      if (errorMsg.includes('not started')) {
+        setError('Voting has not started yet for this election.');
+      }
+      if (errorMsg.includes('ended')) {
+        setError('Voting has ended for this election.');
+      }
+      if (errorMsg.includes('not eligible')) {
+        setError('You are not eligible to vote in this election.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Test SocketIO connection
+  const testSocketConnection = () => {
+    if (socket && isConnected) {
+      socket.emit('ping', { message: 'Test from dashboard', timestamp: Date.now() });
+      socket.emit('echo', { test: 'SocketIO connection test' });
     }
   };
 
@@ -441,6 +600,17 @@ const Dashboard = () => {
               {isConnected && <BroadcastIcon className="text-success me-2" />}
               {isConnected ? 'Real-time updates connected' : 'Connecting to live updates...'}
             </p>
+            {!isConnected && (
+              <Button 
+                variant="outline-light" 
+                size="sm" 
+                className="mt-2"
+                onClick={testSocketConnection}
+              >
+                <FaSync className="me-1" />
+                Test Connection
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -470,13 +640,25 @@ const Dashboard = () => {
             autohide 
             delay={update.urgent ? 10000 : 5000}
             bg={update.urgent ? 'warning' : undefined}
+            onClose={() => {
+              setRealTimeUpdates(prev => prev.filter(u => u.id !== update.id));
+            }}
           >
-            <Toast.Header closeButton={false}>
-              <BroadcastIcon className={`me-2 ${update.urgent ? 'text-warning' : 'text-primary'}`} />
+            <Toast.Header closeButton className={update.urgent ? 'bg-warning text-dark' : ''}>
+              <BroadcastIcon className={`me-2 ${update.urgent ? 'text-dark' : 'text-primary'}`} />
               <strong className="me-auto">{update.title}</strong>
               <small>{new Date(update.timestamp).toLocaleTimeString()}</small>
             </Toast.Header>
-            <Toast.Body>{update.message}</Toast.Body>
+            <Toast.Body className={update.urgent ? 'bg-warning bg-opacity-10' : ''}>
+              {update.message}
+              {update.electionData && (
+                <div className="mt-2">
+                  <small className="text-muted">
+                    Election: {update.electionData.title}
+                  </small>
+                </div>
+              )}
+            </Toast.Body>
           </Toast>
         ))}
       </ToastContainer>
@@ -505,6 +687,18 @@ const Dashboard = () => {
               {isConnected ? <BroadcastIcon /> : <FaSyncAlt className="spinner" />}
               <span className="ms-1">{isConnected ? 'Connected' : 'Connecting'}</span>
             </Badge>
+
+            {/* Socket Test Button */}
+            <Button 
+              variant="outline-light" 
+              size="sm" 
+              className="me-2"
+              onClick={testSocketConnection}
+              disabled={!isConnected}
+              title="Test SocketIO Connection"
+            >
+              <FaWifi />
+            </Button>
 
             <Button 
               variant="outline-light" 
@@ -553,7 +747,7 @@ const Dashboard = () => {
             <FaSyncAlt className="spinner me-2" />
             <div className="flex-grow-1">
               <strong>Connecting to live updates...</strong>
-              <small className="d-block">Some features may be limited</small>
+              <small className="d-block">Some features may be limited. Data will refresh automatically when connection is restored.</small>
             </div>
             <Button variant="outline-warning" size="sm" onClick={() => window.location.reload()}>
               <FaSync className="me-1" />
@@ -577,7 +771,13 @@ const Dashboard = () => {
 
         {/* Last Update Indicator */}
         {lastUpdate && (
-          <div className="d-flex justify-content-end mb-3">
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <small className="text-muted">
+              Real-time updates: 
+              <Badge bg={isConnected ? "success" : "warning"} className="ms-2">
+                {isConnected ? 'Active' : 'Offline'}
+              </Badge>
+            </small>
             <small className="text-muted">
               Last updated: {new Date(lastUpdate).toLocaleString()}
               <Button 
@@ -586,6 +786,7 @@ const Dashboard = () => {
                 className="p-0 ms-2"
                 onClick={loadDashboardData}
                 disabled={loading}
+                title="Refresh Data"
               >
                 <FaSync className={loading ? 'spinner' : ''} />
               </Button>
@@ -602,12 +803,24 @@ const Dashboard = () => {
                   <Card.Body className="p-0 d-flex flex-column">
                     {/* Connection Status */}
                     <div className="p-3 border-bottom bg-light">
-                      <div className="d-flex align-items-center">
-                        <div className={`rounded-circle me-2 ${isConnected ? 'bg-success' : 'bg-warning'}`} 
-                             style={{ width: '8px', height: '8px' }}></div>
-                        <small className={isConnected ? 'text-success' : 'text-warning'}>
-                          {isConnected ? 'Live Connected' : 'Connecting...'}
-                        </small>
+                      <div className="d-flex align-items-center justify-content-between">
+                        <div className="d-flex align-items-center">
+                          <div className={`rounded-circle me-2 ${isConnected ? 'bg-success' : 'bg-warning'}`} 
+                               style={{ width: '8px', height: '8px' }}></div>
+                          <small className={isConnected ? 'text-success' : 'text-warning'}>
+                            {isConnected ? 'Live Connected' : 'Connecting...'}
+                          </small>
+                        </div>
+                        <Button 
+                          variant="link" 
+                          size="sm" 
+                          className="p-0"
+                          onClick={testSocketConnection}
+                          disabled={!isConnected}
+                          title="Test Connection"
+                        >
+                          <FaSync className="text-muted" />
+                        </Button>
                       </div>
                     </div>
 
@@ -750,6 +963,7 @@ const Dashboard = () => {
                       loading={loading}
                       BroadcastIcon={BroadcastIcon}
                       onStartVoting={handleStartVoting}
+                      hasVoted={hasVoted}
                     />
                   </Tab.Pane>
 
@@ -769,6 +983,7 @@ const Dashboard = () => {
                       isConnected={isConnected}
                       BroadcastIcon={BroadcastIcon}
                       onStartVoting={handleStartVoting}
+                      hasVoted={hasVoted}
                     />
                   </Tab.Pane>
 
@@ -799,10 +1014,16 @@ const Dashboard = () => {
             <Alert variant="warning" className="d-inline-block">
               <h5>Unable to load dashboard data</h5>
               <p>{error || 'Please check your connection and try again.'}</p>
-              <Button variant="warning" onClick={handleRetry}>
-                <FaSync className="me-1" />
-                Retry Loading
-              </Button>
+              <div className="d-flex gap-2 justify-content-center mt-3">
+                <Button variant="warning" onClick={handleRetry}>
+                  <FaSync className="me-1" />
+                  Retry Loading
+                </Button>
+                <Button variant="outline-warning" onClick={testSocketConnection}>
+                  <FaWifi className="me-1" />
+                  Test Connection
+                </Button>
+              </div>
             </Alert>
           </div>
         )}
@@ -859,12 +1080,20 @@ const Dashboard = () => {
               <FaBell className="text-muted fs-1 mb-3" />
               <h6 className="text-muted">No Recent Updates</h6>
               <p className="text-muted">System updates will appear here in real-time</p>
+              <div className="mt-3">
+                <Badge bg={isConnected ? "success" : "warning"}>
+                  {isConnected ? 'Connected to live updates' : 'Waiting for connection...'}
+                </Badge>
+              </div>
             </div>
           )}
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setRealTimeUpdates([])}>
             Clear All
+          </Button>
+          <Button variant="primary" onClick={() => setShowNotifications(false)}>
+            Close
           </Button>
         </Modal.Footer>
       </Modal>
@@ -886,7 +1115,7 @@ const Dashboard = () => {
 };
 
 // Enhanced Overview Component
-const EnhancedOverview = ({ dashboardData, liveStats, isConnected, onRefresh, loading, BroadcastIcon, onStartVoting }) => (
+const EnhancedOverview = ({ dashboardData, liveStats, isConnected, onRefresh, loading, BroadcastIcon, onStartVoting, hasVoted }) => (
   <div>
     <div className="d-flex justify-content-between align-items-center mb-4">
       <div>
@@ -991,6 +1220,7 @@ const EnhancedOverview = ({ dashboardData, liveStats, isConnected, onRefresh, lo
                       election={election} 
                       onStartVoting={onStartVoting}
                       compact={true}
+                      hasVoted={hasVoted[election.election_id]}
                     />
                   </Col>
                 ))}
@@ -1074,7 +1304,7 @@ const EnhancedOverview = ({ dashboardData, liveStats, isConnected, onRefresh, lo
 );
 
 // Enhanced Election Card Component with voting flow
-const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter = 'active' }) => {
+const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter = 'active', hasVoted = false }) => {
   const navigate = useNavigate();
   
   const getStatusBadge = (status) => {
@@ -1117,6 +1347,9 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
     navigate(`/elections/${election.election_id}`);
   };
 
+  // Use hasVoted prop if available, otherwise fall back to election.has_voted
+  const voted = hasVoted !== undefined ? hasVoted : election.has_voted;
+
   if (compact) {
     return (
       <Card className="border-0 shadow-sm h-100">
@@ -1135,14 +1368,21 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
             </div>
           </div>
           <div className="d-grid">
-            <Button 
-              variant="primary" 
-              size="sm"
-              onClick={() => onStartVoting(election)}
-            >
-              <FaVoteYea className="me-1" />
-              Vote Now
-            </Button>
+            {voted ? (
+              <Button variant="success" size="sm" disabled>
+                <FaCheckCircle className="me-1" />
+                Already Voted
+              </Button>
+            ) : (
+              <Button 
+                variant="primary" 
+                size="sm"
+                onClick={() => onStartVoting(election)}
+              >
+                <FaVoteYea className="me-1" />
+                Vote Now
+              </Button>
+            )}
           </div>
         </Card.Body>
       </Card>
@@ -1241,7 +1481,7 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
                   </Button>
                 </div>
               </div>
-            ) : election.has_voted ? (
+            ) : voted ? (
               <div className="text-center">
                 <Badge bg="success" className="mb-2 p-2 fs-6">
                   <FaCheckCircle className="me-1" />
@@ -1353,15 +1593,14 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
 };
 
 // Enhanced Elections Component with Complete Voting Flow
-
-const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon, onStartVoting }) => {
+const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon, onStartVoting, hasVoted }) => {
   const [activeElections, setActiveElections] = useState([]);
   const [upcomingElections, setUpcomingElections] = useState([]);
   const [completedElections, setCompletedElections] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [filter, setFilter] = useState('active'); // 'active', 'upcoming', 'completed'
+  const [filter, setFilter] = useState('active');
 
   useEffect(() => {
     loadElections();
@@ -1371,33 +1610,41 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
     setLoading(true);
     setError('');
     try {
-      console.log('🔄 Loading elections with filter:', filter);
+      console.log('Loading elections with filter:', filter);
       
       let response;
-      if (filter === 'active') {
-        response = await voterAPI.getActiveElections();
-        if (response.success) {
-          console.log(`✅ Found ${response.elections.length} active elections`);
-          setActiveElections(response.elections || []);
-        }
-      } else {
-        // For other filters, use the general elections endpoint
-        response = await voterAPI.getElections({ status: filter });
-        if (response.success) {
-          const electionsData = response.elections_data;
-          if (filter === 'upcoming') {
-            setUpcomingElections(electionsData?.upcoming || []);
-          } else if (filter === 'completed') {
-            setCompletedElections(electionsData?.completed || []);
+      switch (filter) {
+        case 'active':
+          response = await voterAPI.getActiveElections();
+          if (response.success) {
+            console.log(`Found ${response.elections.length} active elections`);
+            setActiveElections(response.elections || []);
           }
-        }
+          break;
+        case 'upcoming':
+          response = await voterAPI.getUpcomingElections();
+          if (response.success) {
+            setUpcomingElections(response.elections || []);
+          }
+          break;
+        case 'completed':
+          response = await voterAPI.getCompletedElections();
+          if (response.success) {
+            setCompletedElections(response.elections || []);
+          }
+          break;
+        default:
+          response = await voterAPI.getActiveElections();
+          if (response.success) {
+            setActiveElections(response.elections || []);
+          }
       }
       
       if (!response.success) {
-        setError(response.message || 'Failed to load elections');
+        setError(response.message || `Failed to load ${filter} elections`);
       }
     } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || 'Failed to load elections';
+      const errorMsg = err.response?.data?.message || err.message || `Failed to load ${filter} elections`;
       setError(errorMsg);
       console.error('Error loading elections:', err);
     } finally {
@@ -1414,12 +1661,33 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
     }
   };
 
-  const getFilterBadgeColor = () => {
-    switch (filter) {
-      case 'active': return 'success';
-      case 'upcoming': return 'warning';
-      case 'completed': return 'secondary';
-      default: return 'primary';
+  const handleViewCandidates = async (electionId) => {
+    try {
+      const response = await voterAPI.getElectionCandidates(electionId);
+      if (response.success) {
+        // Navigate to candidates page or show in modal
+        console.log('Candidates:', response.candidates);
+        // You can implement a modal or navigation here
+      } else {
+        setError(response.message || 'Failed to load candidates');
+      }
+    } catch (error) {
+      setError('Failed to load candidates');
+    }
+  };
+
+  const handleViewResults = async (electionId) => {
+    try {
+      const response = await voterAPI.getElectionResults(electionId);
+      if (response.success) {
+        // Navigate to results page or show in modal
+        console.log('Results:', response.results);
+        // You can implement a modal or navigation here
+      } else {
+        setError(response.message || 'Failed to load results');
+      }
+    } catch (error) {
+      setError('Failed to load results');
     }
   };
 
@@ -1442,8 +1710,8 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
           </p>
         </div>
 
-        <Button variant="outline-primary" size="sm" onClick={loadElections}>
-          <FaSync className="me-1" />
+        <Button variant="outline-primary" size="sm" onClick={loadElections} disabled={loading}>
+          <FaSync className={`me-1 ${loading ? 'spinner' : ''}`} />
           Refresh
         </Button>
       </div>
@@ -1507,7 +1775,7 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
       {loading && (
         <div className="text-center py-5">
           <Spinner animation="border" variant="primary" />
-          <p className="mt-2">Loading elections...</p>
+          <p className="mt-2">Loading {filter} elections...</p>
         </div>
       )}
 
@@ -1520,7 +1788,10 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
                 {filter === 'active' && 'Active Elections'}
                 {filter === 'upcoming' && 'Upcoming Elections'}
                 {filter === 'completed' && 'Completed Elections'}
-                <Badge bg={getFilterBadgeColor()} className="ms-2">
+                <Badge bg={
+                  filter === 'active' ? 'success' : 
+                  filter === 'upcoming' ? 'warning' : 'secondary'
+                } className="ms-2">
                   {getElectionsToDisplay().length} {filter}
                 </Badge>
               </h5>
@@ -1559,6 +1830,9 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
                   election={election}
                   onStartVoting={onStartVoting}
                   filter={filter}
+                  onViewCandidates={handleViewCandidates}
+                  onViewResults={handleViewResults}
+                  hasVoted={hasVoted[election.election_id]}
                 />
               ))
             )}
