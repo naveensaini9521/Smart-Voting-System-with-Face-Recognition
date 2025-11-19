@@ -17,8 +17,7 @@ from smart_app.backend.routes.register import register_bp
 from smart_app.backend.routes.stats import stats_bp
 from smart_app.backend.routes.home import home_bp  
 from smart_app.backend.routes.test_mongodb import mongodb_bp 
-from smart_app.backend.routes.dashboard import dashboard_bp, get_socketio, socketio
-from smart_app.backend.socket_io import socketio
+from smart_app.backend.routes.dashboard import dashboard_bp
 
 # Import Socket.IO event handlers
 from smart_app.backend.socket_events import register_socket_events
@@ -56,16 +55,25 @@ def create_app():
     bcrypt.init_app(app)
     
     # Initialize Socket.IO with the app
+    app.connected_clients = {}
+    
     socketio.init_app(
-        app, 
-        cors_allowed_origins=[
-            "http://localhost:5000", "http://127.0.0.1:5000", "http://localhost:3000", "http://127.0.0.1:3000",
-            "http://localhost:5173", "http://127.0.0.1:5173"
-        ],
-        async_mode='threading',
-        logger=True,
-        engineio_logger=False
-    )
+    app, 
+    cors_allowed_origins="*",
+    async_mode="eventlet",
+    logger=False,
+    engineio_logger=False,
+    ping_timeout=60,
+    ping_interval=25,
+    max_http_buffer_size=1e8,
+    allow_upgrades=True,
+    http_compression=True,
+    cookie=None
+)
+
+
+    # Register Socket.IO event handlers
+    register_socket_events(socketio)
 
     # Register API Blueprints
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -81,8 +89,6 @@ def create_app():
     # Register React frontend last
     app.register_blueprint(frontend_bp)
 
-    # Register Socket.IO event handlers
-    register_socket_events(socketio)
 
     # Global error handlers (for API routes)
     @app.errorhandler(404)
@@ -100,10 +106,14 @@ def create_app():
     def test_api():
         return jsonify({'message': 'API is working!', 'status': 'success'})
 
-    # Socket.IO test route
-    @app.route('/api/socket-test')
-    def socket_test():
-        return jsonify({'message': 'Socket.IO is available!', 'status': 'success'})
+    # Socket.IO health check route
+    @app.route('/api/socket-health')
+    def socket_health():
+        return jsonify({
+            'message': 'Socket.IO is available!', 
+            'status': 'success',
+            'connected_clients': len(getattr(socketio, 'connected_clients', {}))
+        })
 
     # Create tables
     with app.app_context():
