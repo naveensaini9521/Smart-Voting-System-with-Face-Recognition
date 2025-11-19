@@ -8,6 +8,8 @@ import io
 from PIL import Image
 from smart_app.backend.mongo_models import Admin, AuditLog, Voter, FaceEncoding
 import bcrypt
+from smart_app.backend.services.face_recognition_service import face_service
+from smart_app.backend.services.face_utils import face_utils
 
 logger = logging.getLogger(__name__)
 
@@ -235,9 +237,10 @@ def login():
             'message': 'Login failed. Please try again.'
         }), 500
 
+
 @auth_bp.route('/verify-face', methods=['POST', 'OPTIONS'])
 def verify_face():
-    """Verify voter's face for login"""
+    """Verify voter's face for login using OpenCV"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
         
@@ -284,41 +287,39 @@ def verify_face():
                 'message': 'Face data not found. Please re-register your face.'
             }), 400
         
-        # Decode base64 image
+        # Process image using OpenCV service
         try:
-            if ',' in image_data:
-                image_data = image_data.split(',')[1]
-            image_bytes = base64.b64decode(image_data)
-            image = Image.open(io.BytesIO(image_bytes))
-            image_np = np.array(image)
-            print(f"Image processed: {image_np.shape}")
-        except Exception as e:
-            logger.error(f"Image processing error: {str(e)}")
-            return jsonify({
-                'success': False,
-                'message': 'Invalid image data'
-            }), 400
-        
-        # Simulate face verification (replace with actual face recognition)
-        try:
-            # Mock face verification - in production, use face_recognition library
-            stored_encoding = np.array(face_encoding['encoding_data'])
-            current_encoding = np.random.rand(128)  # Mock current face encoding
+            # Convert base64 to image
+            current_image = face_service.base64_to_image(image_data)
             
-            # Calculate similarity (mock)
-            similarity = np.dot(stored_encoding, current_encoding) / (
-                np.linalg.norm(stored_encoding) * np.linalg.norm(current_encoding)
-            )
+            # Preprocess image
+            current_image = face_service.preprocess_image(current_image)
             
-            # Mock confidence score
-            confidence = min(0.85 + np.random.random() * 0.1, 0.99)  # 85-99% confidence
+            # Validate face image
+            is_valid, validation_message = face_service.validate_face_image(current_image)
+            if not is_valid:
+                return jsonify({
+                    'success': False,
+                    'message': f'Face validation failed: {validation_message}'
+                }), 400
             
-            print(f"Face verification - Similarity: {similarity:.4f}, Confidence: {confidence:.4f}")
+            # Extract face encoding from current image
+            current_encoding = face_service.extract_face_encoding(current_image)
+            if not current_encoding:
+                return jsonify({
+                    'success': False,
+                    'message': 'Could not extract face features. Please try again with a clearer image.'
+                }), 400
             
-            # Consider verified if confidence > 0.7 (adjust threshold as needed)
-            is_verified = confidence > 0.7
+            # Get stored encoding
+            stored_encoding = face_encoding['encoding_data']
             
-            if is_verified:
+            # Compare faces
+            is_match, confidence = face_service.compare_faces(stored_encoding, current_encoding)
+            
+            print(f"Face verification - Match: {is_match}, Confidence: {confidence:.4f}")
+            
+            if is_match and confidence > 0.7:  # Adjust threshold as needed
                 # Generate final login token after successful face verification
                 voter_data = {
                     'voter_id': voter['voter_id'],
@@ -359,7 +360,7 @@ def verify_face():
                 })
                 
         except Exception as e:
-            logger.error(f"Face verification error: {str(e)}")
+            logger.error(f"Face verification processing error: {str(e)}")
             return jsonify({
                 'success': False,
                 'message': 'Face verification failed. Please try again.'
@@ -854,3 +855,4 @@ def debug_admins():
             'error': str(e),
             'traceback': traceback.format_exc()
         }), 500
+        

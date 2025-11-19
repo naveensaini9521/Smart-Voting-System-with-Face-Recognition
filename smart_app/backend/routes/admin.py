@@ -4,6 +4,7 @@ import logging
 from functools import wraps
 import jwt
 from werkzeug.exceptions import RequestEntityTooLarge
+from smart_app.backend.extensions import socketio
 
 from smart_app.backend.mongo_models import Admin, Election, Voter, Vote, Candidate, AuditLog
 
@@ -14,16 +15,11 @@ logger = logging.getLogger(__name__)
 JWT_SECRET = 'sUJbaMMUAKYojj0dFe94jO'
 JWT_ALGORITHM = 'HS256'
 
-# Import socketio locally to avoid circular imports
-def get_socketio():
-    from smart_app.backend.routes.dashboard import socketio
-    return socketio
 
 # Broadcast functions to avoid circular imports
 def broadcast_election_update(action, data, admin_id):
     """Broadcast election updates to all connected clients"""
     try:
-        socketio = get_socketio()
         socketio.emit('election_update', {
             'action': action,
             'data': data,
@@ -36,7 +32,6 @@ def broadcast_election_update(action, data, admin_id):
 def broadcast_system_update(action, data, admin_id):
     """Broadcast system updates to all connected clients"""
     try:
-        socketio = get_socketio()
         socketio.emit('system_update', {
             'action': action,
             'data': data,
@@ -49,7 +44,6 @@ def broadcast_system_update(action, data, admin_id):
 def broadcast_voter_update(action, data, admin_id):
     """Broadcast voter updates to specific voter and admins"""
     try:
-        socketio = get_socketio()
         
         # Broadcast to admins
         socketio.emit('voter_update', {
@@ -767,6 +761,260 @@ def get_election_details(election_id):
             'success': False,
             'message': 'Failed to load election details'
         }), 500
+
+# Add these routes to admin.py
+
+# Update election
+@admin_bp.route('/elections/<election_id>', methods=['PUT'])
+@admin_required
+def update_election(election_id):
+    """Update election details"""
+    try:
+        # Check content type and parse data accordingly
+        if request.content_type and request.content_type.startswith('multipart/form-data'):
+            data = {
+                'title': request.form.get('title'),
+                'description': request.form.get('description', ''),
+                'election_type': request.form.get('election_type'),
+                'constituency': request.form.get('constituency', ''),
+                'district': request.form.get('district', ''),
+                'state': request.form.get('state', ''),
+                'voting_start': request.form.get('voting_start'),
+                'voting_end': request.form.get('voting_end'),
+                'registration_start': request.form.get('registration_start'),
+                'registration_end': request.form.get('registration_end'),
+                'max_candidates': request.form.get('max_candidates', 10, type=int),
+                'require_face_verification': request.form.get('require_face_verification', 'true') == 'true',
+                'minimum_voter_age': request.form.get('minimum_voter_age', 18, type=int),
+                'results_visibility': request.form.get('results_visibility', 'after_end'),
+                'election_rules': request.form.get('election_rules', ''),
+                'is_featured': request.form.get('is_featured', 'false') == 'true'
+            }
+        else:
+            data = request.get_json()
+
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({'success': False, 'message': 'Election not found'}), 404
+
+        # Handle file uploads
+        if request.content_type and request.content_type.startswith('multipart/form-data'):
+            if 'election_logo' in request.files:
+                logo_file = request.files['election_logo']
+                if logo_file and logo_file.filename:
+                    data['election_logo'] = f"/uploads/elections/logos/{logo_file.filename}"
+            
+            if 'election_banner' in request.files:
+                banner_file = request.files['election_banner']
+                if banner_file and banner_file.filename:
+                    data['election_banner'] = f"/uploads/elections/banners/{banner_file.filename}"
+
+        # Update election
+        Election.update_one({"election_id": election_id}, data)
+        
+        updated_election = Election.find_by_election_id(election_id)
+        
+        # Broadcast update
+        broadcast_election_update('update', {
+            'election_id': election_id,
+            'title': data.get('title', election['title'])
+        }, request.admin['admin_id'])
+
+        # Log action
+        log_admin_action(
+            request.admin,
+            "update_election",
+            {"election_id": election_id, "title": data.get('title', election['title'])},
+            election_id
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Election updated successfully',
+            'election': updated_election
+        })
+
+    except Exception as e:
+        logger.error(f"Update election error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to update election'}), 500
+
+# Get election for edit
+@admin_bp.route('/elections/<election_id>/edit', methods=['GET'])
+@admin_required
+def get_election_for_edit(election_id):
+    """Get election data for editing"""
+    try:
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({'success': False, 'message': 'Election not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'election': election
+        })
+    except Exception as e:
+        logger.error(f"Get election for edit error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to load election data'}), 500
+
+# Delete candidate
+@admin_bp.route('/candidates/<candidate_id>', methods=['DELETE'])
+@admin_required
+def delete_candidate(candidate_id):
+    """Delete a candidate"""
+    try:
+        candidate = Candidate.find_by_candidate_id(candidate_id)
+        if not candidate:
+            return jsonify({'success': False, 'message': 'Candidate not found'}), 404
+
+        # Soft delete
+        Candidate.update_one(
+            {"candidate_id": candidate_id},
+            {"is_active": False, "updated_at": datetime.utcnow()}
+        )
+
+        # Broadcast update
+        broadcast_system_update('candidate_deleted', {
+            'candidate_id': candidate_id,
+            'candidate_name': candidate['full_name']
+        }, request.admin['admin_id'])
+
+        # Log action
+        log_admin_action(
+            request.admin,
+            "delete_candidate",
+            {
+                "candidate_id": candidate_id,
+                "candidate_name": candidate['full_name'],
+                "election_id": candidate.get('election_id')
+            },
+            candidate_id
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Candidate deleted successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Delete candidate error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to delete candidate'}), 500
+
+# Get candidate for edit
+@admin_bp.route('/candidates/<candidate_id>/edit', methods=['GET'])
+@admin_required
+def get_candidate_for_edit(candidate_id):
+    """Get candidate data for editing"""
+    try:
+        candidate = Candidate.find_by_candidate_id(candidate_id)
+        if not candidate:
+            return jsonify({'success': False, 'message': 'Candidate not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'candidate': candidate
+        })
+    except Exception as e:
+        logger.error(f"Get candidate for edit error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to load candidate data'}), 500
+
+# Delete voter
+@admin_bp.route('/voters/<voter_id>', methods=['DELETE'])
+@admin_required
+def delete_voter(voter_id):
+    """Delete a voter (soft delete)"""
+    try:
+        voter = Voter.find_by_voter_id(voter_id)
+        if not voter:
+            return jsonify({'success': False, 'message': 'Voter not found'}), 404
+
+        # Soft delete
+        Voter.update_one(
+            {"voter_id": voter_id},
+            {"is_active": False, "updated_at": datetime.utcnow()}
+        )
+
+        # Broadcast update
+        broadcast_voter_update('delete', {
+            'voter_id': voter_id,
+            'full_name': voter['full_name']
+        }, request.admin['admin_id'])
+
+        # Log action
+        log_admin_action(
+            request.admin,
+            "delete_voter",
+            {
+                "voter_id": voter_id,
+                "voter_name": voter['full_name']
+            },
+            voter_id
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Voter deleted successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Delete voter error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to delete voter'}), 500
+
+# System settings routes
+@admin_bp.route('/settings', methods=['GET'])
+@admin_required
+def get_system_settings():
+    """Get system settings"""
+    try:
+        # In a real implementation, you'd fetch from a settings collection
+        settings = {
+            'system_name': 'Smart Voting System',
+            'system_version': '2.0.0',
+            'max_file_size': 16,  # MB
+            'allowed_file_types': ['jpg', 'jpeg', 'png', 'pdf'],
+            'voter_registration_open': True,
+            'auto_verify_voters': False,
+            'require_face_verification': True,
+            'results_visibility': 'after_end',
+            'max_election_duration': 30,  # days
+            'backup_frequency': 'daily',
+            'email_notifications': True,
+            'sms_notifications': True,
+            'maintenance_mode': False
+        }
+        
+        return jsonify({
+            'success': True,
+            'settings': settings
+        })
+    except Exception as e:
+        logger.error(f"Get settings error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to load settings'}), 500
+
+@admin_bp.route('/settings', methods=['PUT'])
+@admin_required
+def update_system_settings():
+    """Update system settings"""
+    try:
+        data = request.get_json()
+        
+        # In a real implementation, you'd save to a settings collection
+        # For now, we'll just return success
+        
+        # Log the action
+        log_admin_action(
+            request.admin,
+            "update_system_settings",
+            {"settings_updated": list(data.keys())}
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Settings updated successfully',
+            'settings': data
+        })
+    except Exception as e:
+        logger.error(f"Update settings error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to update settings'}), 500
 
 # Enhanced Get voters with pagination and filtering
 @admin_bp.route('/voters', methods=['GET'])
@@ -1508,7 +1756,6 @@ def broadcast_message():
             }), 400
         
         # Use SocketIO to broadcast
-        socketio = get_socketio()
         socketio.emit('admin_broadcast', {
             'message': message,
             'type': broadcast_type,

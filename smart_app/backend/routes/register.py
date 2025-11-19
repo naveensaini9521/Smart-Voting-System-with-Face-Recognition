@@ -16,6 +16,8 @@ from email.mime.multipart import MIMEMultipart
 
 from smart_app.backend.mongo_models import Admin, AuditLog, Voter, OTP, FaceEncoding, IDDocument, calculate_age
 from smart_app.backend.routes.auth import verify_token
+from smart_app.backend.services.face_recognition_service import face_service
+from smart_app.backend.services.face_utils import face_utils
 
 logger = logging.getLogger(__name__)
 
@@ -577,9 +579,11 @@ def complete_registration(voter_id):
             'message': 'Registration completion failed'
         }), 500
 
+
+# Update the register_face function in register.py
 @register_bp.route('/register-face/<voter_id>', methods=['POST', 'OPTIONS'])
 def register_face(voter_id):
-    """Register voter's face biometrics"""
+    """Register voter's face biometrics using OpenCV"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
         
@@ -601,56 +605,61 @@ def register_face(voter_id):
         
         print(f"=== FACE REGISTRATION ===")
         print(f"Looking for voter with ID: {voter_id}")
-        print(f"Type of voter_id: {type(voter_id)}")
         
-        # Try to find voter by voter_id (8-character code)
         voter = Voter.find_by_voter_id(voter_id)
-        
         if not voter:
-            print(f"Voter not found with voter_id: {voter_id}")
-            print("Available voters in database:")
-            all_voters = Voter.find_all({}, {'voter_id': 1, '_id': 1})
-            for v in all_voters:
-                print(f"  Voter ID: {v.get('voter_id')}, MongoDB ID: {v.get('_id')}")
-            
             return jsonify({
                 'success': False,
                 'message': 'Voter not found'
             }), 404
         
         print(f"Found voter: {voter['full_name']}")
-        print(f"Voter details - ID: {voter.get('voter_id')}, MongoDB ID: {voter.get('_id')}")
         
-        # Decode base64 image
+        # Process image using OpenCV service
         try:
-            if ',' in image_data:
-                image_data = image_data.split(',')[1]
-            image_bytes = base64.b64decode(image_data)
-            image = Image.open(io.BytesIO(image_bytes))
-            image_np = np.array(image)
-            print(f"Image processed successfully: {image_np.shape}")
+            # Convert base64 to image
+            image_array = face_service.base64_to_image(image_data)
+            
+            # Preprocess image
+            image_array = face_service.preprocess_image(image_array)
+            
+            # Validate face image
+            is_valid, validation_message = face_service.validate_face_image(image_array)
+            if not is_valid:
+                return jsonify({
+                    'success': False,
+                    'message': f'Face validation failed: {validation_message}'
+                }), 400
+            
+            # Extract face encoding
+            face_encoding = face_service.extract_face_encoding(image_array)
+            if not face_encoding:
+                return jsonify({
+                    'success': False,
+                    'message': 'Could not extract face features. Please try again with a clearer image.'
+                }), 400
+            
+            # Detect faces for quality assessment
+            faces = face_service.detect_faces(image_array)
+            if faces:
+                quality_score = face_utils.calculate_face_quality_score(image_array, faces[0])
+                print(f"Face quality score: {quality_score:.4f}")
+                
+                if quality_score < 0.5:
+                    return jsonify({
+                        'success': False,
+                        'message': 'Low image quality. Please ensure good lighting and clear face visibility.'
+                    }), 400
+            
         except Exception as e:
             logger.error(f"Image processing error: {str(e)}")
             return jsonify({
                 'success': False,
-                'message': 'Invalid image data'
-            }), 400
-        
-        # Extract face encoding (mock for now)
-        try:
-            # Mock face encoding for development
-            face_encodings = [np.random.rand(128).tolist()]
-            logger.info("Using mock face encoding for development")
-            print("Face encoding generated (mock)")
-        except Exception as e:
-            logger.error(f"Face encoding error: {str(e)}")
-            return jsonify({
-                'success': False,
-                'message': 'Face detection failed. Please try again with a clearer image.'
+                'message': 'Invalid image data or processing error'
             }), 400
         
         # Store face encoding
-        face_encoding_id = FaceEncoding.create_encoding(voter_id, face_encodings[0])
+        face_encoding_id = FaceEncoding.create_encoding(voter_id, face_encoding)
         print(f"Face encoding stored: {face_encoding_id}")
         
         # Update voter document with face verification status
@@ -663,14 +672,15 @@ def register_face(voter_id):
             }
         )
         
-        print(f"Voter face verification status updated. Matched: {update_result.matched_count}, Modified: {update_result.modified_count}")
+        print(f"Voter face verification status updated.")
         
         logger.info(f"Face registered successfully for voter: {voter_id}")
         
         return jsonify({
             'success': True,
             'message': 'Face biometrics registered successfully',
-            'face_encoding_id': face_encoding_id
+            'face_encoding_id': face_encoding_id,
+            'quality_score': quality_score if 'quality_score' in locals() else 0.0
         })
         
     except Exception as e:
