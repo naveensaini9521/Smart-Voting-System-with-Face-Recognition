@@ -1,3 +1,5 @@
+/* App.css - Complete Updated Version with Footer Fix */
+
 /* ===== RESET & GLOBAL STYLES ===== */
 * {
   margin: 0;
@@ -17,34 +19,51 @@
   --transition: all 0.3s ease;
 }
 
+/* Critical root element fixes for footer positioning */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
 body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   line-height: 1.6;
   color: var(--dark-color);
   background-color: var(--light-color);
+  min-height: 100vh;
 }
 
 #root {
-  height: 100%;
   width: 100%;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-html, body, #root {
-  height: 100%;
-}
-/* ===== LAYOUT STYLES ===== */
+/* ===== MAIN APP LAYOUT - CRITICAL FOOTER FIXES ===== */
 .App {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
+/* Main content area - this pushes footer down */
 .main-content {
-  flex: 1;
+  flex: 1 0 auto;
+  min-height: calc(100vh - 200px); /* Prevents footer from overlapping */
+  width: 100%;
+  position: relative;
   padding-top: 0;
+}
+
+/* Container fluid adjustments */
+.container-fluid.px-0 {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===== HEADER STYLES ===== */
@@ -290,11 +309,30 @@ html, body, #root {
   50% { transform: scale(1.1); }
 }
 
-/* ===== FOOTER STYLES ===== */
+/* ===== FOOTER STYLES - CRITICAL FIXES ===== */
+/* Ensure footer stays at bottom */
 footer {
-  background: var(--dark-color);
-  color: white;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.custom-footer {
+  background: linear-gradient(135deg, #0c0c1d 0%, #1a1a2e 100%);
+  color: #e3f2fd;
+  padding: 0;
   margin-top: auto;
+  position: relative;
+  z-index: 100;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+/* Remove any problematic positioning that causes overlap */
+.custom-footer {
+  position: relative !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
 }
 
 footer h5 {
@@ -347,6 +385,25 @@ footer h5 {
   100% { transform: scale(1); }
 }
 
+/* ===== DASHBOARD SPECIFIC STYLES ===== */
+.dashboard-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 15px;
+  transition: all 0.3s ease;
+}
+
+.dashboard-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
+/* Background utilities */
+.bg-dark-custom {
+  background: rgba(13, 17, 23, 0.95) !important;
+}
+
 /* ===== RESPONSIVE DESIGN ===== */
 @media (max-width: 768px) {
   .hero-section {
@@ -378,6 +435,11 @@ footer h5 {
   .camera-feed, .captured-image {
     max-width: 100%;
   }
+  
+  /* Mobile footer adjustments */
+  main.flex-grow-1 {
+    min-height: calc(100vh - 150px);
+  }
 }
 
 @media (max-width: 576px) {
@@ -387,6 +449,11 @@ footer h5 {
   
   .card {
     margin: 0.5rem;
+  }
+  
+  /* Mobile footer adjustments */
+  main.flex-grow-1 {
+    min-height: calc(100vh - 120px);
   }
 }
 
@@ -447,4 +514,39 @@ footer h5 {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--secondary-gradient);
+}
+
+/* ===== EMERGENCY FOOTER FIX - Use if needed ===== */
+/*
+.App {
+  position: relative;
+  min-height: 100vh;
+}
+
+main.flex-grow-1 {
+  padding-bottom: 400px;
+}
+
+.custom-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+*/
+
+/* ===== ANIMATION CLASSES ===== */
+.fade-in {
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

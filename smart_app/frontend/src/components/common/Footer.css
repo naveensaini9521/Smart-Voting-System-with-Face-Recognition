@@ -1,4 +1,6 @@
-/* Footer.css */
+/* Footer.css - Complete Updated Version (Cosmetic Styles Only) */
+
+/* Footer container - cosmetic styles only */
 .custom-footer {
   background: linear-gradient(135deg, #0c0c1d 0%, #1a1a2e 100%);
   color: #e3f2fd;
@@ -6,6 +8,9 @@
   margin-top: auto;
   position: relative;
   z-index: 100;
+  flex-shrink: 0;
+  width: 100%;
+  border-top: 1px solid rgba(76, 201, 240, 0.2);
 }
 
 .custom-footer::before {
@@ -27,6 +32,7 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .footer-brand .logo-icon {
@@ -116,11 +122,13 @@
   position: relative;
   padding-left: 0;
   font-size: 0.9rem;
+  display: inline-block;
 }
 
 .footer-link:hover {
   color: #4cc9f0;
   padding-left: 8px;
+  transform: translateX(5px);
 }
 
 .footer-link::before {
@@ -129,6 +137,7 @@
   left: -12px;
   opacity: 0;
   transition: all 0.3s ease;
+  color: #4cc9f0;
 }
 
 .footer-link:hover::before {
@@ -176,7 +185,7 @@
   padding: 0.6rem 1rem;
   flex: 1;
   font-size: 0.9rem;
-  border: none;
+  transition: all 0.3s ease;
 }
 
 .subscribe-input:focus {
@@ -185,6 +194,7 @@
   box-shadow: 0 0 0 0.2rem rgba(76, 201, 240, 0.25);
   color: #e3f2fd;
   outline: none;
+  transform: translateY(-1px);
 }
 
 .subscribe-input::placeholder {
@@ -234,6 +244,7 @@
 
 .bottom-link:hover {
   color: #4cc9f0;
+  text-decoration: underline;
 }
 
 .separator {
@@ -251,10 +262,26 @@
 .security-text {
   color: #8b9dc3 !important;
   font-size: 0.8rem;
+  margin: 0;
 }
 
 .security-badge i {
   color: #4cc9f0;
+}
+
+/* Enhanced hover effects for better interactivity */
+.footer-link, .bottom-link, .social-link {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Focus states for accessibility */
+.footer-link:focus,
+.bottom-link:focus,
+.social-link:focus,
+.subscribe-input:focus,
+.subscribe-btn:focus {
+  outline: 2px solid #4cc9f0;
+  outline-offset: 2px;
 }
 
 /* Responsive Design */
@@ -266,6 +293,8 @@
 
   .footer-brand .brand-logo {
     justify-content: center;
+    flex-direction: column;
+    text-align: center;
   }
 
   .social-links {
@@ -280,21 +309,41 @@
   .contact-item {
     justify-content: center;
     text-align: center;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .contact-item i {
+    margin-top: 0;
   }
 
   .subscribe-form {
     flex-direction: column;
     align-items: center;
+    gap: 0.75rem;
   }
 
   .subscribe-input {
     width: 100%;
-    max-width: 250px;
+    max-width: 280px;
+    text-align: center;
   }
 
   .footer-bottom-links {
     justify-content: center;
     margin-top: 0.5rem;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .separator {
+    display: none;
+  }
+
+  .footer-links {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 }
 
@@ -309,5 +358,109 @@
   
   .footer-content {
     padding: 1.5rem 0 1rem;
+  }
+
+  .footer-title {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .footer-link {
+    font-size: 0.85rem;
+  }
+
+  .brand-tagline {
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+  }
+
+  .contact-item span {
+    font-size: 0.85rem;
+  }
+
+  .bottom-link {
+    font-size: 0.8rem;
+  }
+
+  .security-text {
+    font-size: 0.75rem;
+  }
+}
+
+/* Large screen adjustments */
+@media (min-width: 1200px) {
+  .footer-content {
+    padding: 4rem 0 2rem;
+  }
+  
+  .footer-brand .brand-text {
+    font-size: 2rem;
+  }
+  
+  .brand-tagline {
+    font-size: 1rem;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .custom-footer {
+    background: #0c0c1d;
+    border-top: 2px solid #4cc9f0;
+  }
+  
+  .footer-link,
+  .bottom-link,
+  .contact-item span,
+  .brand-tagline {
+    color: #ffffff;
+  }
+  
+  .footer-link:hover,
+  .bottom-link:hover {
+    color: #4cc9f0;
+    text-decoration: underline;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .footer-link,
+  .bottom-link,
+  .social-link,
+  .subscribe-btn,
+  .subscribe-input {
+    transition: none;
+  }
+  
+  .footer-link:hover,
+  .social-link:hover,
+  .subscribe-btn:hover {
+    transform: none;
+  }
+  
+  .footer-link:hover::before {
+    transition: none;
+  }
+}
+
+/* Print styles */
+@media print {
+  .custom-footer {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border-top: 1px solid #000000;
+  }
+  
+  .footer-link,
+  .bottom-link,
+  .contact-item span,
+  .brand-tagline {
+    color: #000000 !important;
+  }
+  
+  .social-links,
+  .subscribe-form {
+    display: none;
   }
 }
