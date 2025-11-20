@@ -7,7 +7,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { voterAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { io } from 'socket.io-client';
+import { useSocket } from '../context/SocketContext';
 
 import { 
   FaTachometerAlt, FaUser, FaVoteYea, FaHistory, FaSignOutAlt,
@@ -20,17 +20,14 @@ import {
   FaAward, FaFire, FaStar, FaUserCheck, FaSyncAlt,
   FaWifi, FaSatelliteDish, FaSignal, FaUserTie,
   FaLandmark, FaArrowLeft, FaChartPie, FaTimesCircle,
-  FaPlay, FaPause, FaStop, FaHourglassHalf
+  FaPlay, FaPause, FaStop, FaHourglassHalf,
+  FaTrophy, FaChartLine // Added new icons for results
 } from 'react-icons/fa';
-
-// Socket connection
-const SOCKET_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://localhost:5000' 
-  : window.location.origin;
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { isAuthenticated, logout, user, loading: authLoading } = useAuth();
+  const { socket, isConnected, on, off } = useSocket();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dashboardData, setDashboardData] = useState(null);
@@ -39,143 +36,97 @@ const Dashboard = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [electionType, setElectionType] = useState('all');
-  const [socket, setSocket] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
   const [realTimeUpdates, setRealTimeUpdates] = useState([]);
   const [liveStats, setLiveStats] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [hasVoted, setHasVoted] = useState({}); // Track voted status per election
+  const [hasVoted, setHasVoted] = useState({});
+  const [completedElections, setCompletedElections] = useState([]); // New state for completed elections
 
-  // Use FaSignal as alternative to FaBroadcast
   const BroadcastIcon = FaSignal;
 
-  // Enhanced SocketIO connection with better error handling
+  // Set up socket event listeners
   useEffect(() => {
-    if (isAuthenticated && user) {
-      console.log('🔌 Initializing SocketIO connection...');
-      
-      const newSocket = io(SOCKET_URL, {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        upgrade: true,
-        rememberUpgrade: true,
-        query: {
-          voter_id: user.voter_id,
-          user_type: 'voter',
-          timestamp: Date.now()
-        },
-        timeout: 10000,
-        forceNew: true,
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000
-      });
+    if (!socket) return;
 
-      // Connection successful
-      newSocket.on('connect', () => {
-        console.log('✅ Connected to real-time updates');
-        setIsConnected(true);
-        
-        // Subscribe to election updates
-        newSocket.emit('subscribe_elections', {
-          voter_id: user.voter_id
-        });
-        
-        // Join voter-specific room
-        newSocket.emit('join_election_updates', { voter_id: user.voter_id });
-      });
+    const handleElectionUpdate = (data) => {
+      console.log('📢 Received election update:', data);
+      handleElectionUpdateData(data);
+    };
 
-      // Connection failed
-      newSocket.on('connect_error', (error) => {
-        console.error('💥 SocketIO connection error:', error);
-        setIsConnected(false);
-        setError('Real-time updates unavailable. Some features may be limited.');
-      });
+    const handleVoterUpdate = (data) => {
+      console.log('📢 Received voter update:', data);
+      handleVoterUpdateData(data);
+    };
 
-      // Disconnected
-      newSocket.on('disconnect', (reason) => {
-        console.log('❌ Disconnected from real-time updates:', reason);
-        setIsConnected(false);
-        
-        if (reason === 'io server disconnect') {
-          // Server disconnected, need to manually reconnect
-          setTimeout(() => {
-            newSocket.connect();
-          }, 1000);
-        }
-      });
+    const handleSystemUpdate = (data) => {
+      console.log('📢 Received system update:', data);
+      handleSystemUpdateData(data);
+    };
 
-      // Connection established confirmation
-      newSocket.on('connection_established', (data) => {
-        console.log('✅ Socket connection established:', data);
-        setIsConnected(true);
-      });
+    const handleAdminBroadcast = (data) => {
+      console.log('📢 Received admin broadcast:', data);
+      handleAdminBroadcastData(data);
+    };
 
-      // Real-time event handlers
-      newSocket.on('election_update', (data) => {
-        console.log('📢 Received election update:', data);
-        handleElectionUpdate(data);
-      });
+    const handleVotingSessionStarted = (data) => {
+      console.log('🗳️ Voting session started:', data);
+    };
 
-      newSocket.on('voter_update', (data) => {
-        console.log('📢 Received voter update:', data);
-        handleVoterUpdate(data);
-      });
+    const handleVoteCountUpdate = (data) => {
+      console.log('📊 Vote count update:', data);
+      updateElectionStats(data);
+    };
 
-      newSocket.on('system_update', (data) => {
-        console.log('📢 Received system update:', data);
-        handleSystemUpdate(data);
-      });
+    const handleResultsPublished = (data) => {
+      console.log('🏆 Results published:', data);
+      handleResultsPublishedData(data);
+    };
 
-      newSocket.on('admin_broadcast', (data) => {
-        console.log('📢 Received admin broadcast:', data);
-        handleAdminBroadcast(data);
-      });
+    // Register event listeners
+    on('election_update', handleElectionUpdate);
+    on('voter_update', handleVoterUpdate);
+    on('system_update', handleSystemUpdate);
+    on('admin_broadcast', handleAdminBroadcast);
+    on('voting_session_started', handleVotingSessionStarted);
+    on('vote_count_update', handleVoteCountUpdate);
+    on('results_published', handleResultsPublished); // New event for results
 
-      newSocket.on('voting_session_started', (data) => {
-        console.log('🗳️ Voting session started:', data);
-        // Handle voting session start if needed
-      });
+    return () => {
+      off('election_update', handleElectionUpdate);
+      off('voter_update', handleVoterUpdate);
+      off('system_update', handleSystemUpdate);
+      off('admin_broadcast', handleAdminBroadcast);
+      off('voting_session_started', handleVotingSessionStarted);
+      off('vote_count_update', handleVoteCountUpdate);
+      off('results_published', handleResultsPublished);
+    };
+  }, [socket, on, off]);
 
-      newSocket.on('vote_count_update', (data) => {
-        console.log('📊 Vote count update:', data);
-        // Update election stats in real-time
-        updateElectionStats(data);
-      });
+  // New handler for results publication
+  const handleResultsPublishedData = useCallback((data) => {
+    const { election_id, election_title, timestamp, admin_id } = data;
+    
+    setRealTimeUpdates(prev => [{
+      id: Date.now(),
+      type: 'results',
+      action: 'published',
+      title: 'Results Published',
+      message: `Results for "${election_title}" are now available`,
+      timestamp,
+      admin_id,
+      electionData: data,
+      urgent: true
+    }, ...prev.slice(0, 9)]);
 
-      // Reconnection events
-      newSocket.on('reconnect_attempt', (attempt) => {
-        console.log(`🔄 SocketIO reconnection attempt: ${attempt}`);
-      });
-
-      newSocket.on('reconnect', (attempt) => {
-        console.log(`✅ SocketIO reconnected after ${attempt} attempts`);
-        setIsConnected(true);
-      });
-
-      newSocket.on('reconnect_error', (error) => {
-        console.error('💥 SocketIO reconnection error:', error);
-      });
-
-      newSocket.on('reconnect_failed', () => {
-        console.error('🚨 SocketIO reconnection failed');
-        setIsConnected(false);
-      });
-
-      setSocket(newSocket);
-
-      return () => {
-        console.log('🔌 Cleaning up SocketIO connection...');
-        if (newSocket) {
-          newSocket.close();
-        }
-      };
+    // Refresh completed elections when results are published
+    if (activeTab === 'overview' || activeTab === 'elections') {
+      loadCompletedElections();
+      loadDashboardData();
     }
-  }, [isAuthenticated, user]);
+  }, [activeTab]);
 
-  // Real-time update handlers
-  const handleElectionUpdate = useCallback((data) => {
+  // Existing handlers remain the same...
+  const handleElectionUpdateData = useCallback((data) => {
     const { action, data: electionData, timestamp, admin_id } = data;
     
     let message = '';
@@ -189,6 +140,9 @@ const Dashboard = () => {
       case 'status_update':
         message = `Election "${electionData.title}" status changed to ${electionData.new_status}`;
         title = 'Election Status Update';
+        if (electionData.new_status === 'completed') {
+          loadCompletedElections(); // Load completed elections when status changes
+        }
         break;
       case 'delete':
         message = `Election "${electionData.title}" has been cancelled`;
@@ -208,15 +162,14 @@ const Dashboard = () => {
       admin_id,
       electionData,
       urgent: action === 'delete' || action === 'status_update'
-    }, ...prev.slice(0, 9)]); // Keep last 10 updates
+    }, ...prev.slice(0, 9)]);
 
-    // Refresh dashboard data if this update affects the current view
     if (activeTab === 'overview' || activeTab === 'elections') {
       loadDashboardData();
     }
   }, [activeTab]);
 
-  const handleVoterUpdate = useCallback((data) => {
+  const handleVoterUpdateData = useCallback((data) => {
     const { action, data: voterData, timestamp, admin_id } = data;
     
     setRealTimeUpdates(prev => [{
@@ -231,14 +184,13 @@ const Dashboard = () => {
       urgent: true
     }, ...prev.slice(0, 9)]);
 
-    // Refresh profile data if this is the current user
     if (voterData.voter_id === user?.voter_id) {
       loadProfileData();
       loadDashboardData();
     }
   }, [user]);
 
-  const handleSystemUpdate = useCallback((data) => {
+  const handleSystemUpdateData = useCallback((data) => {
     const { action, data: updateData, timestamp, admin_id } = data;
     
     setRealTimeUpdates(prev => [{
@@ -252,11 +204,10 @@ const Dashboard = () => {
       updateData
     }, ...prev.slice(0, 9)]);
 
-    // Refresh dashboard data for system-wide updates
     loadDashboardData();
   }, []);
 
-  const handleAdminBroadcast = useCallback((data) => {
+  const handleAdminBroadcastData = useCallback((data) => {
     const { message, type, admin_id, admin_name, timestamp } = data;
     
     setRealTimeUpdates(prev => [{
@@ -272,7 +223,6 @@ const Dashboard = () => {
   }, []);
 
   const updateElectionStats = useCallback((data) => {
-    // Update election stats in real-time without full refresh
     setDashboardData(prev => {
       if (!prev) return prev;
       
@@ -290,7 +240,7 @@ const Dashboard = () => {
     });
   }, []);
 
-  // Enhanced data loading with real-time support
+  // Enhanced data loading with completed elections
   const loadDashboardData = async () => {
     try {
       setLoading(true);
@@ -306,7 +256,6 @@ const Dashboard = () => {
         setDashboardData(sanitizedData);
         setLastUpdate(dashboardResponse.last_updated);
         
-        // Calculate live stats from dashboard data
         const activeElections = sanitizedData.election_info?.active_elections || [];
         const liveStatsData = {
           total_active: activeElections.length,
@@ -316,7 +265,6 @@ const Dashboard = () => {
         };
         setLiveStats(liveStatsData);
 
-        // Update voted status
         const votedStatus = {};
         activeElections.forEach(election => {
           votedStatus[election.election_id] = election.has_voted || false;
@@ -342,6 +290,18 @@ const Dashboard = () => {
     }
   };
 
+  // New function to load completed elections
+  const loadCompletedElections = async () => {
+    try {
+      const response = await voterAPI.getCompletedElections();
+      if (response.success) {
+        setCompletedElections(response.elections || []);
+      }
+    } catch (err) {
+      console.error('Failed to load completed elections:', err);
+    }
+  };
+
   const loadProfileData = async () => {
     try {
       const response = await voterAPI.getProfile();
@@ -353,16 +313,19 @@ const Dashboard = () => {
     }
   };
 
-  // Auto-refresh data every 30 seconds only when connected
+  // Auto-refresh data every 30 seconds
   useEffect(() => {
     if (isAuthenticated && !loading && isConnected) {
       const interval = setInterval(() => {
         loadDashboardData();
+        if (activeTab === 'elections') {
+          loadCompletedElections();
+        }
       }, 30000);
 
       return () => clearInterval(interval);
     }
-  }, [isAuthenticated, loading, isConnected]);
+  }, [isAuthenticated, loading, isConnected, activeTab]);
 
   // Initial data load
   useEffect(() => {
@@ -372,9 +335,10 @@ const Dashboard = () => {
       return;
     }
     loadDashboardData();
+    loadCompletedElections(); // Load completed elections on initial load
   }, [isAuthenticated, authLoading, navigate]);
 
-  // Helper functions
+  // Helper functions (remain the same)
   const formatDate = (dateValue) => {
     if (!dateValue) return 'N/A';
     
@@ -492,15 +456,13 @@ const Dashboard = () => {
   };
 
   const handleLogout = async () => {
-    if (socket) {
-      socket.close();
-    }
     await logout();
     navigate('/login');
   };
 
   const handleRetry = () => {
     loadDashboardData();
+    loadCompletedElections();
   };
 
   // Enhanced voting session start with better error handling
@@ -510,17 +472,14 @@ const Dashboard = () => {
       setLoading(true);
       setError('');
 
-      // Clear any previous session data
       voterAPI.clearVotingSession(election.election_id);
 
-      // Start voting session
       const sessionResponse = await voterAPI.startVotingSession(election.election_id);
       console.log('📋 Session response:', sessionResponse);
       
       if (sessionResponse.success) {
         console.log('✅ Voting session started, navigating to voting page...');
         
-        // Store session info in localStorage for the voting page
         localStorage.setItem(`voting_session_${election.election_id}`, JSON.stringify({
           sessionId: sessionResponse.session_id,
           expires: sessionResponse.session_expires,
@@ -529,28 +488,33 @@ const Dashboard = () => {
           startedAt: new Date().toISOString()
         }));
         
-        // Update voted status
         setHasVoted(prev => ({
           ...prev,
           [election.election_id]: false
         }));
 
-        // Navigate to voting page with state
-        navigate(`/vote/${election.election_id}`, { 
+        navigate(`/voting/${election.election_id}`, { 
           state: { 
             votingSession: sessionResponse,
             electionData: sessionResponse.election,
+            candidates: sessionResponse.candidates,
             fromDashboard: true
           }
         });
+
       } else {
-        // Handle specific error cases
         if (sessionResponse.has_voted) {
           setError('You have already voted in this election.');
           setHasVoted(prev => ({
             ...prev,
             [election.election_id]: true
           }));
+        } else if (sessionResponse.message?.includes('not started')) {
+          setError('Voting has not started yet for this election.');
+        } else if (sessionResponse.message?.includes('ended')) {
+          setError('Voting has ended for this election.');
+        } else if (sessionResponse.message?.includes('not eligible')) {
+          setError('You are not eligible to vote in this election.');
         } else {
           setError(sessionResponse.message || 'Failed to start voting session');
         }
@@ -560,25 +524,27 @@ const Dashboard = () => {
       const errorMsg = error.response?.data?.message || error.message || 'Failed to start voting session';
       setError(errorMsg);
       
-      // Handle specific error cases
       if (errorMsg.includes('already voted')) {
         setHasVoted(prev => ({
           ...prev,
           [election.election_id]: true
         }));
       }
-      if (errorMsg.includes('not started')) {
-        setError('Voting has not started yet for this election.');
-      }
-      if (errorMsg.includes('ended')) {
-        setError('Voting has ended for this election.');
-      }
-      if (errorMsg.includes('not eligible')) {
-        setError('You are not eligible to vote in this election.');
-      }
     } finally {
       setLoading(false);
     }
+  };
+
+  // NEW: Function to handle viewing results
+  const handleViewResults = (election) => {
+    navigate(`/results/${election.election_id}`);
+  };
+
+  // NEW: Function to check if results are available
+  const areResultsAvailable = (election) => {
+    // Results are available if election is completed or if user has voted and wants to see live results
+    return election.status === 'completed' || 
+           (election.status === 'active' && hasVoted[election.election_id] && election.results_visibility === 'live');
   };
 
   // Test SocketIO connection
@@ -589,6 +555,7 @@ const Dashboard = () => {
     }
   };
 
+  // Loading and authentication checks remain the same...
   if (authLoading || loading) {
     return (
       <div className="min-vh-100 d-flex align-items-center justify-content-center bg-gradient-primary">
@@ -632,7 +599,7 @@ const Dashboard = () => {
 
   return (
     <div className="min-vh-100 bg-light">
-      {/* Real-time Updates Toast */}
+      {/* Real-time Updates Toast - Updated for results notifications */}
       <ToastContainer position="top-end" className="p-3" style={{ zIndex: 1050 }}>
         {realTimeUpdates.slice(0, 3).map(update => (
           <Toast 
@@ -654,8 +621,21 @@ const Dashboard = () => {
               {update.electionData && (
                 <div className="mt-2">
                   <small className="text-muted">
-                    Election: {update.electionData.title}
+                    Election: {update.electionData.title || update.electionData.election_title}
                   </small>
+                  {/* Add quick action for results */}
+                  {update.type === 'results' && (
+                    <div className="mt-2">
+                      <Button 
+                        variant="primary" 
+                        size="sm"
+                        onClick={() => handleViewResults(update.electionData)}
+                      >
+                        <FaChartBar className="me-1" />
+                        View Results
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </Toast.Body>
@@ -663,7 +643,7 @@ const Dashboard = () => {
         ))}
       </ToastContainer>
 
-      {/* Enhanced Header with Connection Status */}
+      {/* Header remains the same */}
       <nav className="navbar navbar-expand-lg navbar-dark bg-gradient-primary shadow">
         <Container fluid>
           <span className="navbar-brand d-flex align-items-center fw-bold">
@@ -679,7 +659,6 @@ const Dashboard = () => {
           </span>
           
           <div className="navbar-nav ms-auto align-items-center flex-row">
-            {/* Connection Status */}
             <Badge 
               bg={isConnected ? "success" : "warning"} 
               className="me-2 d-none d-md-flex align-items-center"
@@ -688,7 +667,6 @@ const Dashboard = () => {
               <span className="ms-1">{isConnected ? 'Connected' : 'Connecting'}</span>
             </Badge>
 
-            {/* Socket Test Button */}
             <Button 
               variant="outline-light" 
               size="sm" 
@@ -953,7 +931,7 @@ const Dashboard = () => {
               {/* Main Content Area */}
               <Col lg={10} md={9}>
                 <Tab.Content>
-                  {/* Enhanced Overview Tab with Real-time Data */}
+                  {/* Enhanced Overview Tab with Results Integration */}
                   <Tab.Pane eventKey="overview">
                     <EnhancedOverview 
                       dashboardData={dashboardData}
@@ -963,7 +941,9 @@ const Dashboard = () => {
                       loading={loading}
                       BroadcastIcon={BroadcastIcon}
                       onStartVoting={handleStartVoting}
+                      onViewResults={handleViewResults} // NEW: Pass results handler
                       hasVoted={hasVoted}
+                      completedElections={completedElections} // NEW: Pass completed elections
                     />
                   </Tab.Pane>
 
@@ -975,7 +955,7 @@ const Dashboard = () => {
                     />
                   </Tab.Pane>
 
-                  {/* Enhanced Elections Tab with Real Voting */}
+                  {/* Enhanced Elections Tab with Results Integration */}
                   <Tab.Pane eventKey="elections">
                     <EnhancedElections 
                       dashboardData={dashboardData}
@@ -983,7 +963,9 @@ const Dashboard = () => {
                       isConnected={isConnected}
                       BroadcastIcon={BroadcastIcon}
                       onStartVoting={handleStartVoting}
+                      onViewResults={handleViewResults} // NEW: Pass results handler
                       hasVoted={hasVoted}
+                      completedElections={completedElections} // NEW: Pass completed elections
                     />
                   </Tab.Pane>
 
@@ -1029,7 +1011,7 @@ const Dashboard = () => {
         )}
       </Container>
 
-      {/* Enhanced Notifications Modal with Real-time Updates */}
+      {/* Enhanced Notifications Modal with Results Support */}
       <Modal show={showNotifications} onHide={() => setShowNotifications(false)} size="lg">
         <Modal.Header closeButton>
           <Modal.Title>
@@ -1051,9 +1033,10 @@ const Dashboard = () => {
                   <div className={`rounded-circle p-2 me-3 ${
                     update.type === 'election' ? 'bg-primary' : 
                     update.type === 'voter' ? 'bg-success' : 
-                    update.type === 'broadcast' ? 'bg-info' : 'bg-secondary'
+                    update.type === 'broadcast' ? 'bg-info' : 
+                    update.type === 'results' ? 'bg-warning' : 'bg-secondary'
                   }`}>
-                    <BroadcastIcon className="text-white" />
+                    {update.type === 'results' ? <FaTrophy className="text-white" /> : <BroadcastIcon className="text-white" />}
                   </div>
                   <div className="flex-grow-1">
                     <div className="d-flex justify-content-between align-items-start">
@@ -1070,6 +1053,22 @@ const Dashboard = () => {
                     )}
                     {update.urgent && (
                       <Badge bg="warning" className="mt-1">Urgent</Badge>
+                    )}
+                    {/* Add action button for results */}
+                    {update.type === 'results' && update.electionData && (
+                      <div className="mt-2">
+                        <Button 
+                          variant="warning" 
+                          size="sm"
+                          onClick={() => {
+                            handleViewResults(update.electionData);
+                            setShowNotifications(false);
+                          }}
+                        >
+                          <FaChartBar className="me-1" />
+                          View Results
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </ListGroup.Item>
@@ -1114,197 +1113,291 @@ const Dashboard = () => {
   );
 };
 
-// Enhanced Overview Component
-const EnhancedOverview = ({ dashboardData, liveStats, isConnected, onRefresh, loading, BroadcastIcon, onStartVoting, hasVoted }) => (
-  <div>
-    <div className="d-flex justify-content-between align-items-center mb-4">
-      <div>
-        <h4 className="mb-1">
-          Welcome back, {dashboardData?.voter_info?.full_name}! 👋
-          {isConnected && <BroadcastIcon className="text-success ms-2 fs-6" />}
-        </h4>
-        <p className="text-muted mb-0">
-          Real-time voting dashboard with live updates
-          {liveStats && (
-            <span className="ms-2">
-              • Last refresh: {new Date(liveStats.last_updated).toLocaleTimeString()}
-            </span>
-          )}
-        </p>
-      </div>
-      <div className="d-flex gap-2">
-        <Button 
-          variant="outline-primary" 
-          size="sm"
-          onClick={onRefresh}
-          disabled={loading}
-        >
-          <FaSync className={`me-1 ${loading ? 'spinner' : ''}`} />
-          Refresh
-        </Button>
-        <Button variant="primary" size="sm">
-          <FaShare className="me-1" />
-          Share
-        </Button>
-      </div>
-    </div>
+// Enhanced Overview Component with Results Integration
+const EnhancedOverview = ({ 
+  dashboardData, 
+  liveStats, 
+  isConnected, 
+  onRefresh, 
+  loading, 
+  BroadcastIcon, 
+  onStartVoting, 
+  onViewResults, // NEW: Results handler
+  hasVoted,
+  completedElections // NEW: Completed elections data
+}) => {
+  // Get recent completed elections for display
+  const recentCompletedElections = completedElections?.slice(0, 2) || [];
 
-    {/* Live Stats Grid */}
-    {liveStats && (
-      <Row className="mb-4">
-        <Col xl={3} lg={6} className="mb-3">
-          <Card className="border-0 shadow-sm h-100 bg-gradient-primary text-white">
-            <Card.Body className="d-flex align-items-center">
-              <div className="flex-grow-1">
-                <h4 className="mb-1">{liveStats.total_active}</h4>
-                <p className="mb-0 opacity-75">Active Elections</p>
+  return (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h4 className="mb-1">
+            Welcome back, {dashboardData?.voter_info?.full_name}! 👋
+            {isConnected && <BroadcastIcon className="text-success ms-2 fs-6" />}
+          </h4>
+          <p className="text-muted mb-0">
+            Real-time voting dashboard with live updates
+            {liveStats && (
+              <span className="ms-2">
+                • Last refresh: {new Date(liveStats.last_updated).toLocaleTimeString()}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="d-flex gap-2">
+          <Button 
+            variant="outline-primary" 
+            size="sm"
+            onClick={onRefresh}
+            disabled={loading}
+          >
+            <FaSync className={`me-1 ${loading ? 'spinner' : ''}`} />
+            Refresh
+          </Button>
+          <Button variant="primary" size="sm">
+            <FaShare className="me-1" />
+            Share
+          </Button>
+        </div>
+      </div>
+
+      {/* Live Stats Grid - Updated with Results Count */}
+      {liveStats && (
+        <Row className="mb-4">
+          <Col xl={3} lg={6} className="mb-3">
+            <Card className="border-0 shadow-sm h-100 bg-gradient-primary text-white">
+              <Card.Body className="d-flex align-items-center">
+                <div className="flex-grow-1">
+                  <h4 className="mb-1">{liveStats.total_active}</h4>
+                  <p className="mb-0 opacity-75">Active Elections</p>
+                </div>
+                <FaRocket className="fs-1 opacity-50" />
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col xl={3} lg={6} className="mb-3">
+            <Card className="border-0 shadow-sm h-100 bg-gradient-success text-white">
+              <Card.Body className="d-flex align-items-center">
+                <div className="flex-grow-1">
+                  <h4 className="mb-1">{liveStats.votes_cast_today}</h4>
+                  <p className="mb-0 opacity-75">Votes Today</p>
+                </div>
+                <FaFire className="fs-1 opacity-50" />
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col xl={3} lg={6} className="mb-3">
+            <Card className="border-0 shadow-sm h-100 bg-gradient-warning text-white">
+              <Card.Body className="d-flex align-items-center">
+                <div className="flex-grow-1">
+                  <h4 className="mb-1">{liveStats.voter_turnout}%</h4>
+                  <p className="mb-0 opacity-75">System Turnout</p>
+                </div>
+                <FaChartBar className="fs-1 opacity-50" />
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col xl={3} lg={6} className="mb-3">
+            <Card className="border-0 shadow-sm h-100 bg-gradient-info text-white">
+              <Card.Body className="d-flex align-items-center">
+                <div className="flex-grow-1">
+                  <h4 className="mb-1">{completedElections?.length || 0}</h4>
+                  <p className="mb-0 opacity-75">Completed Elections</p>
+                </div>
+                <FaTrophy className="fs-1 opacity-50" />
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      <Row>
+        {/* Active Elections Section */}
+        <Col lg={8}>
+          <Card className="shadow-sm border-0 h-100">
+            <Card.Header className="bg-white border-0">
+              <div className="d-flex justify-content-between align-items-center">
+                <h5 className="mb-0">Active Elections</h5>
+                <Badge bg="primary">
+                  {dashboardData?.election_info?.active_elections?.length || 0} Available
+                </Badge>
               </div>
-              <FaRocket className="fs-1 opacity-50" />
+            </Card.Header>
+            <Card.Body>
+              {dashboardData?.election_info?.active_elections?.length > 0 ? (
+                <Row>
+                  {dashboardData.election_info.active_elections.slice(0, 4).map(election => (
+                    <Col lg={6} className="mb-3" key={election.election_id}>
+                      <EnhancedElectionCard 
+                        election={election} 
+                        onStartVoting={onStartVoting}
+                        onViewResults={onViewResults} // NEW: Pass results handler
+                        compact={true}
+                        hasVoted={hasVoted[election.election_id]}
+                      />
+                    </Col>
+                  ))}
+                </Row>
+              ) : (
+                <div className="text-center py-4">
+                  <FaVoteYea className="text-muted fs-1 mb-3" />
+                  <h6 className="text-muted">No Active Elections</h6>
+                  <p className="text-muted">Check back later for upcoming elections</p>
+                </div>
+              )}
             </Card.Body>
           </Card>
+
+          {/* NEW: Recent Results Section */}
+          {recentCompletedElections.length > 0 && (
+            <Card className="shadow-sm border-0 mt-4">
+              <Card.Header className="bg-white border-0">
+                <div className="d-flex justify-content-between align-items-center">
+                  <h5 className="mb-0 d-flex align-items-center">
+                    <FaTrophy className="me-2 text-warning" />
+                    Recent Results
+                  </h5>
+                  <Badge bg="warning">
+                    {recentCompletedElections.length} Available
+                  </Badge>
+                </div>
+              </Card.Header>
+              <Card.Body>
+                <Row>
+                  {recentCompletedElections.map(election => (
+                    <Col lg={6} className="mb-3" key={election.election_id}>
+                      <Card className="border-warning border-2 h-100">
+                        <Card.Body className="text-center">
+                          <FaTrophy className="text-warning fa-2x mb-3" />
+                          <h6>{election.title}</h6>
+                          <p className="text-muted small mb-3">
+                            {election.description}
+                          </p>
+                          <div className="mb-3">
+                            <Badge bg="success" className="me-2">
+                              {election.total_votes || 0} Votes
+                            </Badge>
+                            <Badge bg="info">
+                              {election.voter_turnout || 0}% Turnout
+                            </Badge>
+                          </div>
+                          <Button 
+                            variant="warning" 
+                            size="sm"
+                            onClick={() => onViewResults(election)}
+                            className="w-100"
+                          >
+                            <FaChartBar className="me-1" />
+                            View Results
+                          </Button>
+                        </Card.Body>
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
+              </Card.Body>
+            </Card>
+          )}
         </Col>
-        <Col xl={3} lg={6} className="mb-3">
-          <Card className="border-0 shadow-sm h-100 bg-gradient-success text-white">
-            <Card.Body className="d-flex align-items-center">
-              <div className="flex-grow-1">
-                <h4 className="mb-1">{liveStats.votes_cast_today}</h4>
-                <p className="mb-0 opacity-75">Votes Today</p>
-              </div>
-              <FaFire className="fs-1 opacity-50" />
+
+        {/* Quick Actions & Upcoming Elections */}
+        <Col lg={4}>
+          <Card className="shadow-sm border-0 mb-4">
+            <Card.Header className="bg-white border-0">
+              <h5 className="mb-0 d-flex align-items-center">
+                <FaCalendarAlt className="me-2 text-primary" />
+                Upcoming Elections
+              </h5>
+            </Card.Header>
+            <Card.Body className="p-0">
+              {dashboardData?.election_info?.upcoming_elections?.length > 0 ? (
+                <ListGroup variant="flush">
+                  {dashboardData.election_info.upcoming_elections.slice(0, 4).map(election => (
+                    <ListGroup.Item key={election.id} className="border-0">
+                      <div className="d-flex align-items-start">
+                        <div className="bg-primary rounded-circle d-flex align-items-center justify-content-center me-3" 
+                             style={{ width: '40px', height: '40px' }}>
+                          <FaVoteYea className="text-white" />
+                        </div>
+                        <div className="flex-grow-1">
+                          <h6 className="mb-1">{election.title}</h6>
+                          <small className="text-muted">
+                            <FaClock className="me-1" />
+                            {election.date}
+                          </small>
+                        </div>
+                        <Badge bg="primary">
+                          {election.status}
+                        </Badge>
+                      </div>
+                    </ListGroup.Item>
+                  ))}
+                </ListGroup>
+              ) : (
+                <div className="text-center py-4">
+                  <FaCalendarAlt className="text-muted fs-1 mb-3" />
+                  <h6 className="text-muted">No Upcoming Elections</h6>
+                </div>
+              )}
             </Card.Body>
           </Card>
-        </Col>
-        <Col xl={3} lg={6} className="mb-3">
-          <Card className="border-0 shadow-sm h-100 bg-gradient-warning text-white">
-            <Card.Body className="d-flex align-items-center">
-              <div className="flex-grow-1">
-                <h4 className="mb-1">{liveStats.voter_turnout}%</h4>
-                <p className="mb-0 opacity-75">System Turnout</p>
+
+          {/* Quick Stats */}
+          <Card className="shadow-sm border-0">
+            <Card.Header className="bg-white border-0">
+              <h5 className="mb-0">Your Voting Stats</h5>
+            </Card.Header>
+            <Card.Body>
+              <div className="text-center">
+                <h4 className="text-primary">{dashboardData?.quick_stats?.votes_cast || 0}</h4>
+                <p className="text-muted mb-3">Total Votes Cast</p>
+                
+                <ProgressBar 
+                  now={dashboardData?.quick_stats?.participation_rate || 0} 
+                  label={`${dashboardData?.quick_stats?.participation_rate || 0}%`}
+                  className="mb-3"
+                  variant="success"
+                />
+                <small className="text-muted">Participation Rate</small>
+                
+                {/* NEW: Results Quick Access */}
+                {completedElections?.length > 0 && (
+                  <div className="mt-4 pt-3 border-top">
+                    <Button 
+                      variant="outline-warning" 
+                      size="sm" 
+                      className="w-100"
+                      onClick={() => {
+                        // Navigate to elections tab with completed filter
+                        window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'elections' }));
+                        window.dispatchEvent(new CustomEvent('setElectionFilter', { detail: 'completed' }));
+                      }}
+                    >
+                      <FaTrophy className="me-1" />
+                      View All Results ({completedElections.length})
+                    </Button>
+                  </div>
+                )}
               </div>
-              <FaChartBar className="fs-1 opacity-50" />
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col xl={3} lg={6} className="mb-3">
-          <Card className="border-0 shadow-sm h-100 bg-gradient-info text-white">
-            <Card.Body className="d-flex align-items-center">
-              <div className="flex-grow-1">
-                <h6 className="mb-1">{dashboardData?.voter_info?.constituency}</h6>
-                <p className="mb-0 opacity-75">Your Constituency</p>
-              </div>
-              <FaMapMarkerAlt className="fs-1 opacity-50" />
             </Card.Body>
           </Card>
         </Col>
       </Row>
-    )}
+    </div>
+  );
+};
 
-    {/* Active Elections Section */}
-    <Row>
-      <Col lg={8}>
-        <Card className="shadow-sm border-0 h-100">
-          <Card.Header className="bg-white border-0">
-            <div className="d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">Active Elections</h5>
-              <Badge bg="primary">
-                {dashboardData?.election_info?.active_elections?.length || 0} Available
-              </Badge>
-            </div>
-          </Card.Header>
-          <Card.Body>
-            {dashboardData?.election_info?.active_elections?.length > 0 ? (
-              <Row>
-                {dashboardData.election_info.active_elections.slice(0, 4).map(election => (
-                  <Col lg={6} className="mb-3" key={election.election_id}>
-                    <EnhancedElectionCard 
-                      election={election} 
-                      onStartVoting={onStartVoting}
-                      compact={true}
-                      hasVoted={hasVoted[election.election_id]}
-                    />
-                  </Col>
-                ))}
-              </Row>
-            ) : (
-              <div className="text-center py-4">
-                <FaVoteYea className="text-muted fs-1 mb-3" />
-                <h6 className="text-muted">No Active Elections</h6>
-                <p className="text-muted">Check back later for upcoming elections</p>
-              </div>
-            )}
-          </Card.Body>
-        </Card>
-      </Col>
-
-      {/* Quick Actions & Upcoming Elections */}
-      <Col lg={4}>
-        <Card className="shadow-sm border-0 mb-4">
-          <Card.Header className="bg-white border-0">
-            <h5 className="mb-0 d-flex align-items-center">
-              <FaCalendarAlt className="me-2 text-primary" />
-              Upcoming Elections
-            </h5>
-          </Card.Header>
-          <Card.Body className="p-0">
-            {dashboardData?.election_info?.upcoming_elections?.length > 0 ? (
-              <ListGroup variant="flush">
-                {dashboardData.election_info.upcoming_elections.slice(0, 4).map(election => (
-                  <ListGroup.Item key={election.id} className="border-0">
-                    <div className="d-flex align-items-start">
-                      <div className="bg-primary rounded-circle d-flex align-items-center justify-content-center me-3" 
-                           style={{ width: '40px', height: '40px' }}>
-                        <FaVoteYea className="text-white" />
-                      </div>
-                      <div className="flex-grow-1">
-                        <h6 className="mb-1">{election.title}</h6>
-                        <small className="text-muted">
-                          <FaClock className="me-1" />
-                          {election.date}
-                        </small>
-                      </div>
-                      <Badge bg="primary">
-                        {election.status}
-                      </Badge>
-                    </div>
-                  </ListGroup.Item>
-                ))}
-              </ListGroup>
-            ) : (
-              <div className="text-center py-4">
-                <FaCalendarAlt className="text-muted fs-1 mb-3" />
-                <h6 className="text-muted">No Upcoming Elections</h6>
-              </div>
-            )}
-          </Card.Body>
-        </Card>
-
-        {/* Quick Stats */}
-        <Card className="shadow-sm border-0">
-          <Card.Header className="bg-white border-0">
-            <h5 className="mb-0">Your Voting Stats</h5>
-          </Card.Header>
-          <Card.Body>
-            <div className="text-center">
-              <h4 className="text-primary">{dashboardData?.quick_stats?.votes_cast || 0}</h4>
-              <p className="text-muted mb-3">Total Votes Cast</p>
-              
-              <ProgressBar 
-                now={dashboardData?.quick_stats?.participation_rate || 0} 
-                label={`${dashboardData?.quick_stats?.participation_rate || 0}%`}
-                className="mb-3"
-                variant="success"
-              />
-              <small className="text-muted">Participation Rate</small>
-            </div>
-          </Card.Body>
-        </Card>
-      </Col>
-    </Row>
-  </div>
-);
-
-// Enhanced Election Card Component with voting flow
-const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter = 'active', hasVoted = false }) => {
+// Enhanced Election Card Component with Results Integration
+const EnhancedElectionCard = ({ 
+  election, 
+  onStartVoting, 
+  compact = false, 
+  filter = 'active', 
+  hasVoted = false,
+  onViewResults // NEW: Results handler
+}) => {
   const navigate = useNavigate();
   
   const getStatusBadge = (status) => {
@@ -1339,10 +1432,6 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
     return 'Less than 1h left';
   };
 
-  const handleViewResults = () => {
-    navigate(`/results/${election.election_id}`);
-  };
-
   const handlePreviewElection = () => {
     navigate(`/elections/${election.election_id}`);
   };
@@ -1350,28 +1439,50 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
   // Use hasVoted prop if available, otherwise fall back to election.has_voted
   const voted = hasVoted !== undefined ? hasVoted : election.has_voted;
 
+  // NEW: Check if results are available
+  const resultsAvailable = election.status === 'completed' || 
+                          (election.status === 'active' && voted && election.results_visibility === 'live');
+
   if (compact) {
     return (
       <Card className="border-0 shadow-sm h-100">
-        <Card.Header className="bg-primary text-white">
+        <Card.Header className={`${election.status === 'completed' ? 'bg-warning' : 'bg-primary'} text-white`}>
           <div className="d-flex justify-content-between align-items-center">
             <h6 className="mb-0">{election.title}</h6>
-            <FaVoteYea />
+            {election.status === 'completed' ? <FaTrophy /> : <FaVoteYea />}
           </div>
         </Card.Header>
         <Card.Body>
           <p className="text-muted small">{election.description}</p>
           <div className="mb-2">
-            <small className="text-muted">Voting Ends:</small>
+            <small className="text-muted">
+              {election.status === 'completed' ? 'Completed: ' : 'Voting Ends: '}
+            </small>
             <div className="fw-semibold">
-              {new Date(election.voting_end).toLocaleString()}
+              {new Date(
+                election.status === 'completed' ? election.voting_end : election.voting_end
+              ).toLocaleString()}
             </div>
           </div>
           <div className="d-grid">
-            {voted ? (
+            {election.status === 'completed' ? (
+              <Button 
+                variant="warning" 
+                size="sm"
+                onClick={() => onViewResults(election)}
+              >
+                <FaChartBar className="me-1" />
+                View Results
+              </Button>
+            ) : voted ? (
               <Button variant="success" size="sm" disabled>
                 <FaCheckCircle className="me-1" />
                 Already Voted
+                {resultsAvailable && (
+                  <span className="ms-1">
+                    • <FaChartLine className="text-info" />
+                  </span>
+                )}
               </Button>
             ) : (
               <Button 
@@ -1384,6 +1495,20 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
               </Button>
             )}
           </div>
+          {/* NEW: Quick results access for voted elections */}
+          {voted && resultsAvailable && election.status === 'active' && (
+            <div className="mt-2">
+              <Button 
+                variant="outline-info" 
+                size="sm" 
+                className="w-100"
+                onClick={() => onViewResults(election)}
+              >
+                <FaChartLine className="me-1" />
+                Live Results
+              </Button>
+            </div>
+          )}
         </Card.Body>
       </Card>
     );
@@ -1417,6 +1542,12 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
                     {election.candidates_count || 0} Candidates
                   </Badge>
                   {getStatusBadge(election.status)}
+                  {resultsAvailable && (
+                    <Badge bg="warning" className="ms-2">
+                      <FaTrophy className="me-1" />
+                      Results Available
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="small text-muted">
@@ -1466,36 +1597,62 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
           <Col md={4} className="text-end">
             {filter === 'completed' ? (
               <div className="text-center">
-                <Badge bg="secondary" className="mb-2 p-2 fs-6">
-                  <FaStop className="me-1" />
-                  Election Completed
+                <Badge bg="warning" className="mb-2 p-2 fs-6">
+                  <FaTrophy className="me-1" />
+                  Results Ready
                 </Badge>
                 <div className="mt-2">
                   <Button
-                    variant="primary"
-                    onClick={handleViewResults}
-                    className="w-100 mb-1"
+                    variant="warning"
+                    onClick={() => onViewResults(election)}
+                    className="w-100 mb-2 py-2"
+                    size="lg"
                   >
-                    <FaChartPie className="me-1" />
+                    <FaChartBar className="me-2" />
                     View Results
+                  </Button>
+                  <Button
+                    variant="outline-secondary"
+                    onClick={handlePreviewElection}
+                    className="w-100"
+                  >
+                    <FaEye className="me-1" />
+                    Election Details
                   </Button>
                 </div>
               </div>
-            ) : voted ? (
+            ) : hasVoted ? (
               <div className="text-center">
                 <Badge bg="success" className="mb-2 p-2 fs-6">
                   <FaCheckCircle className="me-1" />
                   Vote Cast ✓
                 </Badge>
                 <div className="mt-2">
-                  <Button
-                    variant="outline-success"
-                    onClick={handleViewResults}
-                    className="w-100 mb-1"
-                  >
-                    <FaEye className="me-1" />
-                    View Results
-                  </Button>
+                  {resultsAvailable ? (
+                    <>
+                      <Button
+                        variant="warning"
+                        onClick={() => onViewResults(election)}
+                        className="w-100 mb-2 py-2"
+                        size="lg"
+                      >
+                        <FaChartBar className="me-2" />
+                        View Results
+                      </Button>
+                      <small className="text-muted d-block">
+                        Live results available
+                      </small>
+                    </>
+                  ) : (
+                    <Button
+                      variant="outline-success"
+                      onClick={handlePreviewElection}
+                      className="w-100 mb-1"
+                    >
+                      <FaEye className="me-1" />
+                      Election Details
+                    </Button>
+                  )}
                 </div>
               </div>
             ) : election.is_eligible ? (
@@ -1592,11 +1749,19 @@ const EnhancedElectionCard = ({ election, onStartVoting, compact = false, filter
   );
 };
 
-// Enhanced Elections Component with Complete Voting Flow
-const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon, onStartVoting, hasVoted }) => {
+// Enhanced Elections Component with Results Integration
+const EnhancedElections = ({ 
+  dashboardData, 
+  voterId, 
+  isConnected, 
+  BroadcastIcon, 
+  onStartVoting, 
+  onViewResults, // NEW: Results handler
+  hasVoted,
+  completedElections // NEW: Completed elections data
+}) => {
   const [activeElections, setActiveElections] = useState([]);
   const [upcomingElections, setUpcomingElections] = useState([]);
-  const [completedElections, setCompletedElections] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -1628,11 +1793,9 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
           }
           break;
         case 'completed':
-          response = await voterAPI.getCompletedElections();
-          if (response.success) {
-            setCompletedElections(response.elections || []);
-          }
-          break;
+          // Use the completedElections passed from parent
+          setLoading(false);
+          return;
         default:
           response = await voterAPI.getActiveElections();
           if (response.success) {
@@ -1656,40 +1819,12 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
     switch (filter) {
       case 'active': return activeElections;
       case 'upcoming': return upcomingElections;
-      case 'completed': return completedElections;
+      case 'completed': return completedElections || [];
       default: return activeElections;
     }
   };
 
-  const handleViewCandidates = async (electionId) => {
-    try {
-      const response = await voterAPI.getElectionCandidates(electionId);
-      if (response.success) {
-        // Navigate to candidates page or show in modal
-        console.log('Candidates:', response.candidates);
-        // You can implement a modal or navigation here
-      } else {
-        setError(response.message || 'Failed to load candidates');
-      }
-    } catch (error) {
-      setError('Failed to load candidates');
-    }
-  };
-
-  const handleViewResults = async (electionId) => {
-    try {
-      const response = await voterAPI.getElectionResults(electionId);
-      if (response.success) {
-        // Navigate to results page or show in modal
-        console.log('Results:', response.results);
-        // You can implement a modal or navigation here
-      } else {
-        setError(response.message || 'Failed to load results');
-      }
-    } catch (error) {
-      setError('Failed to load results');
-    }
-  };
+  const electionsToDisplay = getElectionsToDisplay();
 
   return (
     <div>
@@ -1716,7 +1851,7 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
         </Button>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs - Updated with Results Count */}
       <Card className="shadow-sm border-0 mb-4">
         <Card.Body className="py-3">
           <div className="d-flex gap-2 flex-wrap">
@@ -1743,14 +1878,14 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
               </Badge>
             </Button>
             <Button
-              variant={filter === 'completed' ? 'secondary' : 'outline-secondary'}
+              variant={filter === 'completed' ? 'warning' : 'outline-warning'}
               size="sm"
               onClick={() => setFilter('completed')}
             >
-              <FaHistory className="me-1" />
-              Completed
+              <FaTrophy className="me-1" />
+              Results
               <Badge bg="light" text="dark" className="ms-2">
-                {completedElections.length}
+                {completedElections?.length || 0}
               </Badge>
             </Button>
           </div>
@@ -1787,12 +1922,12 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
               <h5 className="mb-0">
                 {filter === 'active' && 'Active Elections'}
                 {filter === 'upcoming' && 'Upcoming Elections'}
-                {filter === 'completed' && 'Completed Elections'}
+                {filter === 'completed' && 'Election Results'}
                 <Badge bg={
                   filter === 'active' ? 'success' : 
-                  filter === 'upcoming' ? 'warning' : 'secondary'
+                  filter === 'upcoming' ? 'warning' : 'warning'
                 } className="ms-2">
-                  {getElectionsToDisplay().length} {filter}
+                  {electionsToDisplay.length} {filter}
                 </Badge>
               </h5>
               <div className="d-flex gap-2">
@@ -1808,15 +1943,27 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
             </div>
           </Card.Header>
           <Card.Body>
-            {getElectionsToDisplay().length === 0 ? (
+            {electionsToDisplay.length === 0 ? (
               <div className="text-center py-5">
-                <FaVoteYea className="text-muted fa-4x mb-3" />
-                <h5>No {filter} Elections</h5>
-                <p className="text-muted">
-                  {filter === 'active' && 'There are no active elections at the moment. Please check back later.'}
-                  {filter === 'upcoming' && 'There are no upcoming elections scheduled.'}
-                  {filter === 'completed' && 'No completed elections found.'}
-                </p>
+                {filter === 'completed' ? (
+                  <>
+                    <FaTrophy className="text-muted fa-4x mb-3" />
+                    <h5>No Election Results Available</h5>
+                    <p className="text-muted">
+                      Results will appear here once elections are completed and results are published.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <FaVoteYea className="text-muted fa-4x mb-3" />
+                    <h5>No {filter} Elections</h5>
+                    <p className="text-muted">
+                      {filter === 'active' && 'There are no active elections at the moment. Please check back later.'}
+                      {filter === 'upcoming' && 'There are no upcoming elections scheduled.'}
+                      {filter === 'completed' && 'No completed elections found.'}
+                    </p>
+                  </>
+                )}
                 {filter !== 'active' && (
                   <Button variant="primary" onClick={() => setFilter('active')}>
                     View Active Elections
@@ -1824,14 +1971,13 @@ const EnhancedElections = ({ dashboardData, voterId, isConnected, BroadcastIcon,
                 )}
               </div>
             ) : (
-              getElectionsToDisplay().map(election => (
+              electionsToDisplay.map(election => (
                 <EnhancedElectionCard 
                   key={election.election_id} 
                   election={election}
                   onStartVoting={onStartVoting}
+                  onViewResults={onViewResults} // NEW: Pass results handler
                   filter={filter}
-                  onViewCandidates={handleViewCandidates}
-                  onViewResults={handleViewResults}
                   hasVoted={hasVoted[election.election_id]}
                 />
               ))
