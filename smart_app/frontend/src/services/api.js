@@ -534,6 +534,70 @@ export const voterAPI = {
     }
   },
 
+  getEnhancedVotingHistory: async () => {
+  try {
+    console.log('📜 Fetching enhanced voting history...');
+    const response = await api.get('/dashboard/voting-history/enhanced');
+    console.log('✅ Enhanced voting history response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching enhanced voting history:', error);
+    throw error.response?.data || { message: 'Failed to fetch enhanced voting history' };
+  }
+},
+
+// Get enhanced analytics
+getEnhancedAnalytics: async () => {
+  try {
+    console.log('📊 Fetching enhanced analytics...');
+    const response = await api.get('/dashboard/analytics/enhanced');
+    console.log('✅ Enhanced analytics response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching enhanced analytics:', error);
+    throw error.response?.data || { message: 'Failed to fetch enhanced analytics' };
+  }
+},
+
+// Get enhanced security information
+getEnhancedSecurity: async () => {
+  try {
+    console.log('🔒 Fetching enhanced security information...');
+    const response = await api.get('/dashboard/security/enhanced');
+    console.log('✅ Enhanced security response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching enhanced security:', error);
+    throw error.response?.data || { message: 'Failed to fetch enhanced security information' };
+  }
+},
+
+// Generate digital ID
+generateDigitalID: async () => {
+  try {
+    console.log('🆔 Generating digital ID...');
+    const response = await api.get('/dashboard/digital-id/generate');
+    console.log('✅ Digital ID generation response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error generating digital ID:', error);
+    throw error.response?.data || { message: 'Failed to generate digital ID' };
+  }
+},
+
+// Refresh dashboard data
+refreshDashboardData: async () => {
+  try {
+    console.log('🔄 Refreshing dashboard data...');
+    const response = await api.post('/dashboard/refresh-data');
+    console.log('✅ Dashboard refresh response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error refreshing dashboard data:', error);
+    throw error.response?.data || { message: 'Failed to refresh dashboard data' };
+  }
+},
+
   // Subscribe to results updates
   subscribeToResultsUpdates: async (electionId) => {
     try {
@@ -614,6 +678,7 @@ export const voterAPI = {
     }
   },
 
+  
   // ============ ENHANCED VOTING SESSION MANAGEMENT ============
 
   // Start voting session - ENHANCED with better error handling
@@ -853,18 +918,19 @@ export const voterAPI = {
     }
   },
 
-  // Export data
-  exportData: async (format = 'json') => {
-    try {
-      console.log(`📤 Exporting data in ${format} format...`);
-      const response = await api.get(`/dashboard/export-data?format=${format}`);
-      console.log('✅ Export data response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error exporting data:', error);
-      throw error.response?.data || { message: 'Failed to export data' };
-    }
-  },
+  // Export data in specific format
+  exportData: async (format) => {
+  try {
+    console.log(`📤 Exporting data in ${format} format...`);
+    const response = await api.get(`/dashboard/export-data/${format}`);
+    console.log('✅ Export data response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error exporting data:', error);
+    throw error.response?.data || { message: 'Failed to export data' };
+  }
+},
+
 
   // Download voter slip
   downloadVoterSlip: async () => {
@@ -1673,6 +1739,51 @@ export const adminAPI = {
       headers: getAuthHeader()
     });
     return response.data;
+  },
+
+  // Get election results (admin version)
+  getElectionResults: async (electionId) => {
+    try {
+      console.log(`📊 Admin fetching results for election: ${electionId}`);
+      const response = await api.get(`/admin/elections/${electionId}/results`, {
+        headers: getAuthHeader()
+      });
+      console.log('✅ Admin election results response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Admin error fetching election results:', error);
+      throw error.response?.data || { message: 'Failed to fetch election results' };
+    }
+  },
+
+  // Get results for admin dashboard
+  getElectionResultsDashboard: async (electionId) => {
+    try {
+      console.log(`📈 Admin fetching results dashboard for election: ${electionId}`);
+      const response = await api.get(`/admin/elections/${electionId}/results/dashboard`, {
+        headers: getAuthHeader()
+      });
+      console.log('✅ Admin results dashboard response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Admin error fetching results dashboard:', error);
+      throw error.response?.data || { message: 'Failed to fetch results dashboard' };
+    }
+  },
+
+  // Get results with analytics
+  getElectionResultsAnalytics: async (electionId) => {
+    try {
+      console.log(`📊 Admin fetching results analytics for election: ${electionId}`);
+      const response = await api.get(`/admin/elections/${electionId}/results/analytics`, {
+        headers: getAuthHeader()
+      });
+      console.log('✅ Admin results analytics response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Admin error fetching results analytics:', error);
+      throw error.response?.data || { message: 'Failed to fetch results analytics' };
+    }
   },
 
   // ============ VOTER MANAGEMENT ============
