@@ -21,7 +21,7 @@ import {
   FaWifi, FaSatelliteDish, FaSignal, FaUserTie,
   FaLandmark, FaArrowLeft, FaChartPie, FaTimesCircle,
   FaPlay, FaPause, FaStop, FaHourglassHalf,
-  FaTrophy, FaChartLine // Added new icons for results
+  FaTrophy, FaChartLine, FaFilePdf, FaFileCsv, FaFileAlt
 } from 'react-icons/fa';
 
 const Dashboard = () => {
@@ -35,16 +35,22 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDigitalID, setShowDigitalID] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [electionType, setElectionType] = useState('all');
   const [realTimeUpdates, setRealTimeUpdates] = useState([]);
   const [liveStats, setLiveStats] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [hasVoted, setHasVoted] = useState({});
-  const [completedElections, setCompletedElections] = useState([]); // New state for completed elections
+  const [completedElections, setCompletedElections] = useState([]);
+  const [digitalID, setDigitalID] = useState(null);
+  const [enhancedVotingHistory, setEnhancedVotingHistory] = useState(null);
+  const [enhancedAnalytics, setEnhancedAnalytics] = useState(null);
+  const [enhancedSecurity, setEnhancedSecurity] = useState(null);
 
   const BroadcastIcon = FaSignal;
 
-  // Set up socket event listeners
+  // Enhanced socket event listeners
   useEffect(() => {
     if (!socket) return;
 
@@ -89,7 +95,7 @@ const Dashboard = () => {
     on('admin_broadcast', handleAdminBroadcast);
     on('voting_session_started', handleVotingSessionStarted);
     on('vote_count_update', handleVoteCountUpdate);
-    on('results_published', handleResultsPublished); // New event for results
+    on('results_published', handleResultsPublished);
 
     return () => {
       off('election_update', handleElectionUpdate);
@@ -102,7 +108,285 @@ const Dashboard = () => {
     };
   }, [socket, on, off]);
 
-  // New handler for results publication
+  // Enhanced data loading functions
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      const [dashboardResponse, profileResponse] = await Promise.all([
+        voterAPI.getDashboardData(),
+        voterAPI.getProfile()
+      ]);
+
+      if (dashboardResponse.success) {
+        const sanitizedData = sanitizeDashboardData(dashboardResponse.dashboard_data);
+        setDashboardData(sanitizedData);
+        setLastUpdate(dashboardResponse.last_updated);
+        
+        const activeElections = sanitizedData.election_info?.active_elections || [];
+        const liveStatsData = {
+          total_active: activeElections.length,
+          votes_cast_today: dashboardResponse.dashboard_data?.quick_stats?.today_votes || 0,
+          voter_turnout: dashboardResponse.dashboard_data?.quick_stats?.participation_rate || 0,
+          last_updated: new Date().toISOString()
+        };
+        setLiveStats(liveStatsData);
+
+        const votedStatus = {};
+        activeElections.forEach(election => {
+          votedStatus[election.election_id] = election.has_voted || false;
+        });
+        setHasVoted(votedStatus);
+      } else {
+        setError(dashboardResponse.message || 'Failed to load dashboard data');
+      }
+
+      if (profileResponse.success) {
+        setProfileData(sanitizeProfileData(profileResponse.profile_data));
+      }
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || err.message || 'Failed to load dashboard data. Please try again.';
+      setError(errorMsg);
+      
+      if (err.response?.status === 401) {
+        logout();
+        navigate('/login');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // NEW: Enhanced refresh function
+  const handleRefreshData = async () => {
+    try {
+      setLoading(true);
+      const response = await voterAPI.refreshDashboardData();
+      if (response.success) {
+        setDashboardData(response.dashboard_data);
+        setLastUpdate(response.last_updated);
+        setRealTimeUpdates(prev => [{
+          id: Date.now(),
+          type: 'system',
+          action: 'refresh',
+          title: 'Data Refreshed',
+          message: response.message || 'Dashboard data updated successfully',
+          timestamp: new Date().toISOString(),
+          urgent: false
+        }, ...prev.slice(0, 9)]);
+      }
+    } catch (error) {
+      setError('Failed to refresh data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // NEW: Enhanced export function
+  const handleExportData = async (format) => {
+    try {
+      setLoading(true);
+      const response = await voterAPI.exportData(format);
+      
+      if (response.success) {
+        if (format === 'json') {
+          // For JSON, download manually
+          const dataStr = JSON.stringify(response.data, null, 2);
+          const dataBlob = new Blob([dataStr], { type: 'application/json' });
+          downloadBlob(dataBlob, `voter_data_${user?.voter_id}_${Date.now()}.json`);
+        } else if (response.download_url) {
+          // For PDF/CSV, open download URL
+          window.open(response.download_url, '_blank');
+        }
+        
+        setRealTimeUpdates(prev => [{
+          id: Date.now(),
+          type: 'system',
+          action: 'export',
+          title: 'Data Exported',
+          message: `Data exported successfully as ${format.toUpperCase()}`,
+          timestamp: new Date().toISOString(),
+          urgent: false
+        }, ...prev.slice(0, 9)]);
+        
+        setShowExportModal(false);
+      }
+    } catch (error) {
+      setError(`Failed to export data as ${format}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // NEW: Digital ID generation
+  const handleGenerateDigitalID = async () => {
+    try {
+      setLoading(true);
+      const response = await voterAPI.generateDigitalID();
+      if (response.success) {
+        setDigitalID(response.digital_id);
+        setShowDigitalID(true);
+        
+        setRealTimeUpdates(prev => [{
+          id: Date.now(),
+          type: 'system',
+          action: 'digital_id',
+          title: 'Digital ID Generated',
+          message: 'Your digital ID has been generated successfully',
+          timestamp: new Date().toISOString(),
+          urgent: false
+        }, ...prev.slice(0, 9)]);
+      }
+    } catch (error) {
+      setError('Failed to generate digital ID');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // NEW: Enhanced voting history
+  const handleLoadEnhancedVotingHistory = async () => {
+    try {
+      setLoading(true);
+      const response = await voterAPI.getEnhancedVotingHistory();
+      if (response.success) {
+        setEnhancedVotingHistory(response.voting_history);
+        setActiveTab('history');
+      }
+    } catch (error) {
+      setError('Failed to load voting history');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // NEW: Enhanced analytics
+  const handleLoadEnhancedAnalytics = async () => {
+    try {
+      setLoading(true);
+      const response = await voterAPI.getEnhancedAnalytics();
+      if (response.success) {
+        setEnhancedAnalytics(response.analytics);
+        setActiveTab('analytics');
+      }
+    } catch (error) {
+      setError('Failed to load analytics');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // NEW: Enhanced security
+  // NEW: Enhanced security
+const handleLoadEnhancedSecurity = async () => {
+  try {
+    setLoading(true);
+    setError('');
+    
+    const response = await voterAPI.getEnhancedSecurity();
+    console.log('🔒 Enhanced security response:', response);
+    
+    if (response.success) {
+      setEnhancedSecurity(response.security);
+      setActiveTab('security');
+    } else {
+      // Handle specific error codes
+      if (response.code === 'AUTH_REQUIRED') {
+        setError('Please login again to access security information');
+        // Optionally logout and redirect
+        // await logout();
+        // navigate('/login');
+      } else if (response.code === 'ACCOUNT_INACTIVE') {
+        setError('Your account is not active. Please contact support.');
+      } else {
+        setError(response.message || 'Failed to load security information');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error loading enhanced security:', error);
+    
+    // Handle different types of errors
+    if (error.response?.status === 401) {
+      setError('Authentication required. Please login again.');
+      logout();
+      navigate('/login');
+    } else if (error.response?.status === 403) {
+      setError('Access denied. You do not have permission to view security information.');
+    } else if (error.response?.status === 500) {
+      setError('Server error. Please try again later.');
+    } else {
+      const errorMsg = error.response?.data?.message || 
+                      error.message || 
+                      'Failed to load security information';
+      setError(errorMsg);
+    }
+  } finally {
+    setLoading(false);
+  }
+};
+
+  // Utility function to download blobs
+  const downloadBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Load completed elections
+  const loadCompletedElections = async () => {
+    try {
+      const response = await voterAPI.getCompletedElections();
+      if (response.success) {
+        setCompletedElections(response.elections || []);
+      }
+    } catch (err) {
+      console.error('Failed to load completed elections:', err);
+    }
+  };
+
+  const loadProfileData = async () => {
+    try {
+      const response = await voterAPI.getProfile();
+      if (response.success) {
+        setProfileData(sanitizeProfileData(response.profile_data));
+      }
+    } catch (err) {
+      console.error('Failed to refresh profile:', err);
+    }
+  };
+
+  // Auto-refresh data every 30 seconds
+  useEffect(() => {
+    if (isAuthenticated && !loading && isConnected) {
+      const interval = setInterval(() => {
+        loadDashboardData();
+        if (activeTab === 'elections') {
+          loadCompletedElections();
+        }
+      }, 30000);
+
+      return () => clearInterval(interval);
+    }
+  }, [isAuthenticated, loading, isConnected, activeTab]);
+
+  // Initial data load
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    loadDashboardData();
+    loadCompletedElections();
+  }, [isAuthenticated, authLoading, navigate]);
+
+  // Socket event handlers (keep existing ones)
   const handleResultsPublishedData = useCallback((data) => {
     const { election_id, election_title, timestamp, admin_id } = data;
     
@@ -118,14 +402,12 @@ const Dashboard = () => {
       urgent: true
     }, ...prev.slice(0, 9)]);
 
-    // Refresh completed elections when results are published
     if (activeTab === 'overview' || activeTab === 'elections') {
       loadCompletedElections();
       loadDashboardData();
     }
   }, [activeTab]);
 
-  // Existing handlers remain the same...
   const handleElectionUpdateData = useCallback((data) => {
     const { action, data: electionData, timestamp, admin_id } = data;
     
@@ -141,7 +423,7 @@ const Dashboard = () => {
         message = `Election "${electionData.title}" status changed to ${electionData.new_status}`;
         title = 'Election Status Update';
         if (electionData.new_status === 'completed') {
-          loadCompletedElections(); // Load completed elections when status changes
+          loadCompletedElections();
         }
         break;
       case 'delete':
@@ -240,108 +522,9 @@ const Dashboard = () => {
     });
   }, []);
 
-  // Enhanced data loading with completed elections
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      
-      const [dashboardResponse, profileResponse] = await Promise.all([
-        voterAPI.getDashboardData(),
-        voterAPI.getProfile()
-      ]);
-
-      if (dashboardResponse.success) {
-        const sanitizedData = sanitizeDashboardData(dashboardResponse.dashboard_data);
-        setDashboardData(sanitizedData);
-        setLastUpdate(dashboardResponse.last_updated);
-        
-        const activeElections = sanitizedData.election_info?.active_elections || [];
-        const liveStatsData = {
-          total_active: activeElections.length,
-          votes_cast_today: dashboardResponse.dashboard_data?.quick_stats?.today_votes || 0,
-          voter_turnout: dashboardResponse.dashboard_data?.quick_stats?.participation_rate || 0,
-          last_updated: new Date().toISOString()
-        };
-        setLiveStats(liveStatsData);
-
-        const votedStatus = {};
-        activeElections.forEach(election => {
-          votedStatus[election.election_id] = election.has_voted || false;
-        });
-        setHasVoted(votedStatus);
-      } else {
-        setError(dashboardResponse.message || 'Failed to load dashboard data');
-      }
-
-      if (profileResponse.success) {
-        setProfileData(sanitizeProfileData(profileResponse.profile_data));
-      }
-    } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || 'Failed to load dashboard data. Please try again.';
-      setError(errorMsg);
-      
-      if (err.response?.status === 401) {
-        logout();
-        navigate('/login');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // New function to load completed elections
-  const loadCompletedElections = async () => {
-    try {
-      const response = await voterAPI.getCompletedElections();
-      if (response.success) {
-        setCompletedElections(response.elections || []);
-      }
-    } catch (err) {
-      console.error('Failed to load completed elections:', err);
-    }
-  };
-
-  const loadProfileData = async () => {
-    try {
-      const response = await voterAPI.getProfile();
-      if (response.success) {
-        setProfileData(sanitizeProfileData(response.profile_data));
-      }
-    } catch (err) {
-      console.error('Failed to refresh profile:', err);
-    }
-  };
-
-  // Auto-refresh data every 30 seconds
-  useEffect(() => {
-    if (isAuthenticated && !loading && isConnected) {
-      const interval = setInterval(() => {
-        loadDashboardData();
-        if (activeTab === 'elections') {
-          loadCompletedElections();
-        }
-      }, 30000);
-
-      return () => clearInterval(interval);
-    }
-  }, [isAuthenticated, loading, isConnected, activeTab]);
-
-  // Initial data load
-  useEffect(() => {
-    if (authLoading) return;
-    if (!isAuthenticated) {
-      navigate('/login');
-      return;
-    }
-    loadDashboardData();
-    loadCompletedElections(); // Load completed elections on initial load
-  }, [isAuthenticated, authLoading, navigate]);
-
-  // Helper functions (remain the same)
+  // Helper functions (keep existing ones)
   const formatDate = (dateValue) => {
     if (!dateValue) return 'N/A';
-    
     try {
       if (typeof dateValue === 'object' && dateValue.$date) {
         return new Date(dateValue.$date).toLocaleDateString('en-US', {
@@ -350,7 +533,6 @@ const Dashboard = () => {
           day: 'numeric'
         });
       }
-      
       if (dateValue instanceof Date || typeof dateValue === 'string') {
         return new Date(dateValue).toLocaleDateString('en-US', {
           year: 'numeric',
@@ -358,7 +540,6 @@ const Dashboard = () => {
           day: 'numeric'
         });
       }
-      
       return 'Invalid Date';
     } catch (error) {
       console.error('Error formatting date:', dateValue, error);
@@ -368,7 +549,6 @@ const Dashboard = () => {
 
   const formatDateTime = (dateValue) => {
     if (!dateValue) return 'N/A';
-    
     try {
       if (typeof dateValue === 'object' && dateValue.$date) {
         return new Date(dateValue.$date).toLocaleString('en-US', {
@@ -379,7 +559,6 @@ const Dashboard = () => {
           minute: '2-digit'
         });
       }
-      
       if (dateValue instanceof Date || typeof dateValue === 'string') {
         return new Date(dateValue).toLocaleString('en-US', {
           year: 'numeric',
@@ -389,7 +568,6 @@ const Dashboard = () => {
           minute: '2-digit'
         });
       }
-      
       return 'Invalid Date';
     } catch (error) {
       console.error('Error formatting date-time:', dateValue, error);
@@ -401,25 +579,20 @@ const Dashboard = () => {
     if (value === null || value === undefined || value === '') {
       return defaultValue;
     }
-    
     if (typeof value === 'object' && value.$date) {
       return formatDate(value);
     }
-    
     if (typeof value === 'object' && !(value instanceof Date)) {
       return '[Object]';
     }
-    
     if (Array.isArray(value)) {
       return value.join(', ');
     }
-    
     return value.toString();
   };
 
   const sanitizeDashboardData = (data) => {
     if (!data) return null;
-    
     return {
       ...data,
       voter_info: {
@@ -444,7 +617,6 @@ const Dashboard = () => {
 
   const sanitizeProfileData = (data) => {
     if (!data) return null;
-    
     return {
       ...data,
       date_of_birth: data.date_of_birth || 'N/A',
@@ -465,14 +637,12 @@ const Dashboard = () => {
     loadCompletedElections();
   };
 
-  // Enhanced voting session start with better error handling
+  // Enhanced voting session start
   const handleStartVoting = async (election) => {
     try {
       console.log(`🚀 Starting voting process for election: ${election.election_id}`);
       setLoading(true);
       setError('');
-
-      voterAPI.clearVotingSession(election.election_id);
 
       const sessionResponse = await voterAPI.startVotingSession(election.election_id);
       console.log('📋 Session response:', sessionResponse);
@@ -535,14 +705,13 @@ const Dashboard = () => {
     }
   };
 
-  // NEW: Function to handle viewing results
+  // Function to handle viewing results
   const handleViewResults = (election) => {
     navigate(`/results/${election.election_id}`);
   };
 
-  // NEW: Function to check if results are available
+  // Function to check if results are available
   const areResultsAvailable = (election) => {
-    // Results are available if election is completed or if user has voted and wants to see live results
     return election.status === 'completed' || 
            (election.status === 'active' && hasVoted[election.election_id] && election.results_visibility === 'live');
   };
@@ -555,7 +724,7 @@ const Dashboard = () => {
     }
   };
 
-  // Loading and authentication checks remain the same...
+  // Loading and authentication checks
   if (authLoading || loading) {
     return (
       <div className="min-vh-100 d-flex align-items-center justify-content-center bg-gradient-primary">
@@ -599,7 +768,7 @@ const Dashboard = () => {
 
   return (
     <div className="min-vh-100 bg-light">
-      {/* Real-time Updates Toast - Updated for results notifications */}
+      {/* Real-time Updates Toast */}
       <ToastContainer position="top-end" className="p-3" style={{ zIndex: 1050 }}>
         {realTimeUpdates.slice(0, 3).map(update => (
           <Toast 
@@ -623,7 +792,6 @@ const Dashboard = () => {
                   <small className="text-muted">
                     Election: {update.electionData.title || update.electionData.election_title}
                   </small>
-                  {/* Add quick action for results */}
                   {update.type === 'results' && (
                     <div className="mt-2">
                       <Button 
@@ -643,7 +811,7 @@ const Dashboard = () => {
         ))}
       </ToastContainer>
 
-      {/* Header remains the same */}
+      {/* Header */}
       <nav className="navbar navbar-expand-lg navbar-dark bg-gradient-primary shadow">
         <Container fluid>
           <span className="navbar-brand d-flex align-items-center fw-bold">
@@ -762,7 +930,7 @@ const Dashboard = () => {
                 variant="link" 
                 size="sm" 
                 className="p-0 ms-2"
-                onClick={loadDashboardData}
+                onClick={handleRefreshData}
                 disabled={loading}
                 title="Refresh Data"
               >
@@ -831,19 +999,19 @@ const Dashboard = () => {
                         </Nav.Link>
                       </Nav.Item>
                       <Nav.Item>
-                        <Nav.Link eventKey="history" className="d-flex align-items-center py-3 border-bottom">
+                        <Nav.Link eventKey="history" className="d-flex align-items-center py-3 border-bottom" onClick={handleLoadEnhancedVotingHistory}>
                           <FaHistory className="me-3 fs-5" />
                           <span>Voting History</span>
                         </Nav.Link>
                       </Nav.Item>
                       <Nav.Item>
-                        <Nav.Link eventKey="analytics" className="d-flex align-items-center py-3 border-bottom">
+                        <Nav.Link eventKey="analytics" className="d-flex align-items-center py-3 border-bottom" onClick={handleLoadEnhancedAnalytics}>
                           <FaChartBar className="me-3 fs-5" />
                           <span>Analytics</span>
                         </Nav.Link>
                       </Nav.Item>
                       <Nav.Item>
-                        <Nav.Link eventKey="security" className="d-flex align-items-center py-3 border-bottom">
+                        <Nav.Link eventKey="security" className="d-flex align-items-center py-3 border-bottom" onClick={handleLoadEnhancedSecurity}>
                           <FaShieldAlt className="me-3 fs-5" />
                           <span>Security</span>
                         </Nav.Link>
@@ -871,22 +1039,30 @@ const Dashboard = () => {
                       </div>
                     )}
 
-                    {/* Quick Actions */}
+                    {/* Enhanced Quick Actions */}
                     <div className="p-3 border-top">
                       <small className="text-muted mb-2 d-block">QUICK ACTIONS</small>
                       <div className="d-grid gap-2">
-                        <Button variant="outline-primary" size="sm">
+                        <Button 
+                          variant="outline-primary" 
+                          size="sm"
+                          onClick={handleGenerateDigitalID}
+                        >
                           <FaQrcode className="me-1" />
                           Digital ID
                         </Button>
-                        <Button variant="outline-success" size="sm">
+                        <Button 
+                          variant="outline-success" 
+                          size="sm"
+                          onClick={() => setShowExportModal(true)}
+                        >
                           <FaDownload className="me-1" />
                           Export Data
                         </Button>
                         <Button 
                           variant="outline-info" 
                           size="sm"
-                          onClick={loadDashboardData}
+                          onClick={handleRefreshData}
                           disabled={loading}
                         >
                           <FaSync className={`me-1 ${loading ? 'spinner' : ''}`} />
@@ -931,23 +1107,21 @@ const Dashboard = () => {
               {/* Main Content Area */}
               <Col lg={10} md={9}>
                 <Tab.Content>
-                  {/* Enhanced Overview Tab with Results Integration */}
                   <Tab.Pane eventKey="overview">
                     <EnhancedOverview 
                       dashboardData={dashboardData}
                       liveStats={liveStats}
                       isConnected={isConnected}
-                      onRefresh={loadDashboardData}
+                      onRefresh={handleRefreshData}
                       loading={loading}
                       BroadcastIcon={BroadcastIcon}
                       onStartVoting={handleStartVoting}
-                      onViewResults={handleViewResults} // NEW: Pass results handler
+                      onViewResults={handleViewResults}
                       hasVoted={hasVoted}
-                      completedElections={completedElections} // NEW: Pass completed elections
+                      completedElections={completedElections}
                     />
                   </Tab.Pane>
 
-                  {/* Enhanced Profile Tab */}
                   <Tab.Pane eventKey="profile">
                     <EnhancedProfile 
                       profileData={profileData}
@@ -955,7 +1129,6 @@ const Dashboard = () => {
                     />
                   </Tab.Pane>
 
-                  {/* Enhanced Elections Tab with Results Integration */}
                   <Tab.Pane eventKey="elections">
                     <EnhancedElections 
                       dashboardData={dashboardData}
@@ -963,28 +1136,33 @@ const Dashboard = () => {
                       isConnected={isConnected}
                       BroadcastIcon={BroadcastIcon}
                       onStartVoting={handleStartVoting}
-                      onViewResults={handleViewResults} // NEW: Pass results handler
+                      onViewResults={handleViewResults}
                       hasVoted={hasVoted}
-                      completedElections={completedElections} // NEW: Pass completed elections
+                      completedElections={completedElections}
                     />
                   </Tab.Pane>
 
-                  {/* Additional Tabs */}
                   <Tab.Pane eventKey="history">
                     <EnhancedVotingHistory 
                       voterId={user?.voter_id}
+                      enhancedVotingHistory={enhancedVotingHistory}
+                      onLoadEnhanced={handleLoadEnhancedVotingHistory}
                     />
                   </Tab.Pane>
                   
                   <Tab.Pane eventKey="analytics">
                     <EnhancedAnalytics 
                       dashboardData={dashboardData}
+                      enhancedAnalytics={enhancedAnalytics}
+                      onLoadEnhanced={handleLoadEnhancedAnalytics}
                     />
                   </Tab.Pane>
                   
                   <Tab.Pane eventKey="security">
                     <EnhancedSecurity 
                       voterId={user?.voter_id}
+                      enhancedSecurity={enhancedSecurity}
+                      onLoadEnhanced={handleLoadEnhancedSecurity}
                     />
                   </Tab.Pane>
                 </Tab.Content>
@@ -1011,7 +1189,7 @@ const Dashboard = () => {
         )}
       </Container>
 
-      {/* Enhanced Notifications Modal with Results Support */}
+      {/* Enhanced Notifications Modal */}
       <Modal show={showNotifications} onHide={() => setShowNotifications(false)} size="lg">
         <Modal.Header closeButton>
           <Modal.Title>
@@ -1054,7 +1232,6 @@ const Dashboard = () => {
                     {update.urgent && (
                       <Badge bg="warning" className="mt-1">Urgent</Badge>
                     )}
-                    {/* Add action button for results */}
                     {update.type === 'results' && update.electionData && (
                       <div className="mt-2">
                         <Button 
@@ -1097,6 +1274,112 @@ const Dashboard = () => {
         </Modal.Footer>
       </Modal>
 
+      {/* Digital ID Modal */}
+      <Modal show={showDigitalID} onHide={() => setShowDigitalID(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>
+            <FaIdCard className="me-2" />
+            Digital Voter ID
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {digitalID ? (
+            <div className="text-center">
+              <div className="border rounded p-4 mb-4">
+                <img 
+                  src={digitalID.qr_code} 
+                  alt="Digital ID QR Code" 
+                  className="img-fluid mb-3"
+                  style={{ maxWidth: '200px' }}
+                />
+                <h4>{digitalID.full_name}</h4>
+                <p className="text-muted">Voter ID: {digitalID.voter_id}</p>
+                <Badge bg="success" className="mb-3">
+                  {digitalID.verification_level} Verification
+                </Badge>
+                
+                <Row className="text-start mt-4">
+                  <Col md={6}>
+                    <p><strong>Constituency:</strong> {digitalID.constituency}</p>
+                    <p><strong>Polling Station:</strong> {digitalID.polling_station}</p>
+                  </Col>
+                  <Col md={6}>
+                    <p><strong>Issued:</strong> {formatDate(digitalID.issue_date)}</p>
+                    <p><strong>Expires:</strong> {formatDate(digitalID.expiry_date)}</p>
+                  </Col>
+                </Row>
+              </div>
+              <Button 
+                variant="primary" 
+                onClick={() => {
+                  // Download QR code
+                  const link = document.createElement('a');
+                  link.href = digitalID.qr_code;
+                  link.download = `voter_id_${digitalID.voter_id}.png`;
+                  link.click();
+                }}
+              >
+                <FaDownload className="me-1" />
+                Download QR Code
+              </Button>
+            </div>
+          ) : (
+            <div className="text-center py-4">
+              <Spinner animation="border" variant="primary" />
+              <p className="mt-2">Generating Digital ID...</p>
+            </div>
+          )}
+        </Modal.Body>
+      </Modal>
+
+      {/* Export Data Modal */}
+      <Modal show={showExportModal} onHide={() => setShowExportModal(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>
+            <FaDownload className="me-2" />
+            Export Data
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p>Choose export format:</p>
+          <div className="d-grid gap-2">
+            <Button 
+              variant="outline-danger" 
+              size="lg"
+              onClick={() => handleExportData('pdf')}
+              disabled={loading}
+            >
+              <FaFilePdf className="me-2" />
+              Export as PDF
+            </Button>
+            <Button 
+              variant="outline-success" 
+              size="lg"
+              onClick={() => handleExportData('csv')}
+              disabled={loading}
+            >
+              <FaFileCsv className="me-2" />
+              Export as CSV
+            </Button>
+            <Button 
+              variant="outline-info" 
+              size="lg"
+              onClick={() => handleExportData('json')}
+              disabled={loading}
+            >
+              <FaFileAlt className="me-2" />
+              Export as JSON
+            </Button>
+          </div>
+          {loading && (
+            <div className="text-center mt-3">
+              <Spinner animation="border" size="sm" />
+              <span className="ms-2">Exporting data...</span>
+            </div>
+          )}
+        </Modal.Body>
+      </Modal>
+
       {/* Settings Modal */}
       <Modal show={showSettings} onHide={() => setShowSettings(false)} size="lg">
         <Modal.Header closeButton>
@@ -1113,7 +1396,7 @@ const Dashboard = () => {
   );
 };
 
-// Enhanced Overview Component with Results Integration
+// Enhanced Overview Component (keep existing implementation)
 const EnhancedOverview = ({ 
   dashboardData, 
   liveStats, 
@@ -1122,11 +1405,10 @@ const EnhancedOverview = ({
   loading, 
   BroadcastIcon, 
   onStartVoting, 
-  onViewResults, // NEW: Results handler
+  onViewResults,
   hasVoted,
-  completedElections // NEW: Completed elections data
+  completedElections
 }) => {
-  // Get recent completed elections for display
   const recentCompletedElections = completedElections?.slice(0, 2) || [];
 
   return (
@@ -1156,14 +1438,10 @@ const EnhancedOverview = ({
             <FaSync className={`me-1 ${loading ? 'spinner' : ''}`} />
             Refresh
           </Button>
-          <Button variant="primary" size="sm">
-            <FaShare className="me-1" />
-            Share
-          </Button>
         </div>
       </div>
 
-      {/* Live Stats Grid - Updated with Results Count */}
+      {/* Live Stats Grid */}
       {liveStats && (
         <Row className="mb-4">
           <Col xl={3} lg={6} className="mb-3">
@@ -1214,7 +1492,6 @@ const EnhancedOverview = ({
       )}
 
       <Row>
-        {/* Active Elections Section */}
         <Col lg={8}>
           <Card className="shadow-sm border-0 h-100">
             <Card.Header className="bg-white border-0">
@@ -1233,7 +1510,7 @@ const EnhancedOverview = ({
                       <EnhancedElectionCard 
                         election={election} 
                         onStartVoting={onStartVoting}
-                        onViewResults={onViewResults} // NEW: Pass results handler
+                        onViewResults={onViewResults}
                         compact={true}
                         hasVoted={hasVoted[election.election_id]}
                       />
@@ -1250,7 +1527,6 @@ const EnhancedOverview = ({
             </Card.Body>
           </Card>
 
-          {/* NEW: Recent Results Section */}
           {recentCompletedElections.length > 0 && (
             <Card className="shadow-sm border-0 mt-4">
               <Card.Header className="bg-white border-0">
@@ -1302,7 +1578,6 @@ const EnhancedOverview = ({
           )}
         </Col>
 
-        {/* Quick Actions & Upcoming Elections */}
         <Col lg={4}>
           <Card className="shadow-sm border-0 mb-4">
             <Card.Header className="bg-white border-0">
@@ -1344,7 +1619,6 @@ const EnhancedOverview = ({
             </Card.Body>
           </Card>
 
-          {/* Quick Stats */}
           <Card className="shadow-sm border-0">
             <Card.Header className="bg-white border-0">
               <h5 className="mb-0">Your Voting Stats</h5>
@@ -1362,7 +1636,6 @@ const EnhancedOverview = ({
                 />
                 <small className="text-muted">Participation Rate</small>
                 
-                {/* NEW: Results Quick Access */}
                 {completedElections?.length > 0 && (
                   <div className="mt-4 pt-3 border-top">
                     <Button 
@@ -1370,7 +1643,6 @@ const EnhancedOverview = ({
                       size="sm" 
                       className="w-100"
                       onClick={() => {
-                        // Navigate to elections tab with completed filter
                         window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'elections' }));
                         window.dispatchEvent(new CustomEvent('setElectionFilter', { detail: 'completed' }));
                       }}
@@ -1389,14 +1661,14 @@ const EnhancedOverview = ({
   );
 };
 
-// Enhanced Election Card Component with Results Integration
+// Enhanced Election Card Component (keep existing implementation)
 const EnhancedElectionCard = ({ 
   election, 
   onStartVoting, 
   compact = false, 
   filter = 'active', 
   hasVoted = false,
-  onViewResults // NEW: Results handler
+  onViewResults
 }) => {
   const navigate = useNavigate();
   
@@ -1436,10 +1708,7 @@ const EnhancedElectionCard = ({
     navigate(`/elections/${election.election_id}`);
   };
 
-  // Use hasVoted prop if available, otherwise fall back to election.has_voted
   const voted = hasVoted !== undefined ? hasVoted : election.has_voted;
-
-  // NEW: Check if results are available
   const resultsAvailable = election.status === 'completed' || 
                           (election.status === 'active' && voted && election.results_visibility === 'live');
 
@@ -1495,7 +1764,6 @@ const EnhancedElectionCard = ({
               </Button>
             )}
           </div>
-          {/* NEW: Quick results access for voted elections */}
           {voted && resultsAvailable && election.status === 'active' && (
             <div className="mt-2">
               <Button 
@@ -1571,7 +1839,6 @@ const EnhancedElectionCard = ({
                   </div>
                 )}
 
-                {/* Voting Progress Bar */}
                 {election.total_votes > 0 && (
                   <div className="mt-2">
                     <div className="d-flex justify-content-between small text-muted">
@@ -1715,7 +1982,6 @@ const EnhancedElectionCard = ({
           </Col>
         </Row>
 
-        {/* Election Status Bar */}
         {!compact && (
           <div className="mt-3 pt-3 border-top">
             <div className="row text-center">
@@ -1749,16 +2015,16 @@ const EnhancedElectionCard = ({
   );
 };
 
-// Enhanced Elections Component with Results Integration
+// Enhanced Elections Component (keep existing implementation)
 const EnhancedElections = ({ 
   dashboardData, 
   voterId, 
   isConnected, 
   BroadcastIcon, 
   onStartVoting, 
-  onViewResults, // NEW: Results handler
+  onViewResults,
   hasVoted,
-  completedElections // NEW: Completed elections data
+  completedElections
 }) => {
   const [activeElections, setActiveElections] = useState([]);
   const [upcomingElections, setUpcomingElections] = useState([]);
@@ -1793,7 +2059,6 @@ const EnhancedElections = ({
           }
           break;
         case 'completed':
-          // Use the completedElections passed from parent
           setLoading(false);
           return;
         default:
@@ -1851,7 +2116,6 @@ const EnhancedElections = ({
         </Button>
       </div>
 
-      {/* Filter Tabs - Updated with Results Count */}
       <Card className="shadow-sm border-0 mb-4">
         <Card.Body className="py-3">
           <div className="d-flex gap-2 flex-wrap">
@@ -1892,7 +2156,6 @@ const EnhancedElections = ({
         </Card.Body>
       </Card>
 
-      {/* Alerts */}
       {error && (
         <Alert variant="danger" dismissible onClose={() => setError('')}>
           <FaExclamationTriangle className="me-2" />
@@ -1906,7 +2169,6 @@ const EnhancedElections = ({
         </Alert>
       )}
 
-      {/* Loading State */}
       {loading && (
         <div className="text-center py-5">
           <Spinner animation="border" variant="primary" />
@@ -1914,7 +2176,6 @@ const EnhancedElections = ({
         </div>
       )}
 
-      {/* Election List View */}
       {!loading && (
         <Card className="shadow-sm border-0">
           <Card.Header className="bg-white border-0">
@@ -1976,7 +2237,7 @@ const EnhancedElections = ({
                   key={election.election_id} 
                   election={election}
                   onStartVoting={onStartVoting}
-                  onViewResults={onViewResults} // NEW: Pass results handler
+                  onViewResults={onViewResults}
                   filter={filter}
                   hasVoted={hasVoted[election.election_id]}
                 />
@@ -1989,7 +2250,7 @@ const EnhancedElections = ({
   );
 };
 
-// Enhanced Profile Component
+// Enhanced Profile Component (keep existing implementation)
 const EnhancedProfile = ({ profileData, dashboardData }) => {
   const safeRender = (value, defaultValue = 'N/A') => {
     if (value === null || value === undefined || value === '') {
@@ -2032,7 +2293,6 @@ const EnhancedProfile = ({ profileData, dashboardData }) => {
         </div>
       </Card.Header>
       <Card.Body>
-        {/* Profile Header */}
         <div className="text-center mb-4 py-4 bg-light rounded">
           <div className="bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" 
                style={{ width: '80px', height: '80px' }}>
@@ -2101,7 +2361,6 @@ const EnhancedProfile = ({ profileData, dashboardData }) => {
           </Col>
         </Row>
 
-        {/* Address Information */}
         <Card className="border-0 bg-light mt-4">
           <Card.Body>
             <h6 className="border-bottom pb-2 mb-3">
@@ -2128,46 +2387,16 @@ const EnhancedProfile = ({ profileData, dashboardData }) => {
 };
 
 // Enhanced Voting History Component
-const EnhancedVotingHistory = ({ voterId }) => {
-  const [votingHistory, setVotingHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
+const EnhancedVotingHistory = ({ voterId, enhancedVotingHistory, onLoadEnhanced }) => {
+  const [loading, setLoading] = useState(!enhancedVotingHistory);
 
   useEffect(() => {
-    loadVotingHistory();
-  }, []);
-
-  const loadVotingHistory = async () => {
-    try {
-      // This would typically come from an API call
-      // For now, using mock data
-      setTimeout(() => {
-        setVotingHistory([
-          {
-            election_id: 'ELECT202412011200001',
-            election_title: 'National General Election 2024',
-            candidate_name: 'John Smith',
-            party: 'Democratic Party',
-            vote_timestamp: new Date('2024-01-15T10:30:00Z'),
-            constituency: 'North District'
-          },
-          {
-            election_id: 'ELECT202311201200001',
-            election_title: 'State Assembly Election 2023',
-            candidate_name: 'Sarah Johnson',
-            party: 'Republican Party',
-            vote_timestamp: new Date('2023-11-20T14:45:00Z'),
-            constituency: 'Central District'
-          }
-        ]);
-        setLoading(false);
-      }, 1000);
-    } catch (error) {
-      console.error('Error loading voting history:', error);
-      setLoading(false);
+    if (!enhancedVotingHistory) {
+      onLoadEnhanced();
     }
-  };
+  }, [enhancedVotingHistory, onLoadEnhanced]);
 
-  if (loading) {
+  if (loading && !enhancedVotingHistory) {
     return (
       <Card className="shadow-sm border-0">
         <Card.Header className="bg-white border-0">
@@ -2178,131 +2407,612 @@ const EnhancedVotingHistory = ({ voterId }) => {
         </Card.Header>
         <Card.Body className="text-center py-5">
           <Spinner animation="border" variant="primary" />
-          <p className="mt-2">Loading voting history...</p>
+          <p className="mt-2">Loading enhanced voting history...</p>
         </Card.Body>
       </Card>
     );
   }
 
+  if (!enhancedVotingHistory) {
+    return (
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0 d-flex align-items-center">
+            <FaHistory className="me-2 text-primary" />
+            Voting History
+          </h5>
+        </Card.Header>
+        <Card.Body className="text-center py-5">
+          <FaHistory className="text-muted fs-1 mb-3" />
+          <h5 className="text-muted">No Voting History Available</h5>
+          <p className="text-muted">Unable to load voting history data.</p>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  const { votes, statistics, achievements, timeline } = enhancedVotingHistory;
+
   return (
-    <Card className="shadow-sm border-0">
-      <Card.Header className="bg-white border-0">
-        <h5 className="mb-0 d-flex align-items-center">
-          <FaHistory className="me-2 text-primary" />
-          Voting History
-        </h5>
-      </Card.Header>
-      <Card.Body>
-        {votingHistory.length > 0 ? (
-          <ListGroup variant="flush">
-            {votingHistory.map((vote, index) => (
-              <ListGroup.Item key={index} className="border-0">
-                <Row className="align-items-center">
-                  <Col md={8}>
-                    <h6 className="mb-1">{vote.election_title}</h6>
-                    <p className="mb-1">
-                      <strong>Candidate:</strong> {vote.candidate_name} ({vote.party})
-                    </p>
-                    <small className="text-muted">
-                      <FaMapMarkerAlt className="me-1" />
-                      {vote.constituency} • 
-                      <FaClock className="me-1 ms-2" />
-                      {new Date(vote.vote_timestamp).toLocaleString()}
-                    </small>
-                  </Col>
-                  <Col md={4} className="text-end">
-                    <Badge bg="success">Voted</Badge>
-                  </Col>
-                </Row>
-              </ListGroup.Item>
-            ))}
-          </ListGroup>
-        ) : (
-          <div className="text-center py-5">
-            <FaHistory className="text-muted fs-1 mb-3" />
-            <h5 className="text-muted">No Voting History Yet</h5>
-            <p className="text-muted mb-4">
-              Your voting history will appear here once you participate in elections.
-            </p>
-            <Button variant="primary" onClick={() => window.location.reload()}>
-              Check for Active Elections
-            </Button>
-          </div>
-        )}
-      </Card.Body>
-    </Card>
+    <div>
+      {/* Statistics Cards */}
+      <Row className="mb-4">
+        <Col md={3}>
+          <Card className="border-0 bg-primary text-white">
+            <Card.Body className="text-center">
+              <h4>{statistics.total_votes}</h4>
+              <p className="mb-0">Total Votes</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="border-0 bg-success text-white">
+            <Card.Body className="text-center">
+              <h4>{statistics.participation_rate}%</h4>
+              <p className="mb-0">Participation Rate</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="border-0 bg-warning text-white">
+            <Card.Body className="text-center">
+              <h4>{statistics.voting_streak}</h4>
+              <p className="mb-0">Voting Streak</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="border-0 bg-info text-white">
+            <Card.Body className="text-center">
+              <h4>#{statistics.constituency_ranking?.rank || 'N/A'}</h4>
+              <p className="mb-0">Constituency Rank</p>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Achievements */}
+      {achievements && achievements.length > 0 && (
+        <Card className="shadow-sm border-0 mb-4">
+          <Card.Header className="bg-white border-0">
+            <h5 className="mb-0">Achievements</h5>
+          </Card.Header>
+          <Card.Body>
+            <Row>
+              {achievements.map((achievement, index) => (
+                <Col md={6} lg={4} key={index} className="mb-3">
+                  <Card className={`border-2 ${achievement.unlocked ? 'border-success' : 'border-secondary'}`}>
+                    <Card.Body className="text-center">
+                      <FaAward className={`fs-1 ${achievement.unlocked ? 'text-warning' : 'text-muted'}`} />
+                      <h6 className="mt-2">{achievement.name}</h6>
+                      <p className="small text-muted mb-0">{achievement.description}</p>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          </Card.Body>
+        </Card>
+      )}
+
+      {/* Election Type Breakdown */}
+      {statistics.election_type_breakdown && (
+        <Card className="shadow-sm border-0 mb-4">
+          <Card.Header className="bg-white border-0">
+            <h5 className="mb-0">Election Type Breakdown</h5>
+          </Card.Header>
+          <Card.Body>
+            <Row>
+              {Object.entries(statistics.election_type_breakdown).map(([type, count]) => (
+                <Col md={6} key={type} className="mb-2">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <span className="text-capitalize">{type}</span>
+                    <Badge bg="primary">{count} votes</Badge>
+                  </div>
+                  <ProgressBar 
+                    now={(count / statistics.total_votes) * 100} 
+                    className="mt-1"
+                    variant={type === 'general' ? 'success' : type === 'state' ? 'warning' : 'info'}
+                  />
+                </Col>
+              ))}
+            </Row>
+          </Card.Body>
+        </Card>
+      )}
+
+      {/* Detailed Voting History */}
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0">Vote Details</h5>
+        </Card.Header>
+        <Card.Body>
+          {votes && votes.length > 0 ? (
+            <ListGroup variant="flush">
+              {votes.map((vote, index) => (
+                <ListGroup.Item key={index} className="border-0">
+                  <Row className="align-items-center">
+                    <Col md={8}>
+                      <h6 className="mb-1">{vote.election_title}</h6>
+                      <p className="mb-1">
+                        <strong>Candidate:</strong> {vote.candidate_name} ({vote.party})
+                      </p>
+                      <small className="text-muted">
+                        <FaMapMarkerAlt className="me-1" />
+                        {vote.constituency} • 
+                        <FaClock className="me-1 ms-2" />
+                        {new Date(vote.vote_timestamp).toLocaleString()}
+                      </small>
+                    </Col>
+                    <Col md={4} className="text-end">
+                      <Badge bg="success">Voted</Badge>
+                    </Col>
+                  </Row>
+                </ListGroup.Item>
+              ))}
+            </ListGroup>
+          ) : (
+            <div className="text-center py-5">
+              <FaHistory className="text-muted fs-1 mb-3" />
+              <h5 className="text-muted">No Voting History Yet</h5>
+              <p className="text-muted mb-4">
+                Your voting history will appear here once you participate in elections.
+              </p>
+            </div>
+          )}
+        </Card.Body>
+      </Card>
+    </div>
   );
 };
 
-const EnhancedAnalytics = () => (
-  <Card className="shadow-sm border-0">
-    <Card.Header className="bg-white border-0">
-      <h5 className="mb-0 d-flex align-items-center">
-        <FaChartBar className="me-2 text-primary" />
-        Voting Analytics
-      </h5>
-    </Card.Header>
-    <Card.Body>
-      <Row>
-        <Col md={6}>
-          <Card className="border-0 bg-light">
-            <Card.Body>
-              <h6>Participation Rate</h6>
-              <ProgressBar now={75} variant="success" className="mb-2" />
-              <small className="text-muted">75% of eligible elections</small>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={6}>
-          <Card className="border-0 bg-light">
-            <Card.Body>
-              <h6>Constituency Ranking</h6>
-              <h4 className="text-primary">#12</h4>
-              <small className="text-muted">Out of 150 voters</small>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-    </Card.Body>
-  </Card>
-);
+// Enhanced Analytics Component
+const EnhancedAnalytics = ({ dashboardData, enhancedAnalytics, onLoadEnhanced }) => {
+  const [loading, setLoading] = useState(!enhancedAnalytics);
 
-const EnhancedSecurity = () => (
-  <Card className="shadow-sm border-0">
-    <Card.Header className="bg-white border-0">
-      <h5 className="mb-0 d-flex align-items-center">
-        <FaShieldAlt className="me-2 text-primary" />
-        Security Center
-      </h5>
-    </Card.Header>
-    <Card.Body>
-      <Row>
-        <Col md={6}>
-          <Card className="border-success border-2">
-            <Card.Body>
-              <h6 className="d-flex align-items-center">
-                <FaCheckCircle className="text-success me-2" />
-                Two-Factor Authentication
-              </h6>
-              <small className="text-muted">Enabled for extra security</small>
+  useEffect(() => {
+    if (!enhancedAnalytics) {
+      onLoadEnhanced();
+    }
+  }, [enhancedAnalytics, onLoadEnhanced]);
+
+  if (loading && !enhancedAnalytics) {
+    return (
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0 d-flex align-items-center">
+            <FaChartBar className="me-2 text-primary" />
+            Voting Analytics
+          </h5>
+        </Card.Header>
+        <Card.Body className="text-center py-5">
+          <Spinner animation="border" variant="primary" />
+          <p className="mt-2">Loading enhanced analytics...</p>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  if (!enhancedAnalytics) {
+    return (
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0 d-flex align-items-center">
+            <FaChartBar className="me-2 text-primary" />
+            Voting Analytics
+          </h5>
+        </Card.Header>
+        <Card.Body>
+          <Row>
+            <Col md={6}>
+              <Card className="border-0 bg-light">
+                <Card.Body>
+                  <h6>Participation Rate</h6>
+                  <ProgressBar now={75} variant="success" className="mb-2" />
+                  <small className="text-muted">75% of eligible elections</small>
+                </Card.Body>
+              </Card>
+            </Col>
+            <Col md={6}>
+              <Card className="border-0 bg-light">
+                <Card.Body>
+                  <h6>Constituency Ranking</h6>
+                  <h4 className="text-primary">#12</h4>
+                  <small className="text-muted">Out of 150 voters</small>
+                </Card.Body>
+              </Card>
+            </Col>
+          </Row>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  const { profile_analytics, voting_analytics, comparison_analytics, security_analytics } = enhancedAnalytics;
+
+  return (
+    <div>
+      <Row className="mb-4">
+        <Col md={3}>
+          <Card className="border-0 bg-primary text-white">
+            <Card.Body className="text-center">
+              <h4>{profile_analytics?.completion_score || 0}%</h4>
+              <p className="mb-0">Profile Score</p>
             </Card.Body>
           </Card>
         </Col>
-        <Col md={6}>
-          <Card className="border-warning border-2">
-            <Card.Body>
-              <h6 className="d-flex align-items-center">
-                <FaExclamationTriangle className="text-warning me-2" />
-                Session Management
-              </h6>
-              <small className="text-muted">3 active sessions</small>
+        <Col md={3}>
+          <Card className="border-0 bg-success text-white">
+            <Card.Body className="text-center">
+              <h4>{voting_analytics?.participation_rate || 0}%</h4>
+              <p className="mb-0">Participation</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="border-0 bg-warning text-white">
+            <Card.Body className="text-center">
+              <h4>{profile_analytics?.trust_level || 'N/A'}</h4>
+              <p className="mb-0">Trust Level</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="border-0 bg-info text-white">
+            <Card.Body className="text-center">
+              <h4>#{comparison_analytics?.constituency_ranking?.rank || 'N/A'}</h4>
+              <p className="mb-0">Ranking</p>
             </Card.Body>
           </Card>
         </Col>
       </Row>
-    </Card.Body>
-  </Card>
-);
+
+      <Row>
+        <Col lg={6}>
+          <Card className="shadow-sm border-0 mb-4">
+            <Card.Header className="bg-white border-0">
+              <h6 className="mb-0">Profile Analytics</h6>
+            </Card.Header>
+            <Card.Body>
+              <div className="mb-3">
+                <small className="text-muted">Verification Score</small>
+                <ProgressBar 
+                  now={profile_analytics?.verification_score || 0} 
+                  variant="success" 
+                  className="mt-1"
+                  label={`${profile_analytics?.verification_score || 0}%`}
+                />
+              </div>
+              <div className="mb-3">
+                <small className="text-muted">Activity Score</small>
+                <ProgressBar 
+                  now={profile_analytics?.activity_score || 0} 
+                  variant="info" 
+                  className="mt-1"
+                  label={`${profile_analytics?.activity_score || 0}%`}
+                />
+              </div>
+              <div>
+                <small className="text-muted">Trust Level: </small>
+                <Badge bg={
+                  profile_analytics?.trust_level === 'High' ? 'success' :
+                  profile_analytics?.trust_level === 'Medium' ? 'warning' : 'secondary'
+                }>
+                  {profile_analytics?.trust_level || 'N/A'}
+                </Badge>
+              </div>
+            </Card.Body>
+          </Card>
+
+          <Card className="shadow-sm border-0">
+            <Card.Header className="bg-white border-0">
+              <h6 className="mb-0">Security Analytics</h6>
+            </Card.Header>
+            <Card.Body>
+              <div className="mb-3">
+                <small className="text-muted">Account Health</small>
+                <ProgressBar 
+                  now={security_analytics?.account_health || 0} 
+                  variant="success" 
+                  className="mt-1"
+                  label={`${security_analytics?.account_health || 0}%`}
+                />
+              </div>
+              <div className="mb-3">
+                <small className="text-muted">Device Trust Score</small>
+                <ProgressBar 
+                  now={security_analytics?.device_trust_score || 0} 
+                  variant="info" 
+                  className="mt-1"
+                  label={`${security_analytics?.device_trust_score || 0}%`}
+                />
+              </div>
+            </Card.Body>
+          </Card>
+        </Col>
+
+        <Col lg={6}>
+          <Card className="shadow-sm border-0 mb-4">
+            <Card.Header className="bg-white border-0">
+              <h6 className="mb-0">Voting Patterns</h6>
+            </Card.Header>
+            <Card.Body>
+              {voting_analytics?.preferred_election_types && Object.entries(voting_analytics.preferred_election_types).map(([type, count]) => (
+                <div key={type} className="mb-2">
+                  <div className="d-flex justify-content-between">
+                    <span className="text-capitalize">{type}</span>
+                    <span className="fw-bold">{count}</span>
+                  </div>
+                  <ProgressBar 
+                    now={(count / voting_analytics.patterns?.total_elections) * 100} 
+                    variant={
+                      type === 'general' ? 'primary' :
+                      type === 'state' ? 'success' :
+                      type === 'local' ? 'warning' : 'info'
+                    }
+                    className="mt-1"
+                  />
+                </div>
+              ))}
+            </Card.Body>
+          </Card>
+
+          <Card className="shadow-sm border-0">
+            <Card.Header className="bg-white border-0">
+              <h6 className="mb-0">Comparison Analytics</h6>
+            </Card.Header>
+            <Card.Body>
+              {comparison_analytics?.age_group_comparison && (
+                <div className="mb-3">
+                  <h6>Age Group: {comparison_analytics.age_group_comparison.age_group}</h6>
+                  <div className="d-flex justify-content-between small text-muted">
+                    <span>Your Participation: {comparison_analytics.age_group_comparison.participation_rate}%</span>
+                    <span>Average: {comparison_analytics.age_group_comparison.average_votes} votes</span>
+                  </div>
+                </div>
+              )}
+              {comparison_analytics?.regional_comparison && (
+                <div>
+                  <h6>Region: {comparison_analytics.regional_comparison.region}</h6>
+                  <div className="d-flex justify-content-between small text-muted">
+                    <span>Regional Participation: {comparison_analytics.regional_comparison.regional_participation}%</span>
+                    <span>Average: {comparison_analytics.regional_comparison.regional_average} votes</span>
+                  </div>
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  );
+};
+
+// Enhanced Security Component
+const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
+  const [loading, setLoading] = useState(!enhancedSecurity);
+
+  useEffect(() => {
+    if (!enhancedSecurity) {
+      onLoadEnhanced();
+    }
+  }, [enhancedSecurity, onLoadEnhanced]);
+
+  if (loading && !enhancedSecurity) {
+    return (
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0 d-flex align-items-center">
+            <FaShieldAlt className="me-2 text-primary" />
+            Security Center
+          </h5>
+        </Card.Header>
+        <Card.Body className="text-center py-5">
+          <Spinner animation="border" variant="primary" />
+          <p className="mt-2">Loading security information...</p>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  if (!enhancedSecurity) {
+    return (
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0 d-flex align-items-center">
+            <FaShieldAlt className="me-2 text-primary" />
+            Security Center
+          </h5>
+        </Card.Header>
+        <Card.Body>
+          <Row>
+            <Col md={6}>
+              <Card className="border-success border-2">
+                <Card.Body>
+                  <h6 className="d-flex align-items-center">
+                    <FaCheckCircle className="text-success me-2" />
+                    Two-Factor Authentication
+                  </h6>
+                  <small className="text-muted">Enabled for extra security</small>
+                </Card.Body>
+              </Card>
+            </Col>
+            <Col md={6}>
+              <Card className="border-warning border-2">
+                <Card.Body>
+                  <h6 className="d-flex align-items-center">
+                    <FaExclamationTriangle className="text-warning me-2" />
+                    Session Management
+                  </h6>
+                  <small className="text-muted">3 active sessions</small>
+                </Card.Body>
+              </Card>
+            </Col>
+          </Row>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  const { account_security, session_security, device_security, privacy_settings } = enhancedSecurity;
+
+  return (
+    <div>
+      <Row className="mb-4">
+        <Col md={3}>
+          <Card className="border-0 bg-success text-white">
+            <Card.Body className="text-center">
+              <h4>{account_security?.verification_status ? Object.values(account_security.verification_status).filter(v => v).length : 0}/4</h4>
+              <p className="mb-0">Verifications</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="border-0 bg-primary text-white">
+            <Card.Body className="text-center">
+              <h4>{account_security?.two_factor_enabled ? 'ON' : 'OFF'}</h4>
+              <p className="mb-0">2FA Status</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="border-0 bg-warning text-white">
+            <Card.Body className="text-center">
+              <h4>{session_security?.active_sessions?.length || 0}</h4>
+              <p className="mb-0">Active Sessions</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="border-0 bg-info text-white">
+            <Card.Body className="text-center">
+              <h4>{device_security?.trusted_devices?.length || 0}</h4>
+              <p className="mb-0">Trusted Devices</p>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row>
+        <Col lg={6}>
+          <Card className="shadow-sm border-0 mb-4">
+            <Card.Header className="bg-white border-0">
+              <h6 className="mb-0">Account Security</h6>
+            </Card.Header>
+            <Card.Body>
+              {account_security?.verification_status && Object.entries(account_security.verification_status).map(([type, verified]) => (
+                <div key={type} className="d-flex justify-content-between align-items-center mb-2">
+                  <span className="text-capitalize">{type.replace('_', ' ')}</span>
+                  <Badge bg={verified ? 'success' : 'warning'}>
+                    {verified ? 'Verified' : 'Pending'}
+                  </Badge>
+                </div>
+              ))}
+              <hr />
+              <div className="d-flex justify-content-between align-items-center">
+                <span>Two-Factor Authentication</span>
+                <Badge bg={account_security?.two_factor_enabled ? 'success' : 'secondary'}>
+                  {account_security?.two_factor_enabled ? 'Enabled' : 'Disabled'}
+                </Badge>
+              </div>
+              <div className="d-flex justify-content-between align-items-center mt-2">
+                <span>Password Strength</span>
+                <Badge bg={
+                  account_security?.password_strength === 'Strong' ? 'success' :
+                  account_security?.password_strength === 'Medium' ? 'warning' : 'danger'
+                }>
+                  {account_security?.password_strength || 'Unknown'}
+                </Badge>
+              </div>
+            </Card.Body>
+          </Card>
+
+          <Card className="shadow-sm border-0">
+            <Card.Header className="bg-white border-0">
+              <h6 className="mb-0">Privacy Settings</h6>
+            </Card.Header>
+            <Card.Body>
+              {privacy_settings && Object.entries(privacy_settings).map(([category, settings]) => (
+                <div key={category} className="mb-3">
+                  <h6 className="text-capitalize">{category.replace(/_/g, ' ')}</h6>
+                  {typeof settings === 'object' ? (
+                    Object.entries(settings).map(([key, value]) => (
+                      <div key={key} className="d-flex justify-content-between align-items-center mb-1">
+                        <small className="text-capitalize">{key.replace(/_/g, ' ')}</small>
+                        <Badge bg={value ? 'success' : 'secondary'}>
+                          {value ? 'Enabled' : 'Disabled'}
+                        </Badge>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="d-flex justify-content-between align-items-center">
+                      <small>Setting</small>
+                      <Badge bg={settings ? 'success' : 'secondary'}>
+                        {settings ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </Card.Body>
+          </Card>
+        </Col>
+
+        <Col lg={6}>
+          <Card className="shadow-sm border-0 mb-4">
+            <Card.Header className="bg-white border-0">
+              <h6 className="mb-0">Session Security</h6>
+            </Card.Header>
+            <Card.Body>
+              <div className="mb-3">
+                <h6>Active Sessions</h6>
+                {session_security?.active_sessions?.map((session, index) => (
+                  <div key={index} className="border rounded p-2 mb-2">
+                    <div className="d-flex justify-content-between">
+                      <strong>{session.device}</strong>
+                      <Badge bg="success">Active</Badge>
+                    </div>
+                    <small className="text-muted d-block">{session.ip_address}</small>
+                    <small className="text-muted">Last active: {new Date(session.last_active).toLocaleString()}</small>
+                  </div>
+                ))}
+              </div>
+              {session_security?.suspicious_activities && session_security.suspicious_activities.length > 0 && (
+                <div className="alert alert-warning">
+                  <FaExclamationTriangle className="me-2" />
+                  {session_security.suspicious_activities.length} suspicious activities detected
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+
+          <Card className="shadow-sm border-0">
+            <Card.Header className="bg-white border-0">
+              <h6 className="mb-0">Device Security</h6>
+            </Card.Header>
+            <Card.Body>
+              <div className="mb-3">
+                <h6>Trusted Devices</h6>
+                {device_security?.trusted_devices?.map((device, index) => (
+                  <div key={index} className="border rounded p-2 mb-2">
+                    <div className="d-flex justify-content-between">
+                      <strong>{device.device_name}</strong>
+                      <Badge bg={device.is_trusted ? 'success' : 'warning'}>
+                        {device.is_trusted ? 'Trusted' : 'Pending'}
+                      </Badge>
+                    </div>
+                    <small className="text-muted d-block">{device.browser} on {device.os}</small>
+                    <small className="text-muted">Last used: {new Date(device.last_used).toLocaleDateString()}</small>
+                  </div>
+                ))}
+              </div>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  );
+};
 
 const EnhancedSettings = () => (
   <div>
