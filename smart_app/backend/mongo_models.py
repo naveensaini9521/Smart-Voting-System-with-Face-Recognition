@@ -983,19 +983,35 @@ class ElectionResult(MongoBase):
     collection_name = "election_results"
     
     @classmethod
-    def create_result(cls, election_id, results_data, calculated_at=None):
-        """Store election results"""
+    def find_by_election(cls, election_id):
+        """Find results for an election"""
+        return cls.find_one({
+            "election_id": election_id
+        }, sort=[("calculated_at", -1)])
+    
+    @classmethod
+    def create_or_update_result(cls, election_id, results_data):
+        """Create or update election results"""
+        existing = cls.find_by_election(election_id)
+        
         result_data = {
             "result_id": str(uuid.uuid4()),
             "election_id": election_id,
             "results_data": results_data,
-            "calculated_at": calculated_at or datetime.utcnow(),
-            "is_final": False,
-            "total_votes": sum(candidate['votes'] for candidate in results_data.get('candidates', [])),
+            "calculated_at": datetime.utcnow(),
+            "is_final": results_data.get('is_final', False),
+            "total_votes": results_data.get('total_votes', 0),
             "voter_turnout": results_data.get('voter_turnout', 0)
         }
         
-        return cls.create(result_data)
+        if existing:
+            return cls.update_one(
+                {"_id": existing['_id']},
+                result_data
+            )
+        else:
+            result_data["result_id"] = str(uuid.uuid4())
+            return cls.create(result_data)
 
 # Helper functions
 def generate_voter_id():

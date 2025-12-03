@@ -4,6 +4,7 @@ from flask_jwt_extended import JWTManager
 import os
 from dotenv import load_dotenv
 from config import config_map 
+from flask_socketio import SocketIO
 from smart_app.backend.extensions import mongo, jwt, mail, bcrypt, socketio
 from smart_app.backend.create_mongo_collections import create_collections
 
@@ -18,6 +19,7 @@ from smart_app.backend.routes.stats import stats_bp
 from smart_app.backend.routes.home import home_bp  
 from smart_app.backend.routes.test_mongodb import mongodb_bp 
 from smart_app.backend.routes.dashboard import dashboard_bp
+from smart_app.backend.routes.elections import election_bp
 
 # Import Socket.IO event handlers
 from smart_app.backend.socket_events import register_socket_events
@@ -60,9 +62,10 @@ def create_app():
     socketio.init_app(
     app, 
     cors_allowed_origins="*",
-    async_mode="eventlet",
-    logger=False,
-    engineio_logger=False,
+    async_mode="threading",
+    logger=True,
+    engineio_logger=True,
+    transports=['polling', 'websocket'],  # Explicitly define allowed transports
     ping_timeout=60,
     ping_interval=25,
     max_http_buffer_size=1e8,
@@ -84,6 +87,7 @@ def create_app():
     app.register_blueprint(stats_bp, url_prefix="/api")
     app.register_blueprint(home_bp, url_prefix="/api/home")
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+    app.register_blueprint(election_bp, url_prefix='/api/election')
     app.register_blueprint(mongodb_bp, url_prefix="/api/mongodb")
 
     # Register React frontend last
@@ -114,11 +118,43 @@ def create_app():
             'status': 'success',
             'connected_clients': len(getattr(socketio, 'connected_clients', {}))
         })
+    
+    # In app.py - add these routes for Socket.IO debugging
 
+    @app.route('/api/socket-debug')
+    def socket_debug():
+        """Debug Socket.IO connection issues"""
+        return jsonify({
+            'server_info': {
+                'flask_env': app.config.get('ENV', 'unknown'),
+                'debug': app.config.get('DEBUG', False),
+                'socketio_async_mode': getattr(socketio, 'async_mode', 'unknown'),
+            },
+            'client_advice': {
+                'recommended_transports': ['polling', 'websocket'],
+                'connection_url': f'ws://{request.host}/socket.io/',
+                'api_base': f'http://{request.host}/api/'
+            }
+        })
+
+    @app.route('/api/websocket-test')
+    def websocket_test():
+        """Test if WebSocket connections are working"""
+        return jsonify({
+            'message': 'WebSocket test endpoint',
+            'timestamp': datetime.utcnow().isoformat(),
+            'server_time': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        })
     # Create tables
     with app.app_context():
-        create_collections(app)
-        collections = mongo.db.list_collection_names()
-        print(f"Available collections: {collections}")
-
+        try:
+            create_collections(app)
+            # Test MongoDB connection
+            mongo.db.command('ping')
+            collections = mongo.db.list_collection_names()
+            print(f"MongoDB connected. Available collections: {collections}")
+        except Exception as e:
+            print(f"MongoDB connection issue: {str(e)}")
+            print("Continuing without MongoDB collections - some features may not work")
+        
     return app, socketio
