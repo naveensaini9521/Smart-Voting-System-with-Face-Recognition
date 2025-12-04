@@ -15,6 +15,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { voterAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 import { 
   FaVoteYea, 
   FaUserTie, 
@@ -52,12 +53,66 @@ const VotingPage = () => {
   const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => {
+    if (!electionId) {
+      setError('Election ID is missing');
+      setLoading(false);
+      return;
+    }
+    
     if (!isAuthenticated) {
       navigate('/login');
       return;
     }
-    startVotingSession();
+    
+    // Check if we already have a valid session
+    const checkExistingSession = async () => {
+      try {
+        const existingSession = voterAPI.getCachedVotingSession(electionId);
+        if (existingSession) {
+          console.log('🔄 Using existing voting session');
+          setVotingSession(existingSession);
+          await loadElectionData();
+        } else {
+          await startVotingSession();
+        }
+      } catch (error) {
+        console.log('🔄 No valid session found, starting new one');
+        await startVotingSession();
+      }
+    };
+    
+    checkExistingSession();
   }, [electionId, isAuthenticated, navigate]);
+
+  // Add session refresh on user activity
+  useEffect(() => {
+    const refreshSession = () => {
+      if (votingSession && electionId) {
+        console.log('🔄 Refreshing voting session on user activity');
+        // Extend session in localStorage
+        const sessionData = voterAPI.getCachedVotingSession(electionId);
+        if (sessionData) {
+          const newExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+          sessionData.expires = newExpires.toISOString();
+          localStorage.setItem(`voting_session_${electionId}`, JSON.stringify(sessionData));
+          setVotingSession(sessionData);
+        }
+      }
+    };
+
+    // Refresh every 5 minutes
+    const refreshInterval = setInterval(refreshSession, 5 * 60 * 1000);
+
+    // Also refresh on user interactions
+    window.addEventListener('click', refreshSession);
+    window.addEventListener('keypress', refreshSession);
+
+    return () => {
+      clearInterval(refreshInterval);
+      window.removeEventListener('click', refreshSession);
+      window.removeEventListener('keypress', refreshSession);
+    };
+  }, [votingSession, electionId]);
 
   const startVotingSession = async () => {
     try {
@@ -140,6 +195,14 @@ const VotingPage = () => {
       return;
     }
     
+    // Verify session is still active before allowing selection
+    const sessionData = voterAPI.getCachedVotingSession(electionId);
+    if (!sessionData) {
+      setError('Voting session has expired. Please restart voting.');
+      setSessionExpired(true);
+      return;
+    }
+    
     setSelectedCandidate(candidate);
     setShowConfirmModal(true);
   };
@@ -152,47 +215,74 @@ const VotingPage = () => {
     
     try {
       console.log('🗳️ Submitting vote for candidate:', selectedCandidate.candidate_id);
+      console.log('📋 Vote details:', {
+        electionId,
+        candidateId: selectedCandidate.candidate_id,
+        candidateName: selectedCandidate.full_name
+      });
+      
+      // Verify session is still valid before casting vote
+      const sessionData = voterAPI.getCachedVotingSession(electionId);
+      if (!sessionData) {
+        throw new Error('No active voting session found. Please restart voting.');
+      }
       
       const response = await voterAPI.castVote(
         electionId,
         selectedCandidate.candidate_id
       );
 
-      console.log('Vote response:', response);
+      console.log('📨 Vote response:', response);
 
       if (response.success) {
+        console.log('✅ Vote cast successfully!');
         setVoteDetails({
           candidateName: selectedCandidate.full_name,
           candidateParty: selectedCandidate.party,
           electionTitle: election.title,
           voteId: response.vote_id,
           timestamp: response.vote_timestamp,
-          confirmationNumber: response.confirmation_number,
-          candidateName: response.candidate_name,
-          candidateParty: response.candidate_party,
-          electionTitle: response.election_title
+          confirmationNumber: response.confirmation_number
         });
         setShowConfirmModal(false);
         setShowSuccessModal(true);
         setSuccess('Vote cast successfully!');
         setHasVoted(true);
         
-        // Update local storage or context to reflect the vote
+        // Update local storage to reflect the vote
         localStorage.setItem(`voted_${electionId}`, 'true');
+        
+        // Clear the voting session after successful vote
+        voterAPI.clearVotingSession(electionId);
       } else {
+        console.error('❌ Vote failed:', response.message);
         setError(response.message || 'Failed to cast vote');
       }
     } catch (err) {
-      console.error('Vote submission error:', err);
-      const errorMsg = err.response?.data?.message || err.message || 'Failed to cast vote';
-      setError(errorMsg);
+      console.error('💥 Vote submission error:', err);
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
+      
+      let errorMsg = 'Failed to cast vote';
+      
+      if (err.response?.data) {
+        errorMsg = err.response.data.message || errorMsg;
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
       
       // Handle specific error cases
       if (errorMsg.includes('already voted')) {
         setHasVoted(true);
-      }
-      if (errorMsg.includes('session') || errorMsg.includes('expired')) {
+        setError('You have already voted in this election.');
+      } else if (errorMsg.includes('session') || errorMsg.includes('expired')) {
         setSessionExpired(true);
+        setError('Voting session has expired. Please restart the voting process.');
+      } else {
+        setError(errorMsg);
       }
     } finally {
       setSubmitting(false);
@@ -207,10 +297,11 @@ const VotingPage = () => {
     navigate(`/results/${electionId}`);
   };
 
-  const handleRetrySession = () => {
+  const handleRetrySession = async () => {
     setError('');
     setSessionExpired(false);
-    startVotingSession();
+    setSelectedCandidate(null);
+    await startVotingSession();
   };
 
   const handleViewElectionDetails = () => {
@@ -234,6 +325,22 @@ const VotingPage = () => {
     if (diffDays > 0) return `${diffDays}d ${diffHours}h ${diffMinutes}m remaining`;
     if (diffHours > 0) return `${diffHours}h ${diffMinutes}m remaining`;
     return `${diffMinutes}m remaining`;
+  };
+
+  // Calculate time remaining for voting session
+  const getSessionTimeRemaining = () => {
+    if (!votingSession?.session_expires) return '';
+    
+    const expiresAt = new Date(votingSession.session_expires);
+    const now = new Date();
+    const diffMs = expiresAt - now;
+    
+    if (diffMs <= 0) return 'Session expired';
+    
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffSeconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+    
+    return `${diffMinutes}m ${diffSeconds}s remaining`;
   };
 
   // Get election progress
@@ -411,7 +518,8 @@ const VotingPage = () => {
           <div className="flex-grow-1">
             <strong>Secure Voting Session Active</strong>
             <div className="small">
-              Session expires: {new Date(votingSession.session_expires).toLocaleTimeString()}
+              Session expires: {new Date(votingSession.session_expires).toLocaleTimeString()} 
+              ({getSessionTimeRemaining()})
             </div>
           </div>
           <Badge bg="success">Live</Badge>
