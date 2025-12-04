@@ -706,9 +706,42 @@ const handleLoadEnhancedSecurity = async () => {
   };
 
   // Function to handle viewing results
-  const handleViewResults = (election) => {
-    navigate(`/results/${election.election_id}`);
-  };
+  const handleViewResults = async (election) => {
+  try {
+    console.log(`Viewing results for election: ${election.election_id}`);
+    setLoading(true);
+    setError('');
+    
+    const response = await voterAPI.getElectionResults(election.election_id);
+    console.log('Results response:', response);
+    
+    if (response.success) {
+      // Navigate to results page with data
+      navigate(`/results/${election.election_id}`, {
+        state: {
+          results: response.results,
+          election: response.election,
+          accessInfo: response.access_info
+        }
+      });
+    } else {
+      setError(response.message || 'Failed to load results');
+      
+      // If access denied but election is completed, show a helpful message
+      if (response.reason) {
+        setError(`${response.message} (${response.reason})`);
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error viewing results:', error);
+    const errorMsg = error.response?.data?.message || 
+                    error.message || 
+                    'Failed to load election results';
+    setError(errorMsg);
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Function to check if results are available
   const areResultsAvailable = (election) => {
@@ -1503,6 +1536,8 @@ const EnhancedOverview = ({
               </div>
             </Card.Header>
             <Card.Body>
+              
+              
               {dashboardData?.election_info?.active_elections?.length > 0 ? (
                 <Row>
                   {dashboardData.election_info.active_elections.slice(0, 4).map(election => (
