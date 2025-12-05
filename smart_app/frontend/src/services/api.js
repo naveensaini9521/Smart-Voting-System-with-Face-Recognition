@@ -1198,7 +1198,9 @@ export const adminAPI = {
 
   // Verify admin token
   verifyToken: async () => {
-    const response = await api.get('/admin/auth/verify-token');
+    const response = await api.get('/admin/verify-token', {
+      headers: getAuthHeader()
+    });
     return response.data;
   },
 

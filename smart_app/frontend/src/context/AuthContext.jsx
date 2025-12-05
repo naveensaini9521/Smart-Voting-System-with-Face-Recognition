@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { voterAPI, adminAPI } from '../services/api.js';
 
 // Auth context
@@ -72,7 +72,7 @@ const authReducer = (state, action) => {
         userType: null,
         isAuthenticated: false,
         loading: false,
-        error: null
+        error: action.payload || null
       };
 
     case AUTH_ACTIONS.LOGIN_START:
@@ -158,84 +158,49 @@ const authReducer = (state, action) => {
 export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
-  // Check for existing authentication on app start
-  useEffect(() => {
-    initializeAuth();
+  // Clear all authentication data
+  const clearAllAuthData = useCallback(() => {
+    console.log('🧹 Clearing all authentication data');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('voterData');
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminData');
+    localStorage.removeItem('isAdminAuthenticated');
   }, []);
 
-  const initializeAuth = async () => {
-    try {
-      console.log('🔐 Initializing authentication...');
-      dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
-      
-      // Check which type of user is authenticated
-      await checkExistingAuth();
-    } catch (error) {
-      console.error('Auth initialization error:', error);
-    } finally {
-      dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
-    }
-  };
+  // Clear voter authentication data only
+  const clearVoterAuthData = useCallback(() => {
+    console.log('🧹 Clearing voter authentication data');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('voterData');
+    localStorage.removeItem('isAuthenticated');
+  }, []);
+
+  // Clear admin authentication data only
+  const clearAdminAuthData = useCallback(() => {
+    console.log('🧹 Clearing admin authentication data');
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminData');
+    localStorage.removeItem('isAdminAuthenticated');
+  }, []);
 
   // Check existing authentication (both voter and admin)
-  const checkExistingAuth = async () => {
+  const checkExistingAuth = useCallback(async () => {
     try {
       dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_START });
 
       console.log('🔍 Checking for existing authentication...');
 
-      // Check voter auth first (priority)
-      const voterToken = localStorage.getItem('authToken');
-      const voterData = localStorage.getItem('voterData');
-      const isVoterAuthenticated = localStorage.getItem('isAuthenticated');
-
-      console.log('📝 Voter auth check:', { 
-        hasToken: !!voterToken, 
-        hasData: !!voterData, 
-        isAuthenticated: isVoterAuthenticated 
-      });
-
-      if (voterToken && voterData && isVoterAuthenticated === 'true') {
-        try {
-          console.log('🔑 Attempting voter token verification...');
-          const response = await voterAPI.verifyToken();
-          console.log('✅ Voter token verification response:', response);
-          
-          if (response.success) {
-            const user = JSON.parse(voterData);
-            dispatch({
-              type: AUTH_ACTIONS.CHECK_AUTH_SUCCESS,
-              payload: { 
-                user, 
-                token: voterToken,
-                userType: 'voter'
-              }
-            });
-            console.log('🎉 Voter auth verified successfully');
-            return;
-          } else {
-            console.log('❌ Voter token verification failed:', response.message);
-          }
-        } catch (error) {
-          console.log('❌ Voter token verification error:', error);
-          // Even if verification fails, if we have local data, use it
-          if (voterData) {
-            console.log('📋 Using local voter data despite verification error');
-            const user = JSON.parse(voterData);
-            dispatch({
-              type: AUTH_ACTIONS.CHECK_AUTH_SUCCESS,
-              payload: { 
-                user, 
-                token: voterToken,
-                userType: 'voter'
-              }
-            });
-            return;
-          }
-        }
+      // Skip auth check on login pages to prevent infinite redirects
+      const currentPath = window.location.pathname;
+      if (currentPath.includes('/login') || currentPath.includes('/admin/login')) {
+        console.log('🛑 Skipping auth check on login page');
+        dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_FAILURE, payload: 'On login page' });
+        return;
       }
 
-      // Check admin auth if voter auth fails
+      // Check admin auth first (since admin overrides voter)
       const adminToken = localStorage.getItem('adminToken');
       const adminData = localStorage.getItem('adminData');
       const isAdminAuthenticated = localStorage.getItem('isAdminAuthenticated');
@@ -266,12 +231,13 @@ export const AuthProvider = ({ children }) => {
             return;
           } else {
             console.log('❌ Admin token verification failed:', response.message);
+            clearAdminAuthData();
           }
         } catch (error) {
           console.log('❌ Admin token verification error:', error);
-          // Even if verification fails, if we have local data, use it
+          // If verification fails, use local data for now but schedule a refresh
           if (adminData) {
-            console.log('📋 Using local admin data despite verification error');
+            console.log('📋 Using cached admin data (verification failed)');
             const user = JSON.parse(adminData);
             dispatch({
               type: AUTH_ACTIONS.CHECK_AUTH_SUCCESS,
@@ -283,46 +249,92 @@ export const AuthProvider = ({ children }) => {
             });
             return;
           }
+          clearAdminAuthData();
+        }
+      }
+
+      // Check voter auth if no admin auth
+      const voterToken = localStorage.getItem('authToken');
+      const voterData = localStorage.getItem('voterData');
+      const isVoterAuthenticated = localStorage.getItem('isAuthenticated');
+
+      console.log('📝 Voter auth check:', { 
+        hasToken: !!voterToken, 
+        hasData: !!voterData, 
+        isAuthenticated: isVoterAuthenticated 
+      });
+
+      if (voterToken && voterData && isVoterAuthenticated === 'true') {
+        try {
+          console.log('🔑 Attempting voter token verification...');
+          const response = await voterAPI.verifyToken();
+          console.log('✅ Voter token verification response:', response);
+          
+          if (response.success) {
+            const user = JSON.parse(voterData);
+            dispatch({
+              type: AUTH_ACTIONS.CHECK_AUTH_SUCCESS,
+              payload: { 
+                user, 
+                token: voterToken,
+                userType: 'voter'
+              }
+            });
+            console.log('🎉 Voter auth verified successfully');
+            return;
+          } else {
+            console.log('❌ Voter token verification failed:', response.message);
+            clearVoterAuthData();
+          }
+        } catch (error) {
+          console.log('❌ Voter token verification error:', error);
+          // If verification fails, use local data for now
+          if (voterData) {
+            console.log('📋 Using cached voter data (verification failed)');
+            const user = JSON.parse(voterData);
+            dispatch({
+              type: AUTH_ACTIONS.CHECK_AUTH_SUCCESS,
+              payload: { 
+                user, 
+                token: voterToken,
+                userType: 'voter'
+              }
+            });
+            return;
+          }
+          clearVoterAuthData();
         }
       }
 
       // If no valid auth found
       console.log('🚫 No valid authentication found');
+      clearAllAuthData();
       dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_FAILURE });
       
     } catch (error) {
       console.error('❌ Error checking existing auth:', error);
       clearAllAuthData();
-      dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_FAILURE });
+      dispatch({ type: AUTH_ACTIONS.CHECK_AUTH_FAILURE, payload: error.message });
     }
-  };
+  }, [clearAdminAuthData, clearVoterAuthData, clearAllAuthData]);
 
-  // Clear all authentication data
-  const clearAllAuthData = () => {
-    console.log('🧹 Clearing all authentication data');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('voterData');
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('adminData');
-    localStorage.removeItem('isAdminAuthenticated');
-  };
+  // Check for existing authentication on app start
+  useEffect(() => {
+    const initializeAuth = async () => {
+      try {
+        console.log('🔐 Initializing authentication...');
+        dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
+        
+        await checkExistingAuth();
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+      } finally {
+        dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
+      }
+    };
 
-  // Clear voter authentication data only
-  const clearVoterAuthData = () => {
-    console.log('🧹 Clearing voter authentication data');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('voterData');
-    localStorage.removeItem('isAuthenticated');
-  };
-
-  // Clear admin authentication data only
-  const clearAdminAuthData = () => {
-    console.log('🧹 Clearing admin authentication data');
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('adminData');
-    localStorage.removeItem('isAdminAuthenticated');
-  };
+    initializeAuth();
+  }, [checkExistingAuth]);
 
   // Voter authentication functions
 
@@ -499,7 +511,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Direct admin login with token and admin data
+  // Direct admin login with token and admin data (for API login callback)
   const directAdminLogin = (token, adminData) => {
     console.log('🔑 Direct admin login with token for admin:', adminData?.username);
     
@@ -588,23 +600,31 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Check if current user is admin
-  const isAdmin = () => {
-    const adminStatus = state.userType === 'admin' || state.user?.role === 'admin';
-    console.log('👑 isAdmin check:', adminStatus, { userType: state.userType, role: state.user?.role });
+  const isAdmin = useCallback(() => {
+    const adminStatus = state.userType === 'admin';
+    console.log('👑 isAdmin check:', adminStatus, { userType: state.userType });
     return adminStatus;
-  };
+  }, [state.userType]);
+
+  // Check if current user is admin authenticated
+  const isAdminAuthenticated = useCallback(() => {
+    return state.isAuthenticated && state.userType === 'admin';
+  }, [state.isAuthenticated, state.userType]);
+
+  // Check if current user is voter authenticated
+  const isVoterAuthenticated = useCallback(() => {
+    return state.isAuthenticated && state.userType === 'voter';
+  }, [state.isAuthenticated, state.userType]);
 
   // Check if current user is superadmin
-  const isSuperAdmin = () => {
+  const isSuperAdmin = useCallback(() => {
     return state.user?.role === 'superadmin';
-  };
+  }, [state.user]);
 
   // Check if current user has admin privileges
-  const isAdminUser = () => {
-    return state.userType === 'admin' || 
-           state.user?.role === 'admin' || 
-           state.user?.role === 'superadmin';
-  };
+  const isAdminUser = useCallback(() => {
+    return state.userType === 'admin';
+  }, [state.userType]);
 
   // Check authentication status (force refresh)
   const checkAuthStatus = async () => {
@@ -633,12 +653,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Check if user can access admin features
-  const canAccessAdmin = () => {
+  const canAccessAdmin = useCallback(() => {
     return state.userType === 'admin' && state.user?.is_active !== false;
-  };
+  }, [state.userType, state.user]);
 
   // Check specific admin permissions
-  const hasAdminPermission = (permission) => {
+  const hasAdminPermission = useCallback((permission) => {
     if (state.userType !== 'admin') return false;
     
     // Superadmin has all permissions
@@ -646,18 +666,18 @@ export const AuthProvider = ({ children }) => {
     
     // Check specific permissions
     return state.user?.permissions?.[permission] === true;
-  };
+  }, [state.userType, state.user]);
 
   // Get user role for display in header
-  const getUserRole = () => {
+  const getUserRole = useCallback(() => {
     if (state.userType === 'admin') {
       return state.user?.role || 'admin';
     }
     return 'voter';
-  };
+  }, [state.userType, state.user]);
 
   // Get user display name for header
-  const getUserDisplayName = () => {
+  const getUserDisplayName = useCallback(() => {
     if (!state.user) return null;
     
     if (state.userType === 'admin') {
@@ -665,10 +685,10 @@ export const AuthProvider = ({ children }) => {
     } else {
       return state.user?.full_name || state.user?.voter_id || 'Voter';
     }
-  };
+  }, [state.user, state.userType]);
 
   // Get user ID for header
-  const getUserId = () => {
+  const getUserId = useCallback(() => {
     if (!state.user) return null;
     
     if (state.userType === 'admin') {
@@ -676,7 +696,7 @@ export const AuthProvider = ({ children }) => {
     } else {
       return state.user?.voter_id || 'Voter';
     }
-  };
+  }, [state.user, state.userType]);
 
   // Debug function to log current auth state
   const debugAuthState = () => {
@@ -703,9 +723,11 @@ export const AuthProvider = ({ children }) => {
     loading: state.loading,
     error: state.error,
     
-    // Additional derived state
+    // Additional derived state - IMPORTANT: Added isAdminAuthenticated
     userType: state.userType,
     isAdmin: isAdmin(),
+    isAdminAuthenticated: isAdminAuthenticated(),
+    isVoterAuthenticated: isVoterAuthenticated(),
     isSuperAdmin: isSuperAdmin(),
     isAdminUser: isAdminUser(),
     

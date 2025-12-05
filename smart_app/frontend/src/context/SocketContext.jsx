@@ -14,7 +14,7 @@ export const useSocket = () => {
 };
 
 export const SocketProvider = ({ children }) => {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, userType } = useAuth(); // Add userType to useAuth
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
@@ -24,29 +24,49 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (isAuthenticated && user && !socket) {
-      console.log('🔌 Initializing global Socket.IO connection...');
+      console.log(`🔌 Initializing global Socket.IO connection for ${userType}...`);
+      
+      // Prepare connection parameters based on user type
+      let queryParams = {
+        timestamp: Date.now()
+      };
+      
+      if (userType === 'voter') {
+        queryParams = {
+          ...queryParams,
+          voter_id: user.voter_id,
+          user_type: 'voter',
+          email: user.email
+        };
+      } else if (userType === 'admin') {
+        queryParams = {
+          ...queryParams,
+          admin_id: user.admin_id,
+          user_type: 'admin',
+          username: user.username,
+          role: user.role
+        };
+      }
       
       const newSocket = io(SOCKET_URL, {
         path: '/socket.io',
         transports: ['polling'],
         upgrade: false,
-        query: {
-          voter_id: user.voter_id,
-          user_type: 'voter',
-          timestamp: Date.now()
-        },
+        query: queryParams,
         timeout: 10000,
         reconnection: true,
-        reconnectionAttempts: 5
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000
       });
 
       newSocket.on('connect', () => {
-        console.log('✅ Global Socket.IO connected');
+        console.log(`✅ Global Socket.IO connected for ${userType}: ${userType === 'voter' ? user.voter_id : user.admin_id}`);
         setIsConnected(true);
       });
 
-      newSocket.on('disconnect', () => {
-        console.log('❌ Global Socket.IO disconnected');
+      newSocket.on('disconnect', (reason) => {
+        console.log(`❌ Global Socket.IO disconnected: ${reason}`);
         setIsConnected(false);
       });
 
@@ -62,7 +82,7 @@ export const SocketProvider = ({ children }) => {
       setSocket(null);
       setIsConnected(false);
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, userType]);
 
   const value = {
     socket,

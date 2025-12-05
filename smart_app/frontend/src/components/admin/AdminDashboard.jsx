@@ -38,7 +38,9 @@ import {
   FaUpload,
   FaImage,
   FaLandmark,
-  FaUserTie
+  FaUserTie,
+  FaBullhorn, // Replaced FaBroadcast with FaBullhorn
+  FaSave
 } from 'react-icons/fa';
 
 const AdminDashboard = () => {
@@ -59,6 +61,7 @@ const AdminDashboard = () => {
   const [showElectionDetailModal, setShowElectionDetailModal] = useState(false);
   const [showEditElectionModal, setShowEditElectionModal] = useState(false);
   const [showEditCandidateModal, setShowEditCandidateModal] = useState(false);
+  const [showVoterDetailModal, setShowVoterDetailModal] = useState(false);
   
   // Form states
   const [electionForm, setElectionForm] = useState({
@@ -72,12 +75,12 @@ const AdminDashboard = () => {
     voting_end: '',
     registration_start: '',
     registration_end: '',
-    max_candidates: 1,
+    max_candidates: 10,
     require_face_verification: true,
     election_logo: null,
     election_banner: null,
     election_rules: '',
-    results_visibility: 'after_voting',
+    results_visibility: 'after_end',
     minimum_voter_age: 18,
     allowed_voter_groups: ['all'],
     is_featured: false
@@ -103,8 +106,24 @@ const AdminDashboard = () => {
   });
 
   const [selectedElection, setSelectedElection] = useState(null);
+  const [selectedVoter, setSelectedVoter] = useState(null);
   const [editingElection, setEditingElection] = useState(null);
   const [editingCandidate, setEditingCandidate] = useState(null);
+
+  // Settings state
+  const [settings, setSettings] = useState({
+    system_name: 'Smart Voting System',
+    voter_registration_open: true,
+    require_face_verification: true,
+    results_visibility: 'after_end',
+    email_notifications: true,
+    sms_notifications: true,
+    maintenance_mode: false,
+    max_file_size: 16,
+    auto_verify_voters: false
+  });
+
+  const [broadcastMessage, setBroadcastMessage] = useState('');
 
   // Pagination states
   const [pagination, setPagination] = useState({
@@ -127,6 +146,8 @@ const AdminDashboard = () => {
       loadAuditLogs();
     } else if (activeTab === 'candidates') {
       loadCandidates();
+    } else if (activeTab === 'settings') {
+      loadSettings();
     }
   }, [activeTab]);
 
@@ -242,6 +263,19 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadSettings = async () => {
+    try {
+      const response = await adminAPI.getSystemSettings();
+      if (response.success) {
+        setSettings(response.settings);
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      setError('Failed to load settings');
+    }
+  };
+
+  // ========== ELECTION HANDLERS ==========
   const handleCreateElection = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -250,20 +284,16 @@ const AdminDashboard = () => {
     try {
       const formData = new FormData();
       
-      // Append all election form fields to FormData
       Object.keys(electionForm).forEach(key => {
         if (key === 'election_logo' || key === 'election_banner') {
           if (electionForm[key]) {
             formData.append(key, electionForm[key]);
           }
         } else if (key === 'allowed_voter_groups') {
-          // Handle array fields
           formData.append(key, JSON.stringify(electionForm[key]));
         } else if (key === 'require_face_verification' || key === 'is_featured') {
-          // Handle boolean fields
           formData.append(key, electionForm[key].toString());
         } else {
-          // Handle regular fields
           formData.append(key, electionForm[key] || '');
         }
       });
@@ -277,7 +307,6 @@ const AdminDashboard = () => {
         setSuccess(`Election created successfully! Status: ${response.status_message}`);
         setShowElectionModal(false);
         
-        // Reset form
         setElectionForm({
           title: '',
           description: '',
@@ -312,6 +341,141 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleEditElection = async (election) => {
+    setLoading(true);
+    try {
+      const response = await adminAPI.getElectionForEdit(election.election_id);
+      if (response.success) {
+        const electionData = response.election;
+        
+        const formatDateForInput = (dateString) => {
+          if (!dateString) return '';
+          const date = new Date(dateString);
+          return date.toISOString().slice(0, 16);
+        };
+        
+        setEditingElection(electionData);
+        setElectionForm({
+          title: electionData.title || '',
+          description: electionData.description || '',
+          election_type: electionData.election_type || 'national',
+          constituency: electionData.constituency || '',
+          district: electionData.district || '',
+          state: electionData.state || '',
+          voting_start: formatDateForInput(electionData.voting_start),
+          voting_end: formatDateForInput(electionData.voting_end),
+          registration_start: formatDateForInput(electionData.registration_start),
+          registration_end: formatDateForInput(electionData.registration_end),
+          max_candidates: electionData.max_candidates || 10,
+          require_face_verification: electionData.require_face_verification !== false,
+          election_logo: null,
+          election_banner: null,
+          election_rules: electionData.election_rules || '',
+          results_visibility: electionData.results_visibility || 'after_end',
+          minimum_voter_age: electionData.minimum_voter_age || 18,
+          allowed_voter_groups: electionData.allowed_voter_groups || ['all'],
+          is_featured: electionData.is_featured || false
+        });
+        setShowEditElectionModal(true);
+      }
+    } catch (error) {
+      console.error('Error loading election for edit:', error);
+      setError('Failed to load election details for editing');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateElection = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    
+    try {
+      const formData = new FormData();
+      
+      Object.keys(electionForm).forEach(key => {
+        if (key === 'election_logo' || key === 'election_banner') {
+          if (electionForm[key]) {
+            formData.append(key, electionForm[key]);
+          }
+        } else if (key === 'allowed_voter_groups') {
+          formData.append(key, JSON.stringify(electionForm[key]));
+        } else if (key === 'require_face_verification' || key === 'is_featured') {
+          formData.append(key, electionForm[key].toString());
+        } else {
+          formData.append(key, electionForm[key] || '');
+        }
+      });
+
+      const response = await adminAPI.updateElection(editingElection.election_id, formData);
+      
+      if (response.success) {
+        setSuccess('Election updated successfully!');
+        setShowEditElectionModal(false);
+        setEditingElection(null);
+        
+        setElectionForm({
+          title: '',
+          description: '',
+          election_type: 'national',
+          constituency: '',
+          district: '',
+          state: '',
+          voting_start: '',
+          voting_end: '',
+          registration_start: '',
+          registration_end: '',
+          max_candidates: 10,
+          require_face_verification: true,
+          election_logo: null,
+          election_banner: null,
+          election_rules: '',
+          results_visibility: 'after_end',
+          minimum_voter_age: 18,
+          allowed_voter_groups: ['all'],
+          is_featured: false
+        });
+        
+        if (activeTab === 'dashboard') {
+          loadDashboardData();
+        } else if (activeTab === 'elections') {
+          loadElections();
+        }
+      } else {
+        setError(response.message || 'Failed to update election');
+      }
+    } catch (error) {
+      console.error('Error updating election:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to update election';
+      setError(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteElection = async (electionId) => {
+    if (window.confirm('Are you sure you want to delete this election? This action cannot be undone.')) {
+      try {
+        const response = await adminAPI.deleteElection(electionId);
+        if (response.success) {
+          setSuccess('Election deleted successfully');
+          if (activeTab === 'dashboard') {
+            loadDashboardData();
+          } else if (activeTab === 'elections') {
+            loadElections();
+          }
+        } else {
+          setError(response.message || 'Failed to delete election');
+        }
+      } catch (error) {
+        console.error('Error deleting election:', error);
+        setError('Failed to delete election');
+      }
+    }
+  };
+
+  // ========== CANDIDATE HANDLERS ==========
   const handleCreateCandidate = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -320,7 +484,6 @@ const AdminDashboard = () => {
     try {
       const formData = new FormData();
       
-      // Append all candidate form fields to FormData
       Object.keys(candidateForm).forEach(key => {
         if (key === 'photo' || key === 'party_logo' || key === 'election_symbol') {
           if (candidateForm[key]) {
@@ -365,126 +528,6 @@ const AdminDashboard = () => {
     }
   };
 
-  // Edit Election Handler
-  const handleEditElection = async (election) => {
-    setLoading(true);
-    try {
-      const response = await adminAPI.getElectionForEdit(election.election_id);
-      if (response.success) {
-        const electionData = response.election;
-        
-        // Format dates for datetime-local input
-        const formatDateForInput = (dateString) => {
-          if (!dateString) return '';
-          const date = new Date(dateString);
-          return date.toISOString().slice(0, 16);
-        };
-        
-        setEditingElection(electionData);
-        setElectionForm({
-          title: electionData.title || '',
-          description: electionData.description || '',
-          election_type: electionData.election_type || 'national',
-          constituency: electionData.constituency || '',
-          district: electionData.district || '',
-          state: electionData.state || '',
-          voting_start: formatDateForInput(electionData.voting_start),
-          voting_end: formatDateForInput(electionData.voting_end),
-          registration_start: formatDateForInput(electionData.registration_start),
-          registration_end: formatDateForInput(electionData.registration_end),
-          max_candidates: electionData.max_candidates || 10,
-          require_face_verification: electionData.require_face_verification !== false,
-          election_logo: null, // Don't pre-fill files
-          election_banner: null,
-          election_rules: electionData.election_rules || '',
-          results_visibility: electionData.results_visibility || 'after_end',
-          minimum_voter_age: electionData.minimum_voter_age || 18,
-          allowed_voter_groups: electionData.allowed_voter_groups || ['all'],
-          is_featured: electionData.is_featured || false
-        });
-        setShowEditElectionModal(true);
-      }
-    } catch (error) {
-      console.error('Error loading election for edit:', error);
-      setError('Failed to load election details for editing');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Update Election Handler
-  const handleUpdateElection = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    
-    try {
-      const formData = new FormData();
-      
-      // Append all election form fields to FormData
-      Object.keys(electionForm).forEach(key => {
-        if (key === 'election_logo' || key === 'election_banner') {
-          if (electionForm[key]) {
-            formData.append(key, electionForm[key]);
-          }
-        } else if (key === 'allowed_voter_groups') {
-          formData.append(key, JSON.stringify(electionForm[key]));
-        } else if (key === 'require_face_verification' || key === 'is_featured') {
-          formData.append(key, electionForm[key].toString());
-        } else {
-          formData.append(key, electionForm[key] || '');
-        }
-      });
-
-      const response = await adminAPI.updateElection(editingElection.election_id, formData);
-      
-      if (response.success) {
-        setSuccess('Election updated successfully!');
-        setShowEditElectionModal(false);
-        setEditingElection(null);
-        
-        // Reset form
-        setElectionForm({
-          title: '',
-          description: '',
-          election_type: 'national',
-          constituency: '',
-          district: '',
-          state: '',
-          voting_start: '',
-          voting_end: '',
-          registration_start: '',
-          registration_end: '',
-          max_candidates: 10,
-          require_face_verification: true,
-          election_logo: null,
-          election_banner: null,
-          election_rules: '',
-          results_visibility: 'after_end',
-          minimum_voter_age: 18,
-          allowed_voter_groups: ['all'],
-          is_featured: false
-        });
-        
-        // Reload data
-        if (activeTab === 'dashboard') {
-          loadDashboardData();
-        } else if (activeTab === 'elections') {
-          loadElections();
-        }
-      } else {
-        setError(response.message || 'Failed to update election');
-      }
-    } catch (error) {
-      console.error('Error updating election:', error);
-      const errorMsg = error.response?.data?.message || error.message || 'Failed to update election';
-      setError(errorMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Edit Candidate Handler
   const handleEditCandidate = async (candidate) => {
     setLoading(true);
     try {
@@ -520,7 +563,6 @@ const AdminDashboard = () => {
     }
   };
 
-  // Update Candidate Handler
   const handleUpdateCandidate = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -529,7 +571,6 @@ const AdminDashboard = () => {
     try {
       const formData = new FormData();
       
-      // Append all candidate form fields to FormData
       Object.keys(candidateForm).forEach(key => {
         if (key === 'photo' || key === 'party_logo' || key === 'election_symbol') {
           if (candidateForm[key]) {
@@ -549,7 +590,6 @@ const AdminDashboard = () => {
         setShowEditCandidateModal(false);
         setEditingCandidate(null);
         
-        // Reset form
         setCandidateForm({
           election_id: '',
           full_name: '',
@@ -569,7 +609,6 @@ const AdminDashboard = () => {
           is_approved: false
         });
         
-        // Reload data
         if (activeTab === 'candidates') {
           loadCandidates();
         }
@@ -584,6 +623,39 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleDeleteCandidate = async (candidateId) => {
+    if (window.confirm('Are you sure you want to delete this candidate?')) {
+      try {
+        const response = await adminAPI.deleteCandidate(candidateId);
+        if (response.success) {
+          setSuccess('Candidate deleted successfully');
+          loadCandidates(pagination.candidates.page);
+        } else {
+          setError(response.message || 'Failed to delete candidate');
+        }
+      } catch (error) {
+        console.error('Error deleting candidate:', error);
+        setError('Failed to delete candidate');
+      }
+    }
+  };
+
+  const handleApproveCandidate = async (candidateId) => {
+    try {
+      const response = await adminAPI.approveCandidate(candidateId);
+      if (response.success) {
+        setSuccess('Candidate approved successfully');
+        loadCandidates(pagination.candidates.page);
+      } else {
+        setError(response.message || 'Failed to approve candidate');
+      }
+    } catch (error) {
+      console.error('Error approving candidate:', error);
+      setError('Failed to approve candidate');
+    }
+  };
+
+  // ========== VOTER HANDLERS ==========
   const handleVerifyVoter = async (voterId, verificationType) => {
     try {
       const response = await adminAPI.verifyVoter(voterId, { type: verificationType });
@@ -614,21 +686,86 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleApproveCandidate = async (candidateId) => {
-    try {
-      const response = await adminAPI.approveCandidate(candidateId);
-      if (response.success) {
-        setSuccess('Candidate approved successfully');
-        loadCandidates(pagination.candidates.page);
-      } else {
-        setError(response.message || 'Failed to approve candidate');
+  const handleDeleteVoter = async (voterId) => {
+    if (window.confirm('Are you sure you want to delete this voter?')) {
+      try {
+        const response = await adminAPI.deleteVoter(voterId);
+        if (response.success) {
+          setSuccess('Voter deleted successfully');
+          loadVoters(pagination.voters.page);
+        } else {
+          setError(response.message || 'Failed to delete voter');
+        }
+      } catch (error) {
+        console.error('Error deleting voter:', error);
+        setError('Failed to delete voter');
       }
-    } catch (error) {
-      console.error('Error approving candidate:', error);
-      setError('Failed to approve candidate');
     }
   };
 
+  const handleViewVoterDetails = async (voter) => {
+    setLoading(true);
+    try {
+      const response = await adminAPI.getVoterDetails(voter.voter_id);
+      if (response.success) {
+        setSelectedVoter(response.voter);
+        setShowVoterDetailModal(true);
+      } else {
+        setError('Failed to load voter details');
+      }
+    } catch (error) {
+      console.error('Error loading voter details:', error);
+      setError('Failed to load voter details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ========== SETTINGS HANDLERS ==========
+  const handleSaveSettings = async () => {
+    setLoading(true);
+    try {
+      const response = await adminAPI.updateSystemSettings(settings);
+      if (response.success) {
+        setSuccess('Settings saved successfully');
+      } else {
+        setError(response.message || 'Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      setError('Failed to save settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendBroadcast = async () => {
+    if (!broadcastMessage.trim()) {
+      setError('Please enter a message to broadcast');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await adminAPI.sendBroadcast({
+        message: broadcastMessage,
+        type: 'info'
+      });
+      if (response.success) {
+        setSuccess('Broadcast sent successfully');
+        setBroadcastMessage('');
+      } else {
+        setError(response.message || 'Failed to send broadcast');
+      }
+    } catch (error) {
+      console.error('Error sending broadcast:', error);
+      setError('Failed to send broadcast');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ========== UTILITY FUNCTIONS ==========
   const handleViewElectionDetails = (election) => {
     setSelectedElection(election);
     setShowElectionDetailModal(true);
@@ -681,6 +818,7 @@ const AdminDashboard = () => {
     }
   }, [error, success]);
 
+  // ========== RENDER FUNCTIONS ==========
   const renderDashboard = () => (
     <Row>
       {/* Stats Cards */}
@@ -953,7 +1091,12 @@ const AdminDashboard = () => {
                       >
                         <FaEdit />
                       </Button>
-                      <Button size="sm" variant="outline-danger" title="Delete">
+                      <Button 
+                        size="sm" 
+                        variant="outline-danger" 
+                        title="Delete"
+                        onClick={() => handleDeleteElection(election.election_id)}
+                      >
                         <FaTrash />
                       </Button>
                     </td>
@@ -1072,6 +1215,7 @@ const AdminDashboard = () => {
                           size="sm" 
                           variant="outline-primary" 
                           title="View Details"
+                          onClick={() => handleViewVoterDetails(voter)}
                         >
                           <FaEye />
                         </Button>
@@ -1094,6 +1238,15 @@ const AdminDashboard = () => {
                             <FaCheckCircle />
                           </Button>
                         )}
+                        <Button 
+                          size="sm" 
+                          variant="outline-danger" 
+                          title="Delete"
+                          onClick={() => handleDeleteVoter(voter.voter_id)}
+                          className="ms-1"
+                        >
+                          <FaTrash />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -1203,11 +1356,9 @@ const AdminDashboard = () => {
                     </td>
                     <td>
                       <Badge bg={
-                        candidate.status === 'approved' ? 'success' :
-                        candidate.status === 'pending' ? 'warning' :
-                        candidate.status === 'rejected' ? 'danger' : 'secondary'
+                        candidate.is_approved ? 'success' : 'warning'
                       }>
-                        {candidate.status}
+                        {candidate.is_approved ? 'Approved' : 'Pending'}
                       </Badge>
                     </td>
                     <td>
@@ -1217,7 +1368,7 @@ const AdminDashboard = () => {
                       </small>
                     </td>
                     <td>
-                      {candidate.status === 'pending' && (
+                      {!candidate.is_approved && (
                         <Button 
                           size="sm" 
                           variant="success" 
@@ -1226,7 +1377,7 @@ const AdminDashboard = () => {
                           <FaCheckCircle className="me-1" /> Approve
                         </Button>
                       )}
-                      {candidate.status === 'approved' && (
+                      {candidate.is_approved && (
                         <Badge bg="success">Approved</Badge>
                       )}
                     </td>
@@ -1243,7 +1394,12 @@ const AdminDashboard = () => {
                       >
                         <FaEdit />
                       </Button>
-                      <Button size="sm" variant="outline-danger" title="Delete">
+                      <Button 
+                        size="sm" 
+                        variant="outline-danger" 
+                        title="Delete"
+                        onClick={() => handleDeleteCandidate(candidate.candidate_id)}
+                      >
                         <FaTrash />
                       </Button>
                     </td>
@@ -1304,7 +1460,6 @@ const AdminDashboard = () => {
                   <th>User</th>
                   <th>Details</th>
                   <th>IP Address</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1332,7 +1487,6 @@ const AdminDashboard = () => {
                       </div>
                     </td>
                     <td>
-                      {/* Safely render details - handle both string and object */}
                       {typeof log.details === 'string' ? (
                         log.details
                       ) : log.details && typeof log.details === 'object' ? (
@@ -1351,11 +1505,6 @@ const AdminDashboard = () => {
                     </td>
                     <td>
                       <code>{log.ip_address || 'N/A'}</code>
-                    </td>
-                    <td>
-                      <Badge bg={log.status === 'success' ? 'success' : 'danger'}>
-                        {log.status || 'unknown'}
-                      </Badge>
                     </td>
                   </tr>
                 ))}
@@ -1434,25 +1583,165 @@ const AdminDashboard = () => {
   );
 
   const renderSettings = () => (
-    <Card className="border-0 shadow-sm">
-      <Card.Header className="bg-white">
-        <h5 className="mb-0">System Settings</h5>
-      </Card.Header>
-      <Card.Body>
-        <div className="text-center py-5">
-          <FaCog className="text-muted fa-3x mb-3" />
-          <h5>System Configuration</h5>
-          <p className="text-muted">System settings and configuration options</p>
-          <Alert variant="info">
-            <strong>Admin Account:</strong> {admin?.username}
-            <br />
-            <strong>Role:</strong> {admin?.role}
-            <br />
-            <strong>Access Level:</strong> {admin?.access_level}
-          </Alert>
-        </div>
-      </Card.Body>
-    </Card>
+    <div>
+      <Row>
+        <Col md={8}>
+          <Card className="border-0 shadow-sm mb-4">
+            <Card.Header className="bg-white">
+              <h5 className="mb-0">System Configuration</h5>
+            </Card.Header>
+            <Card.Body>
+              <Form>
+                <Row>
+                  <Col md={6}>
+                    <Form.Group className="mb-3">
+                      <Form.Label>System Name</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={settings.system_name}
+                        onChange={(e) => setSettings({...settings, system_name: e.target.value})}
+                      />
+                    </Form.Group>
+                  </Col>
+                  <Col md={6}>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Results Visibility</Form.Label>
+                      <Form.Select
+                        value={settings.results_visibility}
+                        onChange={(e) => setSettings({...settings, results_visibility: e.target.value})}
+                      >
+                        <option value="after_end">After Voting Ends</option>
+                        <option value="immediate">Immediate</option>
+                        <option value="manual">Manual Release</option>
+                      </Form.Select>
+                    </Form.Group>
+                  </Col>
+                </Row>
+
+                <Row>
+                  <Col md={6}>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Max File Size (MB)</Form.Label>
+                      <Form.Control
+                        type="number"
+                        value={settings.max_file_size}
+                        onChange={(e) => setSettings({...settings, max_file_size: parseInt(e.target.value)})}
+                      />
+                    </Form.Group>
+                  </Col>
+                </Row>
+
+                <Form.Check
+                  type="checkbox"
+                  label="Allow Voter Registration"
+                  checked={settings.voter_registration_open}
+                  onChange={(e) => setSettings({...settings, voter_registration_open: e.target.checked})}
+                  className="mb-3"
+                />
+
+                <Form.Check
+                  type="checkbox"
+                  label="Require Face Verification"
+                  checked={settings.require_face_verification}
+                  onChange={(e) => setSettings({...settings, require_face_verification: e.target.checked})}
+                  className="mb-3"
+                />
+
+                <Form.Check
+                  type="checkbox"
+                  label="Auto Verify Voters"
+                  checked={settings.auto_verify_voters}
+                  onChange={(e) => setSettings({...settings, auto_verify_voters: e.target.checked})}
+                  className="mb-3"
+                />
+
+                <Form.Check
+                  type="checkbox"
+                  label="Email Notifications"
+                  checked={settings.email_notifications}
+                  onChange={(e) => setSettings({...settings, email_notifications: e.target.checked})}
+                  className="mb-3"
+                />
+
+                <Form.Check
+                  type="checkbox"
+                  label="SMS Notifications"
+                  checked={settings.sms_notifications}
+                  onChange={(e) => setSettings({...settings, sms_notifications: e.target.checked})}
+                  className="mb-3"
+                />
+
+                <Form.Check
+                  type="checkbox"
+                  label="Maintenance Mode"
+                  checked={settings.maintenance_mode}
+                  onChange={(e) => setSettings({...settings, maintenance_mode: e.target.checked})}
+                  className="mb-3"
+                />
+
+                <Button 
+                  variant="primary" 
+                  onClick={handleSaveSettings}
+                  disabled={loading}
+                >
+                  <FaSave className="me-1" />
+                  {loading ? 'Saving...' : 'Save Settings'}
+                </Button>
+              </Form>
+            </Card.Body>
+          </Card>
+        </Col>
+
+        <Col md={4}>
+          <Card className="border-0 shadow-sm">
+            <Card.Header className="bg-white">
+              <h5 className="mb-0">Broadcast Message</h5>
+            </Card.Header>
+            <Card.Body>
+              <Form.Group className="mb-3">
+                <Form.Label>Message to All Voters</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={4}
+                  placeholder="Enter broadcast message..."
+                  value={broadcastMessage}
+                  onChange={(e) => setBroadcastMessage(e.target.value)}
+                />
+              </Form.Group>
+              <Button 
+                variant="warning" 
+                onClick={handleSendBroadcast}
+                disabled={loading || !broadcastMessage.trim()}
+                className="w-100"
+              >
+                <FaBullhorn className="me-1" /> {/* Replaced FaBroadcast with FaBullhorn */}
+                {loading ? 'Sending...' : 'Send Broadcast'}
+              </Button>
+            </Card.Body>
+          </Card>
+
+          <Card className="border-0 shadow-sm mt-4">
+            <Card.Header className="bg-white">
+              <h5 className="mb-0">System Information</h5>
+            </Card.Header>
+            <Card.Body>
+              <div className="mb-2">
+                <strong>Admin Account:</strong> {admin?.username}
+              </div>
+              <div className="mb-2">
+                <strong>Role:</strong> {admin?.role}
+              </div>
+              <div className="mb-2">
+                <strong>Access Level:</strong> {admin?.access_level}
+              </div>
+              <div className="mb-2">
+                <strong>Last Login:</strong> {admin?.last_login ? new Date(admin.last_login).toLocaleString() : 'N/A'}
+              </div>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+    </div>
   );
 
   return (
@@ -1592,6 +1881,7 @@ const AdminDashboard = () => {
           </Col>
         </Row>
       </Container>
+
 
       {/* Create Election Modal */}
       <Modal show={showElectionModal} onHide={() => setShowElectionModal(false)} size="lg">
@@ -1739,7 +2029,7 @@ const AdminDashboard = () => {
                     value={electionForm.results_visibility}
                     onChange={(e) => setElectionForm({...electionForm, results_visibility: e.target.value})}
                   >
-                    <option value="after_voting">After Voting Period</option>
+                    <option value="after_end">After Voting Period</option>
                     <option value="immediate">Immediate</option>
                     <option value="manual">Manual Release</option>
                   </Form.Select>
@@ -1943,7 +2233,7 @@ const AdminDashboard = () => {
                     value={electionForm.results_visibility}
                     onChange={(e) => setElectionForm({...electionForm, results_visibility: e.target.value})}
                   >
-                    <option value="after_voting">After Voting Period</option>
+                    <option value="after_end">After Voting Period</option>
                     <option value="immediate">Immediate</option>
                     <option value="manual">Manual Release</option>
                   </Form.Select>
@@ -2253,7 +2543,7 @@ const AdminDashboard = () => {
                     value={candidateForm.candidate_id}
                     onChange={(e) => setCandidateForm({...candidateForm, candidate_id: e.target.value})}
                     required
-                    disabled // Usually candidate ID shouldn't be changed
+                    disabled
                   />
                 </Form.Group>
               </Col>
@@ -2580,6 +2870,111 @@ const AdminDashboard = () => {
             }}
           >
             <FaEdit className="me-1" /> Edit Election
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Voter Detail Modal */}
+      <Modal show={showVoterDetailModal} onHide={() => setShowVoterDetailModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Voter Details: {selectedVoter?.full_name}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {selectedVoter && (
+            <Row>
+              <Col md={6}>
+                <h6>Personal Information</h6>
+                <div className="mb-2">
+                  <strong>Voter ID:</strong> <code>{selectedVoter.voter_id}</code>
+                </div>
+                <div className="mb-2">
+                  <strong>Full Name:</strong> {selectedVoter.full_name}
+                </div>
+                <div className="mb-2">
+                  <strong>Email:</strong> {selectedVoter.email}
+                </div>
+                <div className="mb-2">
+                  <strong>Phone:</strong> {selectedVoter.phone}
+                </div>
+                <div className="mb-2">
+                  <strong>Gender:</strong> {selectedVoter.gender}
+                </div>
+                <div className="mb-2">
+                  <strong>Age:</strong> {selectedVoter.age} years
+                </div>
+                <div className="mb-2">
+                  <strong>Date of Birth:</strong> {new Date(selectedVoter.date_of_birth).toLocaleDateString()}
+                </div>
+              </Col>
+              <Col md={6}>
+                <h6>Address Information</h6>
+                <div className="mb-2">
+                  <strong>Constituency:</strong> {selectedVoter.constituency}
+                </div>
+                <div className="mb-2">
+                  <strong>District:</strong> {selectedVoter.district}
+                </div>
+                <div className="mb-2">
+                  <strong>State:</strong> {selectedVoter.state}
+                </div>
+                <div className="mb-2">
+                  <strong>Polling Station:</strong> {selectedVoter.polling_station || 'Not assigned'}
+                </div>
+
+                <h6 className="mt-4">Verification Status</h6>
+                <div className="mb-2">
+                  <strong>Email:</strong> 
+                  <Badge bg={selectedVoter.verification_status?.email_verified ? 'success' : 'secondary'} className="ms-2">
+                    {selectedVoter.verification_status?.email_verified ? 'Verified' : 'Pending'}
+                  </Badge>
+                </div>
+                <div className="mb-2">
+                  <strong>Phone:</strong> 
+                  <Badge bg={selectedVoter.verification_status?.phone_verified ? 'success' : 'secondary'} className="ms-2">
+                    {selectedVoter.verification_status?.phone_verified ? 'Verified' : 'Pending'}
+                  </Badge>
+                </div>
+                <div className="mb-2">
+                  <strong>ID:</strong> 
+                  <Badge bg={selectedVoter.verification_status?.id_verified ? 'success' : 'secondary'} className="ms-2">
+                    {selectedVoter.verification_status?.id_verified ? 'Verified' : 'Pending'}
+                  </Badge>
+                </div>
+                <div className="mb-2">
+                  <strong>Face:</strong> 
+                  <Badge bg={selectedVoter.verification_status?.face_verified ? 'success' : 'secondary'} className="ms-2">
+                    {selectedVoter.verification_status?.face_verified ? 'Verified' : 'Pending'}
+                  </Badge>
+                </div>
+
+                <h6 className="mt-4">Voting History</h6>
+                <div className="mb-2">
+                  <strong>Votes Cast:</strong> {selectedVoter.votes_cast || 0}
+                </div>
+                {selectedVoter.voting_history && selectedVoter.voting_history.length > 0 ? (
+                  <div>
+                    {selectedVoter.voting_history.slice(0, 3).map((vote, index) => (
+                      <div key={index} className="small text-muted">
+                        {vote.election_title} - {new Date(vote.vote_timestamp).toLocaleDateString()}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-muted">No voting history</div>
+                )}
+              </Col>
+            </Row>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowVoterDetailModal(false)}>
+            Close
+          </Button>
+          <Button 
+            variant="success"
+            onClick={() => handleVerifyVoter(selectedVoter?.voter_id, 'all')}
+          >
+            <FaCheckCircle className="me-1" /> Verify All
           </Button>
         </Modal.Footer>
       </Modal>

@@ -18,7 +18,7 @@ import {
 
 const AdminLogin = () => {
   const navigate = useNavigate();
-  const { adminLogin, checkAuthStatus } = useAuth();
+  const { adminLogin, isAdminAuthenticated } = useAuth(); // Get isAdminAuthenticated from context
   
   const [loginData, setLoginData] = useState({
     username: '',
@@ -28,7 +28,15 @@ const AdminLogin = () => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [showSecurityModal, setShowSecurityModal] = useState(false);
-  const [adminData, setAdminData] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Add this to prevent duplicate submissions
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAdminAuthenticated) {
+      console.log('🔄 Redirecting to admin dashboard (already authenticated)');
+      navigate('/admin/dashboard');
+    }
+  }, [isAdminAuthenticated, navigate]);
 
   // Background images for admin login
   const backgroundImages = [
@@ -60,46 +68,85 @@ const AdminLogin = () => {
   // Handle admin login
   const handleAdminLogin = async (e) => {
     e.preventDefault();
+    
+    // Prevent duplicate submissions
+    if (isSubmitting || loading) {
+      console.log('⏸️ Login already in progress, skipping duplicate request');
+      return;
+    }
+    
+    // Validate inputs
+    if (!loginData.username.trim() || !loginData.password.trim()) {
+      setError('Please enter both username and password');
+      return;
+    }
+    
     setLoading(true);
+    setIsSubmitting(true);
     setError('');
     setMessage('');
 
     try {
-      console.log('Attempting admin login with:', { 
-        username: loginData.username
-      });
+      console.log('🔐 Attempting admin login with username:', loginData.username);
       
+      // Clear any previous auth data to prevent conflicts
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('voterData');
+      localStorage.removeItem('isAuthenticated');
+      
+      // Call the API directly first to verify credentials
       const response = await adminAPI.login({
         username: loginData.username,
         password: loginData.password
       });
 
+      console.log('✅ Admin login response:', response);
+
       if (response.success) {
-        setAdminData(response.admin_data);
-        setMessage('Admin credentials verified!');
+        setMessage('✓ Admin credentials verified successfully!');
         
-        // Store admin authentication
-        localStorage.setItem('adminToken', response.token);
-        localStorage.setItem('adminData', JSON.stringify(response.admin_data));
-        localStorage.setItem('isAdminAuthenticated', 'true');
+        // Use the auth context's adminLogin method which handles everything
+        await adminLogin(response.token, response.admin_data);
         
-        // Update auth context
-        adminLogin(response.token, response.admin_data);
-        
+        // Brief delay to show success message before redirect
         setTimeout(() => {
+          console.log('🚀 Redirecting to admin dashboard');
           navigate('/admin/dashboard');
         }, 1000);
+        
       } else {
-        setError(response.message || 'Invalid admin credentials.');
+        setError(response.message || 'Invalid admin credentials. Please try again.');
       }
     } catch (err) {
-      console.error('Admin login error:', err);
-      const errorMessage = err.response?.data?.message || 
-                          err.message || 
-                          'Admin login failed. Please check your credentials.';
+      console.error('❌ Admin login error:', err);
+      
+      // Enhanced error handling
+      let errorMessage = 'Login failed. Please check your credentials.';
+      
+      if (err.response) {
+        // Server responded with error
+        const serverError = err.response.data;
+        if (serverError && serverError.message) {
+          errorMessage = serverError.message;
+        } else if (err.response.status === 401) {
+          errorMessage = 'Invalid username or password.';
+        } else if (err.response.status === 403) {
+          errorMessage = 'Access denied. Your account may be deactivated.';
+        } else if (err.response.status === 500) {
+          errorMessage = 'Server error. Please try again later.';
+        }
+      } else if (err.request) {
+        // Request was made but no response received
+        errorMessage = 'Network error. Please check your connection.';
+      }
+      
       setError(errorMessage);
     } finally {
       setLoading(false);
+      // Reset submitting state after a delay to prevent immediate resubmission
+      setTimeout(() => {
+        setIsSubmitting(false);
+      }, 1000);
     }
   };
 
@@ -142,8 +189,19 @@ const AdminLogin = () => {
                   <p className="text-muted">Restricted access for authorized personnel only</p>
                 </div>
 
-                {error && <Alert variant="danger" className="alert-custom">{error}</Alert>}
-                {message && <Alert variant="info" className="alert-custom">{message}</Alert>}
+                {error && (
+                  <Alert variant="danger" className="alert-custom d-flex align-items-center">
+                    <FaShieldAlt className="me-2" />
+                    <span>{error}</span>
+                  </Alert>
+                )}
+                
+                {message && (
+                  <Alert variant="success" className="alert-custom d-flex align-items-center">
+                    <FaCheck className="me-2" />
+                    <span>{message}</span>
+                  </Alert>
+                )}
 
                 <Form onSubmit={handleAdminLogin}>
                   <Form.Group className="mb-3">
@@ -158,6 +216,8 @@ const AdminLogin = () => {
                       placeholder="Enter admin username"
                       required
                       className="py-2 form-control-custom"
+                      disabled={loading}
+                      autoComplete="username"
                     />
                   </Form.Group>
 
@@ -173,6 +233,8 @@ const AdminLogin = () => {
                       placeholder="Enter admin password"
                       required
                       className="py-2 form-control-custom"
+                      disabled={loading}
+                      autoComplete="current-password"
                     />
                   </Form.Group>
 
@@ -181,7 +243,7 @@ const AdminLogin = () => {
                       variant="dark"
                       type="submit"
                       size="lg"
-                      disabled={loading || !loginData.username || !loginData.password}
+                      disabled={loading || isSubmitting || !loginData.username.trim() || !loginData.password.trim()}
                       className="py-2 login-button"
                     >
                       {loading ? (
@@ -201,6 +263,7 @@ const AdminLogin = () => {
                       variant="outline-secondary"
                       size="sm"
                       onClick={handleSecurityCheck}
+                      disabled={loading}
                     >
                       <FaShieldAlt className="me-2" />
                       Security Protocols
@@ -234,18 +297,92 @@ const AdminLogin = () => {
         <Modal.Body>
           <h6>Admin Access Security Measures:</h6>
           <ul className="list-unstyled">
-            <li className="mb-2">Multi-factor authentication</li>
-            <li className="mb-2">Activity logging and monitoring</li>
-            <li className="mb-2">IP address tracking</li>
-            <li className="mb-2">Session timeout protection</li>
-            <li className="mb-2">Role-based access control</li>
-            <li className="mb-2">Encryption for all data transmission</li>
+            <li className="mb-2 d-flex align-items-center">
+              <FaCheck className="text-success me-2" size="12" />
+              Multi-factor authentication
+            </li>
+            <li className="mb-2 d-flex align-items-center">
+              <FaCheck className="text-success me-2" size="12" />
+              Activity logging and monitoring
+            </li>
+            <li className="mb-2 d-flex align-items-center">
+              <FaCheck className="text-success me-2" size="12" />
+              IP address tracking
+            </li>
+            <li className="mb-2 d-flex align-items-center">
+              <FaCheck className="text-success me-2" size="12" />
+              Session timeout protection
+            </li>
+            <li className="mb-2 d-flex align-items-center">
+              <FaCheck className="text-success me-2" size="12" />
+              Role-based access control
+            </li>
+            <li className="mb-2 d-flex align-items-center">
+              <FaCheck className="text-success me-2" size="12" />
+              Encryption for all data transmission
+            </li>
           </ul>
-          <p className="text-muted small mb-0">
-            Unauthorized access attempts will be logged and reported.
+          <p className="text-muted small mb-0 mt-3">
+            ⚠️ Unauthorized access attempts will be logged and reported.
           </p>
         </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowSecurityModal(false)}>
+            Close
+          </Button>
+        </Modal.Footer>
       </Modal>
+
+      <style jsx>{`
+        .admin-login-page {
+          min-height: 100vh;
+        }
+        
+        .admin-login-card {
+          backdrop-filter: blur(10px);
+          background-color: rgba(255, 255, 255, 0.95);
+        }
+        
+        .form-control-custom {
+          border-radius: 8px;
+          border: 1px solid #dee2e6;
+          transition: all 0.3s ease;
+        }
+        
+        .form-control-custom:focus {
+          border-color: #212529;
+          box-shadow: 0 0 0 0.25rem rgba(33, 37, 41, 0.25);
+        }
+        
+        .login-button {
+          border-radius: 8px;
+          font-weight: 600;
+          letter-spacing: 0.5px;
+          transition: all 0.3s ease;
+        }
+        
+        .login-button:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .login-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        
+        .alert-custom {
+          border-radius: 8px;
+          border: none;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        @media (max-width: 768px) {
+          .admin-login-card {
+            margin: 1rem;
+          }
+        }
+      `}</style>
     </div>
   );
 };
