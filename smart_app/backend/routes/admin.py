@@ -855,7 +855,226 @@ def get_election_for_edit(election_id):
     except Exception as e:
         logger.error(f"Get election for edit error: {str(e)}")
         return jsonify({'success': False, 'message': 'Failed to load election data'}), 500
+    
+###
+@admin_bp.route('/elections/<election_id>/results', methods=['GET'])
+@admin_required
+def get_election_results_admin(election_id):
+    """Get election results for admin with additional data"""
+    try:
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({'success': False, 'message': 'Election not found'}), 404
 
+        # Get detailed results using shared function
+        results = get_election_results_data(election_id)
+        if not results:
+            return jsonify({'success': False, 'message': 'Failed to load results'}), 500
+        
+        # Get additional admin data
+        constituency = election.get('constituency', 'General')
+        total_voters = Voter.count({
+            "is_active": True, 
+            "constituency": constituency
+        })
+        
+        voter_turnout = results['voter_turnout']
+        
+        # Update election with turnout if not already set
+        if election.get('voter_turnout') != voter_turnout:
+            Election.update_one(
+                {"election_id": election_id},
+                {
+                    "voter_turnout": voter_turnout,
+                    "total_voters": total_voters,
+                    "total_votes": results['total_votes']
+                }
+            )
+
+        return jsonify({
+            'success': True,
+            'results': results,
+            'election': election,
+            'analytics': {
+                'total_voters': total_voters,
+                'voter_turnout': voter_turnout,
+                'results_published': election.get('results_published', False),
+                'results_published_at': election.get('results_published_at'),
+                'results_published_by': election.get('results_published_by')
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Admin election results error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to load results'}), 500
+
+def get_election_results_data(election_id):
+    """Get election results data for both admin and voter"""
+    try:
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return None
+        
+        # Get candidates for this election
+        candidates = Candidate.find_all({
+            "election_id": election_id,
+            "is_active": True
+        })
+        
+        # Get vote results
+        pipeline = [
+            {"$match": {"election_id": election_id, "is_verified": True}},
+            {"$group": {
+                "_id": "$candidate_id",
+                "total_votes": {"$sum": 1}
+            }},
+            {"$sort": {"total_votes": -1}}
+        ]
+        
+        vote_results = list(Vote.get_collection().aggregate(pipeline))
+        
+        # Calculate total votes
+        total_votes = sum(result['total_votes'] for result in vote_results)
+        
+        # Prepare candidate data with vote counts
+        candidates_data = []
+        for candidate in candidates:
+            candidate_votes = next(
+                (result for result in vote_results if result['_id'] == candidate['candidate_id']),
+                {'total_votes': 0}
+            )
+            
+            vote_count = candidate_votes['total_votes']
+            percentage = round((vote_count / total_votes * 100), 2) if total_votes > 0 else 0
+            
+            candidates_data.append({
+                'candidate_id': candidate['candidate_id'],
+                'full_name': candidate['full_name'],
+                'party': candidate.get('party', 'Independent'),
+                'photo': candidate.get('photo'),
+                'biography': candidate.get('biography'),
+                'vote_count': vote_count,
+                'percentage': percentage,
+                'candidate_number': candidate.get('candidate_number')
+            })
+        
+        # Sort candidates by vote count
+        candidates_data.sort(key=lambda x: x['vote_count'], reverse=True)
+        
+        # Add rank
+        for i, candidate in enumerate(candidates_data):
+            candidate['rank'] = i + 1
+        
+        return {
+            'election_id': election_id,
+            'title': election['title'],
+            'description': election.get('description', ''),
+            'election_type': election.get('election_type', 'general'),
+            'status': election.get('status', 'completed'),
+            'candidates': candidates_data,
+            'total_votes': total_votes,
+            'voter_turnout': election.get('voter_turnout', 0),
+            'voting_start': election.get('voting_start'),
+            'voting_end': election.get('voting_end'),
+            'results_published': election.get('results_published', False),
+            'results_published_at': election.get('results_published_at'),
+            'created_at': election.get('created_at')
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting election results data: {str(e)}")
+        return None
+    
+@admin_bp.route('/elections/<election_id>/publish-results', methods=['POST'])
+@admin_required
+def publish_election_results(election_id):
+    """Publish election results with real-time updates"""
+    try:
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({'success': False, 'message': 'Election not found'}), 404
+
+        # Update election status
+        Election.update_one(
+            {"election_id": election_id},
+            {
+                "results_published": True,
+                "results_published_at": datetime.utcnow(),
+                "results_published_by": request.admin['admin_id'],
+                "status": "completed",
+                "updated_at": datetime.utcnow()
+            }
+        )
+
+        # Get updated election data
+        updated_election = Election.find_by_election_id(election_id)
+        
+        # Broadcast real-time update to all voters
+        broadcast_election_update('results_published', {
+            'election_id': election_id,
+            'title': election['title'],
+            'message': f'Results for {election["title"]} have been published',
+            'timestamp': datetime.utcnow().isoformat(),
+            'admin_id': request.admin['admin_id']
+        }, request.admin['admin_id'])
+
+        # Log the action
+        log_admin_action(
+            request.admin,
+            "publish_results",
+            {
+                "election_id": election_id, 
+                "title": election['title'],
+                "published_at": datetime.utcnow().isoformat()
+            },
+            election_id
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Results published successfully',
+            'broadcast_sent': True,
+            'election': updated_election
+        })
+
+    except Exception as e:
+        logger.error(f"Publish results error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to publish results'}), 500
+
+@admin_bp.route('/elections/<election_id>/unpublish-results', methods=['POST'])
+@admin_required
+def unpublish_election_results(election_id):
+    """Unpublish election results"""
+    try:
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({'success': False, 'message': 'Election not found'}), 404
+
+        Election.update_one(
+            {"election_id": election_id},
+            {
+                "results_published": False,
+                "results_unpublished_at": datetime.utcnow(),
+                "results_unpublished_by": request.admin['admin_id']
+            }
+        )
+
+        log_admin_action(
+            request.admin,
+            "unpublish_results",
+            {"election_id": election_id, "title": election['title']},
+            election_id
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Results unpublished successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Unpublish results error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Failed to unpublish results'}), 500
+    
 # Delete candidate
 @admin_bp.route('/candidates/<candidate_id>', methods=['DELETE'])
 @admin_required

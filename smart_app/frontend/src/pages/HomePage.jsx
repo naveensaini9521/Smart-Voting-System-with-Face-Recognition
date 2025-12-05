@@ -998,7 +998,7 @@ const HomePage = () => {
               <div style={styles.projectInfo}>
                 <p style={styles.projectInfoText}>
                   <FaStar className="me-2" />
-                  Final Year Project • Computer Science • 2024
+                  Smart Voting System • 2025
                 </p>
                 <p style={styles.projectInfoText}>
                   Developed by {systemInfo?.developers?.[0] || 'Your Name'} | 
@@ -1250,10 +1250,6 @@ const HomePage = () => {
           50% { transform: translateY(-10px); }
         }
         
-        /*.floating {
-          animation: float 3s ease-in-out infinite;
-        } */
-        
         .stat-card:hover {
           transform: translateY(-5px);
           transition: transform 0.3s ease;
@@ -1308,7 +1304,8 @@ const styles = {
   },
   
   heroText: {
-    padding: '40px 0'
+    padding: '40px 0',
+    paddingLeft: '15px' // Added left padding for spacing
   },
   
   projectBadge: {
@@ -1342,7 +1339,8 @@ const styles = {
     fontSize: '1.1rem',
     marginBottom: '40px',
     opacity: 0.9,
-    maxWidth: '90%'
+    maxWidth: '90%',
+    paddingLeft: '5px' // Added small left padding
   },
   
   statsGrid: {
@@ -1394,13 +1392,15 @@ const styles = {
     display: 'flex',
     gap: '15px',
     flexWrap: 'wrap',
-    marginBottom: '20px'
+    marginBottom: '20px',
+    paddingLeft: '5px' // Added small left padding
   },
   
   quickActions: {
     display: 'flex',
     gap: '10px',
-    flexWrap: 'wrap'
+    flexWrap: 'wrap',
+    paddingLeft: '5px' // Added small left padding
   },
   
   btnPrimary: {
@@ -1449,11 +1449,11 @@ const styles = {
   
   // Hero Visual Styles - COMPLETELY FIXED to prevent overlap
   heroVisual: {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginTop: '20px',
-  padding: '20px 0'
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: '20px',
+    padding: '20px 15px 20px 0' // Added right padding for spacing
   },
 
   gridCard: {
@@ -1502,41 +1502,12 @@ const styles = {
     fontSize: '0.8rem',
     color: '#666'
   },
-    
-  cardIcon: {
-    fontSize: '2.5rem',
-    marginBottom: '15px'
-  },
-  
-  statusBadge: {
-    marginTop: '10px',
-    display: 'block'
-  },
-  
-  accuracyBadge: {
-    marginTop: '15px'
-  },
-  
-  accuracyBar: {
-    height: '8px',
-    borderRadius: '4px'
-  },
-  
-  securityInfo: {
-    marginTop: '10px',
-    fontSize: '0.8rem',
-    color: '#666'
-  },
-  
-  speedInfo: {
-    marginTop: '10px',
-    fontSize: '0.8rem',
-    color: '#666'
-  },
   
   // Section Common Styles
   sectionHeader: {
-    marginBottom: '60px'
+    marginBottom: '60px',
+    paddingLeft: '15px', // Added left padding for spacing
+    paddingRight: '15px' // Added right padding for spacing
   },
   
   sectionTitle: {
@@ -1546,14 +1517,18 @@ const styles = {
     color: '#333',
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent'
+    WebkitTextFillColor: 'transparent',
+    paddingLeft: '10px', // Added padding
+    paddingRight: '10px' // Added padding
   },
   
   sectionSubtitle: {
     fontSize: '1.2rem',
     color: '#666',
     maxWidth: '600px',
-    margin: '0 auto'
+    margin: '0 auto',
+    paddingLeft: '10px', // Added padding
+    paddingRight: '10px' // Added padding
   },
   
   // Features Section
@@ -1567,7 +1542,8 @@ const styles = {
   },
   
   featureCol: {
-    marginBottom: '30px'
+    marginBottom: '30px',
+    padding: '0 15px' // Added padding for spacing
   },
   
   featureCard: {
@@ -1627,7 +1603,8 @@ const styles = {
   },
   
   stepCol: {
-    marginBottom: '30px'
+    marginBottom: '30px',
+    padding: '0 15px' // Added padding for spacing
   },
   
   processStep: {
@@ -1701,7 +1678,7 @@ const styles = {
   
   techItem: {
     marginBottom: '30px',
-    padding: '0 10px'
+    padding: '0 15px' // Increased padding for spacing
   },
   
   techCard: {
@@ -1755,7 +1732,8 @@ const styles = {
   },
   
   testimonialCol: {
-    marginBottom: '30px'
+    marginBottom: '30px',
+    padding: '0 15px' // Added padding for spacing
   },
   
   testimonialCard: {
@@ -1843,7 +1821,9 @@ const styles = {
   ctaTitle: {
     fontSize: '3rem',
     marginBottom: '15px',
-    fontWeight: '700'
+    fontWeight: '700',
+    paddingLeft: '15px', // Added padding
+    paddingRight: '15px' // Added padding
   },
   
   ctaSubtitle: {
@@ -1851,7 +1831,9 @@ const styles = {
     marginBottom: '50px',
     opacity: 0.9,
     maxWidth: '700px',
-    margin: '0 auto 50px'
+    margin: '0 auto 50px',
+    paddingLeft: '15px', // Added padding
+    paddingRight: '15px' // Added padding
   },
   
   ctaStats: {
@@ -1884,7 +1866,9 @@ const styles = {
     gap: '20px',
     justifyContent: 'center',
     flexWrap: 'wrap',
-    marginBottom: '40px'
+    marginBottom: '40px',
+    paddingLeft: '15px', // Added padding
+    paddingRight: '15px' // Added padding
   },
   
   btnPrimaryLarge: {
@@ -1921,7 +1905,9 @@ const styles = {
     borderTop: '1px solid rgba(255,255,255,0.3)',
     paddingTop: '30px',
     marginTop: '30px',
-    opacity: 0.8
+    opacity: 0.8,
+    paddingLeft: '15px', // Added padding
+    paddingRight: '15px' // Added padding
   },
   
   projectInfoText: { 
