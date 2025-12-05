@@ -550,3 +550,354 @@ main.flex-grow-1 {
     transform: translateY(0);
   }
 }
+
+/* ===== DASHBOARD ENHANCED STYLES ===== */
+.dashboard-overview {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.circular-progress {
+  position: relative;
+  display: inline-block;
+}
+
+.circular-progress svg circle {
+  transition: stroke-dasharray 0.5s ease;
+}
+
+.hover-shadow {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-shadow:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0,0,0,0.1) !important;
+}
+
+.hover-lift {
+  transition: transform 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-1px);
+}
+
+/* Gradient backgrounds for dashboard cards */
+.bg-gradient-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+}
+
+.bg-gradient-success {
+  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%) !important;
+}
+
+.bg-gradient-warning {
+  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%) !important;
+}
+
+.bg-gradient-info {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%) !important;
+}
+
+/* Dashboard specific button styles */
+.dashboard-btn {
+  border-radius: 10px !important;
+  padding: 0.75rem 1.5rem !important;
+  font-weight: 600 !important;
+  transition: all 0.3s ease !important;
+  border: none !important;
+}
+
+.dashboard-btn:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.2) !important;
+}
+
+/* Dashboard stats cards */
+.stats-card {
+  border-radius: 15px !important;
+  overflow: hidden !important;
+  border: none !important;
+  transition: all 0.3s ease !important;
+}
+
+.stats-card:hover {
+  transform: translateY(-3px) !important;
+}
+
+.stats-card .card-body {
+  padding: 1.5rem !important;
+}
+
+/* Dashboard sidebar */
+.dashboard-sidebar {
+  background: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(10px) !important;
+  border-right: 1px solid rgba(0,0,0,0.1) !important;
+  height: 100% !important;
+}
+
+/* Security dashboard specific */
+.security-score-ring {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.security-score-ring svg {
+  transform: rotate(-90deg);
+}
+
+/* Verification badges */
+.verification-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+/* Device cards */
+.device-card {
+  border-left: 4px solid #667eea !important;
+  transition: all 0.3s ease !important;
+}
+
+.device-card:hover {
+  border-left-color: #764ba2 !important;
+  background-color: rgba(102, 126, 234, 0.05) !important;
+}
+
+/* Session cards */
+.session-card {
+  border-left: 4px solid #4facfe !important;
+  transition: all 0.3s ease !important;
+}
+
+.session-card:hover {
+  border-left-color: #00f2fe !important;
+  background-color: rgba(79, 172, 254, 0.05) !important;
+}
+
+/* Security event cards */
+.security-event-card {
+  border-left: 4px solid !important;
+  transition: all 0.3s ease !important;
+}
+
+.security-event-card.login {
+  border-left-color: #48bb78 !important;
+}
+
+.security-event-card.login_failed {
+  border-left-color: #f56565 !important;
+}
+
+.security-event-card.password_change {
+  border-left-color: #4299e1 !important;
+}
+
+.security-event-card.profile_update {
+  border-left-color: #ed8936 !important;
+}
+
+/* Progress bars */
+.dashboard-progress {
+  height: 10px !important;
+  border-radius: 5px !important;
+}
+
+.dashboard-progress .progress-bar {
+  border-radius: 5px !important;
+}
+
+/* Notification badges */
+.notification-badge {
+  position: absolute !important;
+  top: -5px !important;
+  right: -5px !important;
+  font-size: 10px !important;
+  padding: 2px 6px !important;
+}
+
+/* Quick actions grid */
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+/* Insights cards */
+.insight-card {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%) !important;
+  border: 1px solid rgba(102, 126, 234, 0.2) !important;
+}
+
+/* Election cards */
+.election-card-compact {
+  border: 1px solid rgba(0,0,0,0.1) !important;
+  transition: all 0.3s ease !important;
+}
+
+.election-card-compact:hover {
+  border-color: #667eea !important;
+  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.15) !important;
+}
+
+/* System status indicators */
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.status-indicator.online {
+  background-color: #48bb78;
+  box-shadow: 0 0 10px #48bb78;
+}
+
+.status-indicator.offline {
+  background-color: #f56565;
+}
+
+.status-indicator.connecting {
+  background-color: #ed8936;
+  animation: pulse 1.5s infinite;
+}
+
+/* Custom scrollbar for dashboard */
+.dashboard-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dashboard-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.dashboard-scrollbar::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 10px;
+}
+
+.dashboard-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* Spinner animation */
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments for dashboard */
+@media (max-width: 768px) {
+  .dashboard-sidebar {
+    position: fixed !important;
+    top: 56px !important;
+    left: -100% !important;
+    width: 280px !important;
+    height: calc(100vh - 56px) !important;
+    z-index: 1050 !important;
+    transition: left 0.3s ease !important;
+  }
+  
+  .dashboard-sidebar.show {
+    left: 0 !important;
+  }
+  
+  .quick-actions-grid {
+    grid-template-columns: 1fr !important;
+  }
+  
+  .stats-card .card-body {
+    padding: 1rem !important;
+  }
+}
+
+/* Print styles for dashboard */
+@media print {
+  .dashboard-sidebar,
+  .navbar,
+  .btn,
+  .no-print {
+    display: none !important;
+  }
+  
+  .dashboard-overview {
+    font-size: 12px !important;
+  }
+}
+
+/* Dark mode support for dashboard */
+@media (prefers-color-scheme: dark) {
+  .dashboard-sidebar {
+    background: rgba(45, 55, 72, 0.95) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+  
+  .stats-card {
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+  
+  .election-card-compact {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+}
+
+/* Smooth transitions */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Focus styles for accessibility */
+:focus {
+  outline: 2px solid #667eea !important;
+  outline-offset: 2px !important;
+}
+
+/* Loading skeletons */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Toast notifications */
+.dashboard-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1060;
+  min-width: 300px;
+  max-width: 400px;
+}
+
+/* Modal backdrop for dashboard */
+.dashboard-modal-backdrop {
+  background: rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(5px) !important;
+}
+
+/* Tooltip styles */
+.dashboard-tooltip {
+  font-size: 12px !important;
+  padding: 8px 12px !important;
+  border-radius: 6px !important;
+  max-width: 300px !important;
+}

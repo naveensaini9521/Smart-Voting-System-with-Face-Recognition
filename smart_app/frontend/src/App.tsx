@@ -12,7 +12,6 @@ import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/registerpage.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
-// import VotingPage from './pages/VotingPage.jsx';
 import ResultsPage from './pages/ResultsPage.jsx';
 import AdminLoginPage from './pages/AdminLoginPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
@@ -27,11 +26,12 @@ import AdminDashboard from './components/admin/AdminDashboard.jsx';
 
 // Import Context and Styles
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { SocketProvider } from './context/SocketContext.jsx'; // NEW: Import Socket Context
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 
 // Protected Route Component for Voters
-const ProtectedRoute = ({ children }) => {
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
@@ -52,7 +52,7 @@ const ProtectedRoute = ({ children }) => {
 };
 
 // Admin Protected Route Component
-const AdminProtectedRoute = ({ children }) => {
+const AdminProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAdminAuthenticated, loading } = useAuth();
 
   if (loading) {
@@ -73,7 +73,7 @@ const AdminProtectedRoute = ({ children }) => {
 };
 
 // Public Route Component (Redirect if already authenticated as voter)
-const PublicRoute = ({ children }) => {
+const PublicRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
@@ -94,7 +94,7 @@ const PublicRoute = ({ children }) => {
 };
 
 // Admin Public Route Component (Redirect if already authenticated as admin)
-const AdminPublicRoute = ({ children }) => {
+const AdminPublicRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAdminAuthenticated, loading } = useAuth();
 
   if (loading) {
@@ -156,7 +156,7 @@ function AppContent() {
             {/* Admin Auth Routes - Only accessible when not logged in as admin */}
             <Route path="/admin/login" element={
               <AdminPublicRoute>
-                <AdminLoginPage /> {/* Fixed: Using AdminLoginPage instead of AdminLogin */}
+                <AdminLoginPage />
               </AdminPublicRoute>
             } />
 
@@ -187,9 +187,9 @@ function AppContent() {
               </ProtectedRoute>
             } />
             <Route path="/voting/:electionId" element={
-              <ProtectedRoute>
-                <VotingPage />
-              </ProtectedRoute>
+            <ProtectedRoute>
+              <VotingPage />
+            </ProtectedRoute>
             } />
             <Route path="/results/:electionId?" element={
               <ProtectedRoute>
@@ -223,13 +223,15 @@ function AppContent() {
   );
 }
 
-// Main App Wrapper
+// Main App Wrapper with Socket.IO Provider
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <AppContent />
-      </Router>
+      <SocketProvider>
+        <Router>
+          <AppContent />
+        </Router>
+      </SocketProvider>
     </AuthProvider>
   );
 }

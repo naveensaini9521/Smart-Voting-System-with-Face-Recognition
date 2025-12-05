@@ -10,7 +10,6 @@ import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/registerpage.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
-// import VotingPage from './pages/VotingPage.jsx';
 import ResultsPage from './pages/ResultsPage.jsx';
 import AdminLoginPage from './pages/AdminLoginPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
@@ -23,6 +22,7 @@ import Security from './pages/Security.jsx';
 import AdminDashboard from './components/admin/AdminDashboard.jsx';
 // Import Context and Styles
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { SocketProvider } from './context/SocketContext.jsx'; // NEW: Import Socket Context
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 // Protected Route Component for Voters
@@ -75,10 +75,10 @@ function AppContent() {
     if (loading) {
         return (_jsx("div", { className: "App d-flex flex-column min-vh-100", children: _jsxs("div", { className: "d-flex justify-content-center align-items-center flex-grow-1", children: [_jsx(Spinner, { animation: "border", variant: "primary", style: { width: '3rem', height: '3rem' }, children: _jsx("span", { className: "visually-hidden", children: "Loading Smart Voting System..." }) }), _jsx("span", { className: "ms-3 fs-5", children: "Loading Smart Voting System..." })] }) }));
     }
-    return (_jsxs("div", { className: "App d-flex flex-column min-vh-100", children: [_jsx(Header, {}), _jsx("main", { className: "flex-grow-1", children: _jsx(Container, { fluid: true, className: "px-0", children: _jsxs(Routes, { children: [_jsx(Route, { path: "/", element: _jsx(HomePage, {}) }), _jsx(Route, { path: "/help", element: _jsx(HelpPage, {}) }), _jsx(Route, { path: "/login", element: _jsx(PublicRoute, { children: _jsx(LoginPage, {}) }) }), _jsx(Route, { path: "/register", element: _jsx(PublicRoute, { children: _jsx(RegisterPage, {}) }) }), _jsx(Route, { path: "/admin/login", element: _jsxs(AdminPublicRoute, { children: [_jsx(AdminLoginPage, {}), " "] }) }), _jsx(Route, { path: "/dashboard/*", element: _jsx(ProtectedRoute, { children: _jsx(DashboardPage, {}) }) }), _jsx(Route, { path: "/profile", element: _jsx(ProtectedRoute, { children: _jsx(ProfilePage, {}) }) }), _jsx(Route, { path: "/voting-history", element: _jsx(ProtectedRoute, { children: _jsx(VotingHistory, {}) }) }), _jsx(Route, { path: "/analytics", element: _jsx(ProtectedRoute, { children: _jsx(Analytics, {}) }) }), _jsx(Route, { path: "/security", element: _jsx(ProtectedRoute, { children: _jsx(Security, {}) }) }), _jsx(Route, { path: "/voting/:electionId", element: _jsx(ProtectedRoute, { children: _jsx(VotingPage, {}) }) }), _jsx(Route, { path: "/results/:electionId?", element: _jsx(ProtectedRoute, { children: _jsx(ResultsPage, {}) }) }), _jsx(Route, { path: "/admin/dashboard/*", element: _jsx(AdminProtectedRoute, { children: _jsx(AdminDashboard, {}) }) }), _jsx(Route, { path: "/admin", element: _jsx(Navigate, { to: "/admin/dashboard", replace: true }) }), _jsx(Route, { path: "/admin/*", element: _jsx(Navigate, { to: "/admin/dashboard", replace: true }) }), _jsx(Route, { path: "/404", element: _jsx(NotFoundPage, {}) }), _jsx(Route, { path: "*", element: _jsx(Navigate, { to: "/404", replace: true }) })] }) }) }), _jsx(Footer, {})] }));
+    return (_jsxs("div", { className: "App d-flex flex-column min-vh-100", children: [_jsx(Header, {}), _jsx("main", { className: "flex-grow-1", children: _jsx(Container, { fluid: true, className: "px-0", children: _jsxs(Routes, { children: [_jsx(Route, { path: "/", element: _jsx(HomePage, {}) }), _jsx(Route, { path: "/help", element: _jsx(HelpPage, {}) }), _jsx(Route, { path: "/login", element: _jsx(PublicRoute, { children: _jsx(LoginPage, {}) }) }), _jsx(Route, { path: "/register", element: _jsx(PublicRoute, { children: _jsx(RegisterPage, {}) }) }), _jsx(Route, { path: "/admin/login", element: _jsx(AdminPublicRoute, { children: _jsx(AdminLoginPage, {}) }) }), _jsx(Route, { path: "/dashboard/*", element: _jsx(ProtectedRoute, { children: _jsx(DashboardPage, {}) }) }), _jsx(Route, { path: "/profile", element: _jsx(ProtectedRoute, { children: _jsx(ProfilePage, {}) }) }), _jsx(Route, { path: "/voting-history", element: _jsx(ProtectedRoute, { children: _jsx(VotingHistory, {}) }) }), _jsx(Route, { path: "/analytics", element: _jsx(ProtectedRoute, { children: _jsx(Analytics, {}) }) }), _jsx(Route, { path: "/security", element: _jsx(ProtectedRoute, { children: _jsx(Security, {}) }) }), _jsx(Route, { path: "/voting/:electionId", element: _jsx(ProtectedRoute, { children: _jsx(VotingPage, {}) }) }), _jsx(Route, { path: "/results/:electionId?", element: _jsx(ProtectedRoute, { children: _jsx(ResultsPage, {}) }) }), _jsx(Route, { path: "/admin/dashboard/*", element: _jsx(AdminProtectedRoute, { children: _jsx(AdminDashboard, {}) }) }), _jsx(Route, { path: "/admin", element: _jsx(Navigate, { to: "/admin/dashboard", replace: true }) }), _jsx(Route, { path: "/admin/*", element: _jsx(Navigate, { to: "/admin/dashboard", replace: true }) }), _jsx(Route, { path: "/404", element: _jsx(NotFoundPage, {}) }), _jsx(Route, { path: "*", element: _jsx(Navigate, { to: "/404", replace: true }) })] }) }) }), _jsx(Footer, {})] }));
 }
-// Main App Wrapper
+// Main App Wrapper with Socket.IO Provider
 function App() {
-    return (_jsx(AuthProvider, { children: _jsx(Router, { children: _jsx(AppContent, {}) }) }));
+    return (_jsx(AuthProvider, { children: _jsx(SocketProvider, { children: _jsx(Router, { children: _jsx(AppContent, {}) }) }) }));
 }
 export default App;
