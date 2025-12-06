@@ -4,7 +4,7 @@ import {
   Badge, Modal, Form, ProgressBar, ListGroup, Dropdown, Carousel,
   Toast, ToastContainer
 } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { voterAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
@@ -24,12 +24,13 @@ import {
   FaTrophy, FaChartLine, FaFilePdf, FaFileCsv, FaFileAlt,
   FaLightbulb, FaMedal, FaUserClock, FaUserEdit,
   FaLock, FaGlobe, FaCalendarCheck,
-  FaPercentage, FaWrench,  // REMOVED FaGear from here
+  FaPercentage, FaWrench,
   FaUserShield, FaKey, FaBug, FaNetworkWired,
   FaServer, FaDatabase, FaFingerprint,
-    FaSignInAlt
+  FaSignInAlt
 } from 'react-icons/fa';
 import { FaCircleCheck, FaCircleInfo, FaCircleXmark, FaClockRotateLeft, FaGear, FaLocationDot, FaShieldHalved, FaTriangleExclamation } from 'react-icons/fa6';
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const { isAuthenticated, logout, user, loading: authLoading } = useAuth();
@@ -54,7 +55,7 @@ const Dashboard = () => {
   const [enhancedAnalytics, setEnhancedAnalytics] = useState(null);
   const [enhancedSecurity, setEnhancedSecurity] = useState(null);
   const [quickActions, setQuickActions] = useState([]);
-
+  const [searchParams] = useSearchParams();
   const BroadcastIcon = FaSignal;
 
   // Enhanced socket event listeners
@@ -115,6 +116,14 @@ const Dashboard = () => {
     };
   }, [socket, on, off]);
 
+  // Read the tab parameter from URL
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl && ['overview', 'profile', 'elections', 'results', 'history', 'analytics', 'security'].includes(tabFromUrl)) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [searchParams]);
+
   // Enhanced data loading functions
   const loadDashboardData = async () => {
     try {
@@ -166,6 +175,13 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Function to handle tab change 
+  const handleTabChange = (tabKey) => {
+    setActiveTab(tabKey);
+    // Update URL without reloading page
+    navigate(`/dashboard?tab=${tabKey}`, { replace: true });
   };
 
   const generateQuickActions = (dashboardData, votedStatus) => {
@@ -271,7 +287,7 @@ const Dashboard = () => {
     return 'Verification Pending';
   };
 
-  // NEW: Enhanced refresh function
+  // Enhanced refresh function
   const handleRefreshData = async () => {
     try {
       setLoading(true);
@@ -296,7 +312,7 @@ const Dashboard = () => {
     }
   };
 
-  // NEW: Enhanced export function
+  // Enhanced export function
   const handleExportData = async (format) => {
     try {
       setLoading(true);
@@ -332,7 +348,7 @@ const Dashboard = () => {
     }
   };
 
-  // NEW: Digital ID generation
+  // Digital ID generation
   const handleGenerateDigitalID = async () => {
     try {
       setLoading(true);
@@ -358,7 +374,7 @@ const Dashboard = () => {
     }
   };
 
-  // NEW: Enhanced voting history
+  // Enhanced voting history
   const handleLoadEnhancedVotingHistory = async () => {
     try {
       setLoading(true);
@@ -374,7 +390,7 @@ const Dashboard = () => {
     }
   };
 
-  // NEW: Enhanced analytics
+  // Enhanced analytics
   const handleLoadEnhancedAnalytics = async () => {
     try {
       setLoading(true);
@@ -390,7 +406,7 @@ const Dashboard = () => {
     }
   };
 
-  // NEW: Enhanced security
+  // Enhanced security
   const handleLoadEnhancedSecurity = async () => {
     try {
       setLoading(true);
@@ -406,9 +422,6 @@ const Dashboard = () => {
         // Handle specific error codes
         if (response.code === 'AUTH_REQUIRED') {
           setError('Please login again to access security information');
-          // Optionally logout and redirect
-          // await logout();
-          // navigate('/login');
         } else if (response.code === 'ACCOUNT_INACTIVE') {
           setError('Your account is not active. Please contact support.');
         } else {
@@ -478,7 +491,7 @@ const Dashboard = () => {
     if (isAuthenticated && !loading && isConnected) {
       const interval = setInterval(() => {
         loadDashboardData();
-        if (activeTab === 'elections') {
+        if (activeTab === 'elections' || activeTab === 'results') {
           loadCompletedElections();
         }
       }, 30000);
@@ -498,7 +511,7 @@ const Dashboard = () => {
     loadCompletedElections();
   }, [isAuthenticated, authLoading, navigate]);
 
-  // Socket event handlers (keep existing ones)
+  // Socket event handlers
   const handleResultsPublishedData = useCallback((data) => {
     const { election_id, election_title, timestamp, admin_id } = data;
     
@@ -514,7 +527,7 @@ const Dashboard = () => {
       urgent: true
     }, ...prev.slice(0, 9)]);
 
-    if (activeTab === 'overview' || activeTab === 'elections') {
+    if (activeTab === 'overview' || activeTab === 'elections' || activeTab === 'results') {
       loadCompletedElections();
       loadDashboardData();
     }
@@ -558,7 +571,7 @@ const Dashboard = () => {
       urgent: action === 'delete' || action === 'status_update'
     }, ...prev.slice(0, 9)]);
 
-    if (activeTab === 'overview' || activeTab === 'elections') {
+    if (activeTab === 'overview' || activeTab === 'elections' || activeTab === 'results') {
       loadDashboardData();
     }
   }, [activeTab]);
@@ -634,7 +647,7 @@ const Dashboard = () => {
     });
   }, []);
 
-  // Helper functions (keep existing ones)
+  // Helper functions
   const formatDate = (dateValue) => {
     if (!dateValue) return 'N/A';
     try {
@@ -855,12 +868,6 @@ const Dashboard = () => {
     }
   };
 
-  // Function to check if results are available
-  const areResultsAvailable = (election) => {
-    return election.status === 'completed' || 
-           (election.status === 'active' && hasVoted[election.election_id] && election.results_visibility === 'live');
-  };
-
   // Test SocketIO connection
   const testSocketConnection = () => {
     if (socket && isConnected) {
@@ -872,7 +879,7 @@ const Dashboard = () => {
   // Loading and authentication checks
   if (authLoading || loading) {
     return (
-      <div className="min-vh-100 d-flex align-items-center justify-content-center bg-gradient-primary">
+      <div className="min-vh-100 d-flex align-items-center justify-content-center bg-dark">
         <div className="text-center text-white">
           <Spinner animation="border" variant="light" style={{ width: '3rem', height: '3rem' }} />
           <div className="mt-3">
@@ -912,7 +919,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-vh-100 bg-light dashboard-overview">
+    <div className="d-flex flex-column min-vh-100">
       {/* Real-time Updates Toast */}
       <ToastContainer position="top-end" className="p-3" style={{ zIndex: 1050 }}>
         {realTimeUpdates.slice(0, 3).map(update => (
@@ -956,8 +963,8 @@ const Dashboard = () => {
         ))}
       </ToastContainer>
 
-      {/* Header */}
-      <nav className="navbar navbar-expand-lg navbar-dark bg-gradient-primary shadow">
+      {/* Header - Changed to dark theme */}
+      <nav className="navbar navbar-expand-lg navbar-dark bg-dark shadow">
         <Container fluid>
           <span className="navbar-brand d-flex align-items-center fw-bold">
             <FaTachometerAlt className="me-2 fs-4" />
@@ -1012,7 +1019,7 @@ const Dashboard = () => {
               </Dropdown.Toggle>
               
               <Dropdown.Menu>
-                <Dropdown.Item onClick={() => setActiveTab('profile')}>
+                <Dropdown.Item onClick={() => handleTabChange('profile')}>
                   <FaUser className="me-2" />
                   My Profile
                 </Dropdown.Item>
@@ -1031,7 +1038,8 @@ const Dashboard = () => {
         </Container>
       </nav>
 
-      <Container fluid className="py-4">
+      {/* Main Content */}
+      <Container fluid className="py-4 flex-grow-1">
         {/* Connection Status Alert */}
         {!isConnected && (
           <Alert variant="warning" className="d-flex align-items-center">
@@ -1086,7 +1094,7 @@ const Dashboard = () => {
         )}
         
         {dashboardData ? (
-          <Tab.Container activeKey={activeTab} onSelect={setActiveTab}>
+          <Tab.Container activeKey={activeTab} onSelect={handleTabChange}>
             <Row>
               {/* Enhanced Sidebar Navigation */}
               <Col lg={2} md={3} className="mb-4">
@@ -1115,7 +1123,7 @@ const Dashboard = () => {
                       </div>
                     </div>
 
-                    {/* Main Navigation */}
+                    {/* Main Navigation - Added Results tab */}
                     <Nav variant="pills" className="flex-column flex-grow-1">
                       <Nav.Item>
                         <Nav.Link eventKey="overview" className="d-flex align-items-center py-3 border-bottom">
@@ -1140,6 +1148,16 @@ const Dashboard = () => {
                           <span>Elections</span>
                           <Badge bg="primary" pill className="ms-2">
                             {dashboardData.election_info?.active_elections?.length || 0}
+                          </Badge>
+                        </Nav.Link>
+                      </Nav.Item>
+                      {/* NEW: Results Tab */}
+                      <Nav.Item>
+                        <Nav.Link eventKey="results" className="d-flex align-items-center py-3 border-bottom">
+                          <FaChartBar className="me-3 fs-5" />
+                          <span>Results</span>
+                          <Badge bg="warning" pill className="ms-2">
+                            {completedElections?.length || 0}
                           </Badge>
                         </Nav.Link>
                       </Nav.Item>
@@ -1288,6 +1306,14 @@ const Dashboard = () => {
                       onViewResults={handleViewResults}
                       hasVoted={hasVoted}
                       completedElections={completedElections}
+                    />
+                  </Tab.Pane>
+
+                  {/* NEW: Results Tab */}
+                  <Tab.Pane eventKey="results">
+                    <ResultsTab 
+                      completedElections={completedElections}
+                      onViewResults={handleViewResults}
                     />
                   </Tab.Pane>
 
@@ -1548,7 +1574,116 @@ const Dashboard = () => {
   );
 };
 
+// Results Tab Component
+const ResultsTab = ({ completedElections, onViewResults }) => {
+  if (!completedElections || completedElections.length === 0) {
+    return (
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0 d-flex align-items-center">
+            <FaTrophy className="me-2 text-warning" />
+            Election Results
+          </h5>
+        </Card.Header>
+        <Card.Body className="text-center py-5">
+          <FaTrophy className="text-muted fa-4x mb-3" />
+          <h5 className="text-muted">No Election Results Available</h5>
+          <p className="text-muted">
+            Results will appear here once elections are completed and results are published.
+          </p>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  return (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h4 className="mb-1">
+            <FaTrophy className="me-2 text-warning" />
+            Election Results
+            <Badge bg="warning" className="ms-2">
+              {completedElections.length} Completed
+            </Badge>
+          </h4>
+          <p className="text-muted mb-0">
+            View results of completed elections
+          </p>
+        </div>
+      </div>
+
+      <Row>
+        {completedElections.map((election, index) => (
+          <Col lg={6} key={election.election_id} className="mb-4">
+            <Card className="border-0 shadow-sm h-100">
+              <Card.Header className="bg-warning bg-opacity-10 border-0">
+                <div className="d-flex justify-content-between align-items-center">
+                  <div>
+                    <FaTrophy className="text-warning me-2" />
+                    <strong>Results Available</strong>
+                  </div>
+                  <Badge bg="warning">Completed</Badge>
+                </div>
+              </Card.Header>
+              <Card.Body>
+                <h5 className="mb-3">{election.title}</h5>
+                <div className="mb-3">
+                  <div className="d-flex align-items-center mb-2">
+                    <FaCalendarAlt className="text-muted me-2" />
+                    <small>
+                      Ended: {new Date(election.voting_end).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </small>
+                  </div>
+                  <div className="d-flex align-items-center mb-2">
+                    <FaMapMarkerAlt className="text-muted me-2" />
+                    <small>{election.constituency}</small>
+                  </div>
+                  <div className="d-flex align-items-center">
+                    <FaUsers className="text-muted me-2" />
+                    <small>{election.candidates_count || 0} Candidates</small>
+                  </div>
+                </div>
+                
+                {election.winner && (
+                  <div className="bg-light rounded p-3 mb-3">
+                    <div className="d-flex align-items-center mb-2">
+                      <FaMedal className="text-warning fs-4 me-2" />
+                      <div>
+                        <h6 className="mb-0">Winner</h6>
+                        <strong>{election.winner.candidate_name}</strong>
+                        <div className="small text-muted">{election.winner.party}</div>
+                      </div>
+                    </div>
+                    <Badge bg="success" className="mt-1">
+                      {election.winner.vote_percentage}% Votes
+                    </Badge>
+                  </div>
+                )}
+                
+                <Button 
+                  variant="warning" 
+                  className="w-100"
+                  onClick={() => onViewResults(election)}
+                >
+                  <FaChartBar className="me-2" />
+                  View Full Results
+                </Button>
+              </Card.Body>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+    </div>
+  );
+};
+
 // Enhanced Overview Component
+
 const EnhancedOverview = ({ 
   dashboardData, 
   liveStats, 
@@ -1562,37 +1697,360 @@ const EnhancedOverview = ({
   completedElections,
   quickActions
 }) => {
-  const recentCompletedElections = completedElections?.slice(0, 2) || [];
+  const [securityAlert, setSecurityAlert] = useState(false);
+  const [voteConfirmation, setVoteConfirmation] = useState(null);
+  const [activeElections, setActiveElections] = useState([]);
+  
+  // Check for security alerts
+  useEffect(() => {
+    const checkSecurityAlerts = () => {
+      const lastLogin = dashboardData?.voter_info?.last_login;
+      if (lastLogin) {
+        const lastLoginDate = new Date(lastLogin);
+        const hoursSinceLogin = (new Date() - lastLoginDate) / (1000 * 60 * 60);
+        if (hoursSinceLogin > 24) {
+          setSecurityAlert(true);
+        }
+      }
+    };
+    
+    if (dashboardData) {
+      checkSecurityAlerts();
+      // Extract active elections
+      const active = dashboardData?.election_info?.active_elections || [];
+      setActiveElections(active);
+    }
+  }, [dashboardData]);
 
-  const renderStatCard = (title, value, Icon, color = 'primary', subtitle = '', trend = null) => (
-    <Card className={`border-0 shadow-sm h-100 stats-card bg-gradient-${color} text-white`}>
-      <Card.Body className="d-flex align-items-center position-relative">
-        <div className="flex-grow-1 position-relative z-1">
-          <h3 className="mb-1 fw-bold">{value}</h3>
-          <p className="mb-0 opacity-90 small">{title}</p>
-          {subtitle && <small className="opacity-75 d-block mt-1">{subtitle}</small>}
-          {trend && (
-            <div className="d-flex align-items-center mt-2">
-              <FaChartLine className={`me-1 ${trend > 0 ? 'text-success' : 'text-danger'}`} />
-              <small className="opacity-90">{trend > 0 ? '+' : ''}{trend}%</small>
-            </div>
-          )}
+  // Election status indicators
+  const getElectionStatusIndicator = (election) => {
+    const now = new Date();
+    const start = new Date(election.voting_start);
+    const end = new Date(election.voting_end);
+    
+    if (now < start) {
+      return {
+        type: 'upcoming',
+        text: 'Starts Soon',
+        color: 'warning',
+        icon: FaClock
+      };
+    } else if (now >= start && now <= end) {
+      return {
+        type: 'active',
+        text: 'Voting Now',
+        color: 'success',
+        icon: FaPlay
+      };
+    } else {
+      return {
+        type: 'ended',
+        text: 'Voting Ended',
+        color: 'secondary',
+        icon: FaStop
+      };
+    }
+  };
+
+  // Render security card with enhanced features
+  const renderSecurityCard = () => (
+    <Card className="border-0 shadow-sm security-card">
+      <Card.Header className="bg-primary bg-opacity-10 border-0">
+        <div className="d-flex align-items-center justify-content-between">
+          <h6 className="mb-0 d-flex align-items-center">
+            <FaShieldAlt className="me-2 text-primary" />
+            Security Status
+          </h6>
+          <Button 
+            variant="outline-primary" 
+            size="sm"
+            onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'security' }))}
+          >
+            <FaWrench className="me-1" />
+            Manage
+          </Button>
         </div>
-        <div className="position-relative z-1 ms-3">
-          <div className="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center" 
-               style={{ width: '60px', height: '60px' }}>
-            <Icon className="fs-3" />
+      </Card.Header>
+      <Card.Body>
+        <div className="mb-3">
+          <div className="d-flex justify-content-between mb-2">
+            <span>Security Score</span>
+            <Badge bg={
+              dashboardData?.security_status?.security_score >= 80 ? "success" :
+              dashboardData?.security_status?.security_score >= 60 ? "warning" : "danger"
+            }>
+              {dashboardData?.security_status?.security_score || 0}/100
+            </Badge>
           </div>
+          <ProgressBar 
+            now={dashboardData?.security_status?.security_score || 0}
+            variant={
+              dashboardData?.security_status?.security_score >= 80 ? "success" :
+              dashboardData?.security_status?.security_score >= 60 ? "warning" : "danger"
+            }
+          />
         </div>
-        <div className="position-absolute top-0 end-0 opacity-10" style={{ fontSize: '5rem' }}>
-          <Icon />
+        
+        <ListGroup variant="flush">
+          <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
+            <div className="d-flex align-items-center">
+              <FaLock className="text-success me-2" />
+              <span>Account Protection</span>
+            </div>
+            {dashboardData?.security_status?.two_factor_enabled ? 
+              <FaCircleCheck className="text-success" /> : 
+              <FaTimesCircle className="text-warning" />
+            }
+          </ListGroup.Item>
+          <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
+            <div className="d-flex align-items-center">
+              <FaShieldHalved className="text-info me-2" />
+              <span>Active Sessions</span>
+            </div>
+            <Badge bg="info">
+              {dashboardData?.security_status?.active_sessions || 0}
+            </Badge>
+          </ListGroup.Item>
+          <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
+            <div className="d-flex align-items-center">
+              <FaUserCheck className="text-primary me-2" />
+              <span>Verified Devices</span>
+            </div>
+            <Badge bg="success">
+              {dashboardData?.security_status?.trusted_devices || 0}
+            </Badge>
+          </ListGroup.Item>
+          <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
+            <div className="d-flex align-items-center">
+              <FaBell className="text-warning me-2" />
+              <span>Security Alerts</span>
+            </div>
+            <Badge bg={dashboardData?.security_status?.alerts_count > 0 ? "warning" : "secondary"}>
+              {dashboardData?.security_status?.alerts_count || 0}
+            </Badge>
+          </ListGroup.Item>
+        </ListGroup>
+        
+        <Button 
+          variant="outline-primary" 
+          size="sm" 
+          className="w-100 mt-3"
+          onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'security' }))}
+        >
+          <FaShieldAlt className="me-2" />
+          Security Center
+        </Button>
+      </Card.Body>
+    </Card>
+  );
+
+  // Enhanced results card
+  const renderLiveResultsCard = () => {
+    if (!completedElections || completedElections.length === 0) return null;
+    
+    return (
+      <Card className="border-0 shadow-sm results-card">
+        <Card.Header className="bg-warning bg-opacity-10 border-0">
+          <div className="d-flex align-items-center justify-content-between">
+            <h6 className="mb-0 d-flex align-items-center">
+              <FaTrophy className="text-warning me-2" />
+              Recent Results
+            </h6>
+            <Button 
+              variant="outline-warning" 
+              size="sm"
+              onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'results' }))}
+            >
+              View All
+            </Button>
+          </div>
+        </Card.Header>
+        <Card.Body>
+          <div className="results-list">
+            {completedElections.slice(0, 3).map(election => (
+              <div key={election.election_id} className="result-item mb-3 pb-3 border-bottom">
+                <div className="d-flex justify-content-between align-items-start mb-2">
+                  <h6 className="mb-0">{election.title}</h6>
+                  <Badge bg="warning">Results</Badge>
+                </div>
+                <p className="text-muted small mb-2">{election.constituency}</p>
+                
+                {election.winner && (
+                  <div className="bg-light rounded p-2 mb-2">
+                    <div className="d-flex align-items-center">
+                      <FaMedal className="text-warning me-2" />
+                      <div>
+                        <strong className="d-block">{election.winner.candidate_name}</strong>
+                        <small className="text-muted">{election.winner.party}</small>
+                        <Badge bg="success" className="ms-2">
+                          {election.winner.vote_percentage}% Votes
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="d-flex justify-content-between align-items-center">
+                  <small className="text-muted">
+                    Ended: {new Date(election.voting_end).toLocaleDateString()}
+                  </small>
+                  <Button 
+                    variant="outline-warning" 
+                    size="sm"
+                    onClick={() => onViewResults(election)}
+                  >
+                    View
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card.Body>
+      </Card>
+    );
+  };
+
+  // Enhanced stat card component
+  const EnhancedStatCard = ({ title, value, icon: Icon, color = 'primary', subtitle = '', onClick = null }) => (
+    <Card 
+      className={`border-0 shadow-sm h-100 cursor-pointer ${onClick ? 'clickable-stat-card' : ''}`}
+      onClick={onClick}
+    >
+      <Card.Body className="d-flex align-items-center p-3">
+        <div className={`bg-${color} bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3`}
+             style={{ width: '50px', height: '50px' }}>
+          <Icon className={`text-${color} fs-4`} />
+        </div>
+        <div className="flex-grow-1">
+          <h3 className="mb-1 fw-bold">{value}</h3>
+          <p className="mb-0 text-muted small">{title}</p>
+          {subtitle && <small className="opacity-75 d-block mt-1">{subtitle}</small>}
+          {onClick && (
+            <small className="text-primary d-block mt-2">
+              Click to view details →
+            </small>
+          )}
         </div>
       </Card.Body>
     </Card>
   );
 
-  const renderQuickAction = (action) => (
-    <Card className="border-0 shadow-sm h-100 hover-shadow" key={action.id}>
+  // Enhanced election card
+  const EnhancedElectionCard = ({ election, onStartVoting, onViewResults, compact = false, hasVoted }) => {
+    const status = getElectionStatusIndicator(election);
+    const StatusIcon = status.icon;
+    
+    return (
+      <Card className="border-0 shadow-sm election-card h-100 hover-lift">
+        <Card.Header className={`bg-${status.color} bg-opacity-10 border-0`}>
+          <div className="d-flex justify-content-between align-items-center">
+            <div className="d-flex align-items-center">
+              <StatusIcon className={`text-${status.color} me-2`} />
+              <strong>{status.text}</strong>
+            </div>
+            {isConnected && (
+              <Badge bg="success" pill>
+                <BroadcastIcon className="me-1" /> Live
+              </Badge>
+            )}
+          </div>
+        </Card.Header>
+        <Card.Body>
+          <h5 className="mb-2">{election.title}</h5>
+          <div className="mb-3">
+            <div className="d-flex align-items-center mb-1">
+              <FaCalendarAlt className="text-muted me-2" size={12} />
+              <small>
+                {new Date(election.voting_start).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                })} - {new Date(election.voting_end).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric'
+                })}
+              </small>
+            </div>
+            <div className="d-flex align-items-center mb-1">
+              <FaMapMarkerAlt className="text-muted me-2" size={12} />
+              <small>{election.constituency}</small>
+            </div>
+            <div className="d-flex align-items-center">
+              <FaUsers className="text-muted me-2" size={12} />
+              <small>{election.candidates_count || 0} Candidates</small>
+            </div>
+          </div>
+          
+          {status.type === 'active' && (
+            <div className="mt-3">
+              {hasVoted ? (
+                <Alert variant="success" className="py-2 mb-2">
+                  <div className="d-flex align-items-center">
+                    <FaCheckCircle className="me-2" />
+                    <div>
+                      <strong>Vote Cast!</strong>
+                      <div className="small">Your vote has been recorded</div>
+                    </div>
+                  </div>
+                </Alert>
+              ) : (
+                <Button 
+                  variant="primary" 
+                  className="w-100"
+                  onClick={() => onStartVoting(election)}
+                >
+                  <FaVoteYea className="me-2" />
+                  Cast Your Vote
+                </Button>
+              )}
+              
+              {election.total_votes > 0 && (
+                <div className="mt-2">
+                  <ProgressBar 
+                    now={(election.total_votes / 1000) * 100}
+                    label={`${election.total_votes} votes`}
+                    variant="info"
+                    className="mb-1"
+                  />
+                  <small className="text-muted">Current Turnout</small>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {status.type === 'ended' && election.results_available && (
+            <Button 
+              variant="warning" 
+              className="w-100 mt-2"
+              onClick={() => onViewResults(election)}
+            >
+              <FaChartBar className="me-2" />
+              View Results
+            </Button>
+          )}
+        </Card.Body>
+        <Card.Footer className="bg-light border-0 py-2">
+          <div className="d-flex justify-content-between align-items-center">
+            <small className="text-muted">
+              <FaLock className="me-1" />
+              Secure Blockchain Verified
+            </small>
+            <Badge bg="light" text="dark" className="small">
+              ID: {election.election_id?.substring(0, 8)}...
+            </Badge>
+          </div>
+        </Card.Footer>
+      </Card>
+    );
+  };
+
+  // Quick action card
+  const QuickActionCard = ({ action }) => (
+    <Card 
+      className="border-0 shadow-sm h-100 hover-shadow cursor-pointer"
+      onClick={action.onClick}
+      key={action.id}
+    >
       <Card.Body className="text-center p-3">
         <div className={`bg-${action.color} bg-opacity-10 rounded-circle d-inline-flex align-items-center justify-content-center mb-3`}
              style={{ width: '50px', height: '50px' }}>
@@ -1600,20 +2058,34 @@ const EnhancedOverview = ({
         </div>
         <h6 className="mb-2">{action.title}</h6>
         <p className="small text-muted mb-3">{action.description}</p>
-        <Button 
-          variant={action.variant || action.color} 
-          size="sm" 
-          className="w-100 dashboard-btn"
-          onClick={action.onClick}
-        >
-          Take Action
-        </Button>
+        <small className="text-primary fw-semibold">
+          Take Action →
+        </small>
       </Card.Body>
     </Card>
   );
 
   return (
-    <div>
+    <div className="election-dashboard">
+      {/* Security Alert Banner */}
+      {securityAlert && (
+        <Alert variant="warning" className="d-flex align-items-center mb-4">
+          <FaShieldHalved className="me-3 fs-4" />
+          <div className="flex-grow-1">
+            <strong>Security Notice</strong>
+            <div className="small">It's been more than 24 hours since your last login. 
+              Please verify your account activity.</div>
+          </div>
+          <Button 
+            variant="outline-warning" 
+            size="sm"
+            onClick={() => setSecurityAlert(false)}
+          >
+            Dismiss
+          </Button>
+        </Alert>
+      )}
+
       {/* Header Section */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
@@ -1627,7 +2099,7 @@ const EnhancedOverview = ({
             )}
           </h4>
           <p className="text-muted mb-0">
-            Real-time voting dashboard • Last updated: {new Date().toLocaleTimeString()}
+            Dashboard • {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
         <div className="d-flex gap-2">
@@ -1636,7 +2108,7 @@ const EnhancedOverview = ({
             size="sm"
             onClick={onRefresh}
             disabled={loading}
-            className="dashboard-btn"
+            className="dashboard-btn d-flex align-items-center"
           >
             <FaSync className={`me-1 ${loading ? 'spinner' : ''}`} />
             Refresh
@@ -1644,75 +2116,62 @@ const EnhancedOverview = ({
         </div>
       </div>
 
-      {/* Quick Actions Bar */}
-      {quickActions && quickActions.length > 0 && (
-        <Row className="mb-4">
-          <Col>
-            <Card className="border-0 shadow-sm">
-              <Card.Body className="py-3">
-                <h6 className="text-muted mb-3">Quick Actions</h6>
-                <div className="quick-actions-grid">
-                  {quickActions.map(renderQuickAction)}
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
-      )}
-
-      {/* Main Stats Grid */}
+      {/* Quick Stats Grid */}
       <Row className="mb-4 g-3">
         <Col xl={3} lg={6}>
-          {renderStatCard(
-            'Active Elections',
-            liveStats?.active_elections_count || dashboardData?.election_info?.active_elections?.length || 0,
-            FaVoteYea,
-            'primary',
-            'Open for voting now'
-          )}
+          <EnhancedStatCard
+            title="Active Elections"
+            value={activeElections.length || 0}
+            icon={FaVoteYea}
+            color="primary"
+            subtitle="Open for voting"
+            onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'elections' }))}
+          />
         </Col>
         <Col xl={3} lg={6}>
-          {renderStatCard(
-            'Votes Today',
-            liveStats?.votes_today || dashboardData?.real_time_updates?.total_votes_today || 0,
-            FaFire,
-            'success',
-            'Total votes cast today',
-            '+12'
-          )}
+          <EnhancedStatCard
+            title="Your Votes"
+            value={dashboardData?.quick_stats?.votes_cast || 0}
+            icon={FaCheckCircle}
+            color="success"
+            subtitle="Total votes cast"
+            onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'history' }))}
+          />
         </Col>
         <Col xl={3} lg={6}>
-          {renderStatCard(
-            'Participation Rate',
-            `${dashboardData?.quick_stats?.participation_rate || 0}%`,
-            FaPercentage,
-            'info',
-            'Your voting participation',
-            '+5'
-          )}
+          <EnhancedStatCard
+            title="Participation"
+            value={`${dashboardData?.quick_stats?.participation_rate || 0}%`}
+            icon={FaPercentage}
+            color="info"
+            subtitle="Voting participation"
+            onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'analytics' }))}
+          />
         </Col>
         <Col xl={3} lg={6}>
-          {renderStatCard(
-            'Connected',
-            liveStats?.connected_users || dashboardData?.real_time_updates?.connected_users?.total_connected || 0,
-            FaUsers,
-            'warning',
-            'Active users now'
-          )}
+          <EnhancedStatCard
+            title="Security Score"
+            value={`${dashboardData?.security_status?.security_score || 0}/100`}
+            icon={FaShieldAlt}
+            color={dashboardData?.security_status?.security_score >= 80 ? "success" : "warning"}
+            subtitle="Account protection"
+            onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'security' }))}
+          />
         </Col>
       </Row>
 
+      {/* Main Content Grid */}
       <Row className="g-4">
-        {/* Left Column - Main Content */}
+        {/* Left Column - Elections */}
         <Col lg={8}>
           {/* Active Elections Section */}
-          <Card className="shadow-sm border-0 h-100">
+          <Card className="shadow-sm border-0 mb-4">
             <Card.Header className="bg-white border-0 d-flex justify-content-between align-items-center py-3">
               <h5 className="mb-0 d-flex align-items-center">
                 <FaVoteYea className="me-2 text-primary" />
                 Active Elections
                 <Badge bg="primary" className="ms-2">
-                  {dashboardData?.election_info?.active_elections?.length || 0}
+                  {activeElections.length || 0}
                 </Badge>
               </h5>
               <Button 
@@ -1725,15 +2184,14 @@ const EnhancedOverview = ({
               </Button>
             </Card.Header>
             <Card.Body>
-              {dashboardData?.election_info?.active_elections?.length > 0 ? (
+              {activeElections.length > 0 ? (
                 <Row>
-                  {dashboardData.election_info.active_elections.slice(0, 4).map(election => (
+                  {activeElections.slice(0, 2).map(election => (
                     <Col lg={6} className="mb-3" key={election.election_id}>
                       <EnhancedElectionCard 
                         election={election} 
                         onStartVoting={onStartVoting}
                         onViewResults={onViewResults}
-                        compact={true}
                         hasVoted={hasVoted[election.election_id]}
                       />
                     </Col>
@@ -1756,188 +2214,111 @@ const EnhancedOverview = ({
             </Card.Body>
           </Card>
 
-          {/* Voter Insights & Statistics */}
-          <Row className="mt-4">
-            <Col md={6}>
-              <Card className="shadow-sm border-0 h-100">
-                <Card.Header className="bg-white border-0 py-3">
-                  <h6 className="mb-0 d-flex align-items-center">
-                    <FaLightbulb className="me-2 text-warning" />
-                    Your Statistics
-                  </h6>
-                </Card.Header>
-                <Card.Body>
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <span className="text-muted">Total Votes</span>
-                    <h4 className="mb-0 text-primary">
-                      {dashboardData?.quick_stats?.votes_cast || 0}
-                    </h4>
-                  </div>
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <span className="text-muted">Elections Participated</span>
-                    <h4 className="mb-0 text-success">
-                      {dashboardData?.quick_stats?.elections_participated || 0}
-                    </h4>
-                  </div>
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <span className="text-muted">Constituency Rank</span>
-                    <Badge bg="info" className="fs-6">
-                      #{dashboardData?.quick_stats?.constituency_rank || 'N/A'}
-                    </Badge>
-                  </div>
-                  <div className="d-flex justify-content-between align-items-center">
-                    <span className="text-muted">Voting Streak</span>
-                    <Badge bg="warning" className="fs-6">
-                      <FaFire className="me-1" />
-                      {dashboardData?.quick_stats?.voting_streak || 0}
-                    </Badge>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col md={6}>
-              <Card className="shadow-sm border-0 h-100">
-                <Card.Header className="bg-white border-0 py-3">
-                  <h6 className="mb-0 d-flex align-items-center">
-                    <FaChartLine className="me-2 text-info" />
-                    Performance
-                  </h6>
-                </Card.Header>
-                <Card.Body>
+          {/* Quick Actions */}
+          {quickActions && quickActions.length > 0 && (
+            <Card className="shadow-sm border-0 mb-4">
+              <Card.Header className="bg-white border-0 py-3">
+                <h5 className="mb-0 d-flex align-items-center">
+                  <FaRocket className="me-2 text-success" />
+                  Quick Actions
+                </h5>
+              </Card.Header>
+              <Card.Body>
+                <Row className="g-3">
+                  {quickActions.slice(0, 4).map(action => (
+                    <Col md={6} lg={3} key={action.id}>
+                      <QuickActionCard action={action} />
+                    </Col>
+                  ))}
+                </Row>
+              </Card.Body>
+            </Card>
+          )}
+
+          {/* Voter Insights */}
+          <Card className="shadow-sm border-0">
+            <Card.Header className="bg-white border-0 py-3">
+              <h5 className="mb-0 d-flex align-items-center">
+                <FaLightbulb className="me-2 text-warning" />
+                Your Voting Insights
+              </h5>
+            </Card.Header>
+            <Card.Body>
+              <Row>
+                <Col md={6}>
                   <div className="mb-4">
+                    <h6 className="text-muted mb-3">Profile Completion</h6>
                     <div className="d-flex justify-content-between mb-1">
-                      <small className="text-muted">Profile Completion</small>
-                      <small className="text-muted">
-                        {(() => {
-                          const voterInfo = dashboardData?.voter_info;
-                          if (!voterInfo) return '0%';
-                          const requiredFields = [
-                            'full_name', 'father_name', 'gender', 'date_of_birth', 'email', 
-                            'phone', 'address_line1', 'village_city', 'district', 'state', 
-                            'pincode', 'national_id_number'
-                          ];
-                          const completed = requiredFields.filter(field => voterInfo[field]).length;
-                          return Math.round((completed / requiredFields.length) * 100) + '%';
-                        })()}
-                      </small>
+                      <small>Progress</small>
+                      <small>{calculateProfileCompletion(dashboardData?.voter_info)}%</small>
                     </div>
                     <ProgressBar 
-                      now={(() => {
-                        const voterInfo = dashboardData?.voter_info;
-                        if (!voterInfo) return 0;
-                        const requiredFields = [
-                          'full_name', 'father_name', 'gender', 'date_of_birth', 'email', 
-                          'phone', 'address_line1', 'village_city', 'district', 'state', 
-                          'pincode', 'national_id_number'
-                        ];
-                        const completed = requiredFields.filter(field => voterInfo[field]).length;
-                        return Math.round((completed / requiredFields.length) * 100);
-                      })()}
+                      now={calculateProfileCompletion(dashboardData?.voter_info)}
                       variant="primary"
                       style={{ height: '8px' }}
-                      className="rounded-pill dashboard-progress"
+                      className="rounded-pill"
                     />
                   </div>
-                  <div className="mb-4">
-                    <div className="d-flex justify-content-between mb-1">
-                      <small className="text-muted">Verification Status</small>
-                      <small className="text-muted">
-                        {(() => {
-                          const voterInfo = dashboardData?.voter_info;
-                          if (!voterInfo) return 'Unknown';
-                          const verifications = [
-                            voterInfo.email_verified,
-                            voterInfo.phone_verified,
-                            voterInfo.id_verified,
-                            voterInfo.face_verified
-                          ];
-                          const verifiedCount = verifications.filter(v => v).length;
-                          if (verifiedCount === 4) return 'Fully Verified';
-                          if (verifiedCount >= 2) return 'Partially Verified';
-                          return 'Verification Pending';
-                        })()}
-                      </small>
+                  <div className="mb-3">
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Voting Streak</span>
+                      <Badge bg="warning">
+                        <FaFire className="me-1" />
+                        {dashboardData?.quick_stats?.voting_streak || 0}
+                      </Badge>
                     </div>
-                    <div className="d-flex gap-2">
-                      {['email', 'phone', 'id', 'face'].map(type => (
-                        <Badge 
-                          key={type}
-                          bg={dashboardData?.voter_info?.[`${type}_verified`] ? 'success' : 'secondary'}
-                          className="flex-grow-1 text-center verification-badge"
-                        >
-                          {type.charAt(0).toUpperCase()}
-                        </Badge>
-                      ))}
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Constituency Rank</span>
+                      <Badge bg="info">
+                        #{dashboardData?.quick_stats?.constituency_rank || 'N/A'}
+                      </Badge>
                     </div>
                   </div>
-                  <div className="mt-4">
-                    <Button 
-                      variant="outline-primary" 
-                      size="sm" 
-                      className="w-100 dashboard-btn"
-                      onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'analytics' }))}
-                    >
-                      View Detailed Analytics
-                    </Button>
+                </Col>
+                <Col md={6}>
+                  <h6 className="text-muted mb-3">Verification Status</h6>
+                  <div className="d-flex flex-wrap gap-2 mb-3">
+                    {['email', 'phone', 'id', 'face'].map(type => (
+                      <Card 
+                        key={type}
+                        className={`text-center p-2 ${dashboardData?.voter_info?.[`${type}_verified`] ? 'border-success' : 'border-secondary'}`}
+                        style={{ width: '70px' }}
+                      >
+                        <div className={`fs-4 mb-1 ${dashboardData?.voter_info?.[`${type}_verified`] ? 'text-success' : 'text-secondary'}`}>
+                          {type === 'email' && <FaEnvelope />}
+                          {type === 'phone' && <FaPhone />}
+                          {type === 'id' && <FaIdCard />}
+                          {type === 'face' && <FaUserCheck />}
+                        </div>
+                        <small className="text-capitalize">{type}</small>
+                      </Card>
+                    ))}
                   </div>
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
+                  <Button 
+                    variant="outline-primary" 
+                    size="sm" 
+                    className="w-100"
+                    onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'profile' }))}
+                  >
+                    <FaUserEdit className="me-2" />
+                    Complete Profile
+                  </Button>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
         </Col>
 
         {/* Right Column - Sidebar */}
         <Col lg={4}>
-          {/* Upcoming Elections */}
-          <Card className="shadow-sm border-0 mb-4">
-            <Card.Header className="bg-white border-0 py-3">
-              <h6 className="mb-0 d-flex align-items-center">
-                <FaCalendarAlt className="me-2 text-primary" />
-                Upcoming Elections
-              </h6>
-            </Card.Header>
-            <Card.Body className="p-0">
-              {dashboardData?.election_info?.upcoming_elections?.length > 0 ? (
-                <ListGroup variant="flush">
-                  {dashboardData.election_info.upcoming_elections.slice(0, 3).map(election => (
-                    <ListGroup.Item key={election.id} className="border-0 py-3">
-                      <div className="d-flex align-items-start">
-                        <div className="bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3" 
-                             style={{ width: '40px', height: '40px' }}>
-                          <FaVoteYea className="text-primary" />
-                        </div>
-                        <div className="flex-grow-1">
-                          <h6 className="mb-1">{election.title}</h6>
-                          <small className="text-muted d-block">
-                            <FaClock className="me-1" />
-                            {new Date(election.date).toLocaleDateString('en-US', {
-                              weekday: 'short',
-                              month: 'short',
-                              day: 'numeric'
-                            })}
-                          </small>
-                          <small className="text-muted">
-                            {election.constituency}
-                          </small>
-                        </div>
-                        <Badge bg="warning" className="align-self-start">
-                          Upcoming
-                        </Badge>
-                      </div>
-                    </ListGroup.Item>
-                  ))}
-                </ListGroup>
-              ) : (
-                <div className="text-center py-4">
-                  <FaCalendarAlt className="text-muted fs-1 mb-3 opacity-50" />
-                  <p className="text-muted mb-0">No upcoming elections</p>
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-
+          {/* Security Status */}
+          {renderSecurityCard()}
+          
+          {/* Recent Results */}
+          {renderLiveResultsCard()}
+          
           {/* System Status */}
-          <Card className="shadow-sm border-0 mb-4">
+          <Card className="shadow-sm border-0 mt-4">
             <Card.Header className="bg-white border-0 py-3">
               <h6 className="mb-0 d-flex align-items-center">
                 <FaServer className="me-2 text-info" />
@@ -1947,11 +2328,7 @@ const EnhancedOverview = ({
             <Card.Body>
               <div className="mb-3">
                 <div className="d-flex justify-content-between align-items-center mb-2">
-                  <span className="text-muted">Uptime</span>
-                  <Badge bg="success">99.8%</Badge>
-                </div>
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <span className="text-muted">Live Updates</span>
+                  <span className="text-muted">Real-time Updates</span>
                   <Badge bg={isConnected ? "success" : "warning"}>
                     {isConnected ? 'Connected' : 'Connecting...'}
                   </Badge>
@@ -1960,40 +2337,79 @@ const EnhancedOverview = ({
                   <span className="text-muted">Active Users</span>
                   <span className="fw-semibold">{liveStats?.connected_users || 0}</span>
                 </div>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <span className="text-muted">Uptime</span>
+                  <Badge bg="success">99.9%</Badge>
+                </div>
                 <div className="d-flex justify-content-between align-items-center">
-                  <span className="text-muted">Response Time</span>
-                  <span className="fw-semibold">{"< 200ms"}</span>
+                  <span className="text-muted">Last Update</span>
+                  <small className="text-muted">
+                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </small>
                 </div>
               </div>
+              <Button 
+                variant="outline-info" 
+                size="sm" 
+                className="w-100"
+                onClick={() => window.location.reload()}
+              >
+                <FaSync className="me-2" />
+                Refresh System
+              </Button>
             </Card.Body>
           </Card>
 
           {/* Quick Tips */}
-          <Card className="shadow-sm border-0">
+          <Card className="shadow-sm border-0 mt-4">
             <Card.Header className="bg-white border-0 py-3">
               <h6 className="mb-0 d-flex align-items-center">
                 <FaCircleInfo className="me-2 text-success" />
                 Quick Tips
               </h6>
             </Card.Header>
-            <Card.Body>
+            <Card.Body className="p-0">
               <ListGroup variant="flush">
-                <ListGroup.Item className="border-0 py-2">
+                <ListGroup.Item className="border-0 py-3">
                   <div className="d-flex">
-                    <FaCheckCircle className="text-success me-2 mt-1" />
-                    <span>Complete your profile to increase verification score</span>
+                    <div className="bg-success bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
+                         style={{ width: '30px', height: '30px' }}>
+                      <FaCheckCircle className="text-success" />
+                    </div>
+                    <div>
+                      <strong>Verify Your Account</strong>
+                      <p className="small text-muted mb-0 mt-1">
+                        Complete all verifications for full voting access
+                      </p>
+                    </div>
                   </div>
                 </ListGroup.Item>
-                <ListGroup.Item className="border-0 py-2">
+                <ListGroup.Item className="border-0 py-3">
                   <div className="d-flex">
-                    <FaCheckCircle className="text-success me-2 mt-1" />
-                    <span>Vote early to avoid last-minute congestion</span>
+                    <div className="bg-warning bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
+                         style={{ width: '30px', height: '30px' }}>
+                      <FaBell className="text-warning" />
+                    </div>
+                    <div>
+                      <strong>Enable Notifications</strong>
+                      <p className="small text-muted mb-0 mt-1">
+                        Get alerts for election updates and results
+                      </p>
+                    </div>
                   </div>
                 </ListGroup.Item>
-                <ListGroup.Item className="border-0 py-2">
+                <ListGroup.Item className="border-0 py-3">
                   <div className="d-flex">
-                    <FaCheckCircle className="text-success me-2 mt-1" />
-                    <span>Enable notifications for election updates</span>
+                    <div className="bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
+                         style={{ width: '30px', height: '30px' }}>
+                      <FaVoteYea className="text-primary" />
+                    </div>
+                    <div>
+                      <strong>Vote Early</strong>
+                      <p className="small text-muted mb-0 mt-1">
+                        Cast your vote early to avoid last-minute congestion
+                      </p>
+                    </div>
                   </div>
                 </ListGroup.Item>
               </ListGroup>
@@ -2005,7 +2421,7 @@ const EnhancedOverview = ({
   );
 };
 
-// Enhanced Election Card Component (keep existing implementation)
+// Enhanced Election Card Component
 const EnhancedElectionCard = ({ 
   election, 
   onStartVoting, 
@@ -2359,7 +2775,7 @@ const EnhancedElectionCard = ({
   );
 };
 
-// Enhanced Elections Component (keep existing implementation)
+// Enhanced Elections Component
 const EnhancedElections = ({ 
   dashboardData, 
   voterId, 
@@ -2594,138 +3010,381 @@ const EnhancedElections = ({
   );
 };
 
-// Enhanced Profile Component (keep existing implementation)
+// Enhanced Profile Component
 const EnhancedProfile = ({ profileData, dashboardData }) => {
-  const safeRender = (value, defaultValue = 'N/A') => {
-    if (value === null || value === undefined || value === '') {
-      return defaultValue;
+  const [editMode, setEditMode] = useState(false);
+  const [formData, setFormData] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (profileData) {
+      setFormData({
+        full_name: profileData.full_name || '',
+        email: profileData.email || '',
+        phone: profileData.phone || '',
+        date_of_birth: profileData.date_of_birth || '',
+        address_line1: profileData.address?.address_line1 || '',
+        village_city: profileData.address?.village_city || '',
+        state: profileData.address?.state || '',
+        pincode: profileData.address?.pincode || ''
+      });
     }
-    return value.toString();
+  }, [profileData]);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
-  const ProfileField = ({ label, value }) => (
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      // API call to update profile
+      const response = await voterAPI.updateProfile(formData);
+      if (response.success) {
+        setSuccess('Profile updated successfully');
+        setEditMode(false);
+        // Refresh profile data
+        window.location.reload();
+      } else {
+        setError(response.message || 'Failed to update profile');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const ProfileField = ({ label, value, editName, type = 'text', required = false }) => (
     <div className="mb-3">
-      <small className="text-muted d-block">{label}</small>
-      <div className="fw-semibold">{value}</div>
+      <small className="text-muted d-block mb-1">{label}</small>
+      {editMode ? (
+        <Form.Control
+          type={type}
+          name={editName}
+          value={formData[editName] || ''}
+          onChange={handleInputChange}
+          required={required}
+          className="dashboard-input"
+        />
+      ) : (
+        <div className="fw-semibold p-2 bg-light rounded">
+          {value || 'Not provided'}
+        </div>
+      )}
     </div>
   );
 
-  const VerifiedField = ({ label, value, verified, icon: Icon }) => (
+  const VerifiedField = ({ label, value, verified, icon: Icon, onVerify }) => (
     <div className="mb-3">
-      <small className="text-muted d-block">{label}</small>
-      <div className="d-flex align-items-center">
-        <Icon className="text-primary me-2" />
-        <span className="fw-semibold">{value}</span>
-        {verified && <FaCheckCircle className="text-success ms-2" title="Verified" />}
-        {!verified && <FaTimesCircle className="text-danger ms-2" title="Not Verified" />}
+      <small className="text-muted d-block mb-1">{label}</small>
+      <div className="d-flex align-items-center justify-content-between p-2 bg-light rounded">
+        <div className="d-flex align-items-center">
+          <Icon className="text-primary me-2" />
+          <span className="fw-semibold">{value}</span>
+          {verified ? (
+            <Badge bg="success" className="ms-2">
+              <FaCheckCircle className="me-1" /> Verified
+            </Badge>
+          ) : (
+            <Badge bg="warning" className="ms-2">
+              <FaTimesCircle className="me-1" /> Pending
+            </Badge>
+          )}
+        </div>
+        {!verified && onVerify && (
+          <Button variant="outline-primary" size="sm" onClick={onVerify}>
+            Verify
+          </Button>
+        )}
       </div>
     </div>
   );
+
+  const calculateProfileCompletion = (profile) => {
+    if (!profile) return 0;
+    const requiredFields = [
+      'full_name', 'email', 'phone', 'date_of_birth',
+      'address_line1', 'village_city', 'state', 'pincode'
+    ];
+    const completed = requiredFields.filter(field => {
+      if (field.includes('address.')) {
+        const fieldName = field.split('.')[1];
+        return profile.address?.[fieldName];
+      }
+      return profile[field];
+    }).length;
+    return Math.round((completed / requiredFields.length) * 100);
+  };
 
   return (
     <Card className="shadow-sm border-0">
       <Card.Header className="bg-white border-0">
         <div className="d-flex justify-content-between align-items-center">
-          <h5 className="mb-0 d-flex align-items-center">
-            <FaUser className="me-2 text-primary" />
-            My Profile
-          </h5>
-          <Button variant="outline-primary" size="sm">
-            <FaEdit className="me-1" />
-            Edit Profile
-          </Button>
+          <div>
+            <h5 className="mb-0 d-flex align-items-center">
+              <FaUser className="me-2 text-primary" />
+              My Profile
+            </h5>
+            <small className="text-muted">
+              Profile completion: {calculateProfileCompletion(profileData)}%
+            </small>
+          </div>
+          <div className="d-flex gap-2">
+            {editMode ? (
+              <>
+                <Button variant="outline-secondary" size="sm" onClick={() => setEditMode(false)}>
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleSubmit} disabled={loading}>
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline-primary" size="sm" onClick={() => setEditMode(true)}>
+                <FaEdit className="me-1" />
+                Edit Profile
+              </Button>
+            )}
+          </div>
         </div>
       </Card.Header>
       <Card.Body>
-        <div className="text-center mb-4 py-4 bg-light rounded">
-          <div className="bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" 
+        {success && (
+          <Alert variant="success" dismissible onClose={() => setSuccess('')}>
+            <FaCheckCircle className="me-2" />
+            {success}
+          </Alert>
+        )}
+        {error && (
+          <Alert variant="danger" dismissible onClose={() => setError('')}>
+            <FaExclamationTriangle className="me-2" />
+            {error}
+          </Alert>
+        )}
+
+        {/* Profile Header */}
+        <div className="text-center mb-4 py-4 bg-gradient-primary text-white rounded">
+          <div className="bg-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" 
                style={{ width: '80px', height: '80px' }}>
-            <FaUser className="text-white fs-3" />
+            <FaUser className="text-primary fs-3" />
           </div>
-          <h4>{safeRender(profileData?.full_name)}</h4>
-          <p className="text-muted">Voter ID: {safeRender(profileData?.voter_id)}</p>
+          <h4>{profileData?.full_name || 'User'}</h4>
+          <p className="mb-2">Voter ID: {profileData?.voter_id || 'N/A'}</p>
           <div className="d-flex justify-content-center gap-2">
-            <Badge bg={profileData?.verification_status?.overall ? "success" : "warning"}>
-              {profileData?.verification_status?.overall ? "Verified Voter" : "Verification Pending"}
+            <Badge bg="light" text="dark">
+              {profileData?.constituency || 'General Constituency'}
             </Badge>
-            <Badge bg="info">{safeRender(profileData?.constituency)}</Badge>
+            <Badge bg={profileData?.verification_status?.overall ? "success" : "warning"}>
+              {profileData?.verification_status?.overall ? "Verified" : "Verification Pending"}
+            </Badge>
           </div>
         </div>
 
         <Row>
+          {/* Personal Information */}
           <Col lg={6}>
-            <Card className="border-0 bg-light">
-              <Card.Body>
-                <h6 className="border-bottom pb-2 mb-3">
+            <Card className="border-0 bg-light mb-4">
+              <Card.Header className="bg-transparent border-0">
+                <h6 className="mb-0 d-flex align-items-center">
                   <FaUser className="me-2" />
                   Personal Information
                 </h6>
-                <ProfileField label="Full Name" value={safeRender(profileData?.full_name)} />
-                <ProfileField label="Father's Name" value={safeRender(profileData?.father_name)} />
-                <ProfileField label="Mother's Name" value={safeRender(profileData?.mother_name)} />
-                <ProfileField label="Gender" value={safeRender(profileData?.gender)} />
-                <ProfileField label="Date of Birth" value={safeRender(profileData?.date_of_birth)} />
+              </Card.Header>
+              <Card.Body>
+                <ProfileField 
+                  label="Full Name" 
+                  value={profileData?.full_name} 
+                  editName="full_name"
+                  required
+                />
+                <ProfileField 
+                  label="Date of Birth" 
+                  value={profileData?.date_of_birth} 
+                  editName="date_of_birth"
+                  type="date"
+                />
+                <ProfileField 
+                  label="Gender" 
+                  value={profileData?.gender} 
+                  editName="gender"
+                />
+                <ProfileField 
+                  label="Father's Name" 
+                  value={profileData?.father_name} 
+                  editName="father_name"
+                />
+                <ProfileField 
+                  label="Mother's Name" 
+                  value={profileData?.mother_name} 
+                  editName="mother_name"
+                />
               </Card.Body>
             </Card>
           </Col>
           
+          {/* Contact & Verification */}
           <Col lg={6}>
-            <Card className="border-0 bg-light">
-              <Card.Body>
-                <h6 className="border-bottom pb-2 mb-3">
+            <Card className="border-0 bg-light mb-4">
+              <Card.Header className="bg-transparent border-0">
+                <h6 className="mb-0 d-flex align-items-center">
                   <FaEnvelope className="me-2" />
                   Contact & Verification
                 </h6>
+              </Card.Header>
+              <Card.Body>
                 <VerifiedField 
-                  label="Email" 
-                  value={safeRender(profileData?.email)}
+                  label="Email Address" 
+                  value={profileData?.email}
                   verified={profileData?.verification_status?.email}
                   icon={FaEnvelope}
+                  onVerify={() => {/* Handle email verification */}}
                 />
                 <VerifiedField 
-                  label="Phone" 
-                  value={safeRender(profileData?.phone)}
+                  label="Phone Number" 
+                  value={profileData?.phone}
                   verified={profileData?.verification_status?.phone}
                   icon={FaPhone}
+                  onVerify={() => {/* Handle phone verification */}}
                 />
                 <VerifiedField 
                   label="National ID" 
-                  value={`${safeRender(profileData?.national_id?.number)} (${safeRender(profileData?.national_id?.type)})`}
+                  value={`${profileData?.national_id?.number || 'N/A'} (${profileData?.national_id?.type || 'ID'})`}
                   verified={profileData?.verification_status?.id}
                   icon={FaIdCard}
+                  onVerify={() => {/* Handle ID verification */}}
                 />
                 <VerifiedField 
                   label="Face Verification" 
-                  value={profileData?.verification_status?.face ? "Verified" : "Pending"}
+                  value={profileData?.verification_status?.face ? "Completed" : "Pending"}
                   verified={profileData?.verification_status?.face}
                   icon={FaUserCheck}
+                  onVerify={() => {/* Handle face verification */}}
                 />
               </Card.Body>
             </Card>
           </Col>
         </Row>
 
-        <Card className="border-0 bg-light mt-4">
-          <Card.Body>
-            <h6 className="border-bottom pb-2 mb-3">
+        {/* Address Information */}
+        <Card className="border-0 bg-light">
+          <Card.Header className="bg-transparent border-0">
+            <h6 className="mb-0 d-flex align-items-center">
               <FaMapMarkerAlt className="me-2" />
               Address Information
             </h6>
+          </Card.Header>
+          <Card.Body>
             <Row>
               <Col md={6}>
-                <ProfileField label="Address Line 1" value={safeRender(profileData?.address?.address_line1)} />
-                <ProfileField label="City/Village" value={safeRender(profileData?.address?.village_city)} />
-                <ProfileField label="State" value={safeRender(profileData?.address?.state)} />
+                <ProfileField 
+                  label="Address Line 1" 
+                  value={profileData?.address?.address_line1} 
+                  editName="address_line1"
+                  required
+                />
+                <ProfileField 
+                  label="Address Line 2" 
+                  value={profileData?.address?.address_line2} 
+                  editName="address_line2"
+                />
               </Col>
               <Col md={6}>
-                <ProfileField label="Address Line 2" value={safeRender(profileData?.address?.address_line2)} />
-                <ProfileField label="District" value={safeRender(profileData?.address?.district)} />
-                <ProfileField label="Pincode" value={safeRender(profileData?.address?.pincode)} />
+                <ProfileField 
+                  label="City/Village" 
+                  value={profileData?.address?.village_city} 
+                  editName="village_city"
+                  required
+                />
+                <ProfileField 
+                  label="District" 
+                  value={profileData?.address?.district} 
+                  editName="district"
+                />
+                <Row>
+                  <Col md={6}>
+                    <ProfileField 
+                      label="State" 
+                      value={profileData?.address?.state} 
+                      editName="state"
+                      required
+                    />
+                  </Col>
+                  <Col md={6}>
+                    <ProfileField 
+                      label="Pincode" 
+                      value={profileData?.address?.pincode} 
+                      editName="pincode"
+                      required
+                    />
+                  </Col>
+                </Row>
+              </Col>
+            </Row>
+          </Card.Body>
+        </Card>
+
+        {/* Account Information */}
+        <Card className="border-0 bg-light mt-4">
+          <Card.Header className="bg-transparent border-0">
+            <h6 className="mb-0 d-flex align-items-center">
+              <FaInfoCircle className="me-2" />
+              Account Information
+            </h6>
+          </Card.Header>
+          <Card.Body>
+            <Row>
+              <Col md={6}>
+                <ProfileField 
+                  label="Registration Date" 
+                  value={profileData?.registration_date ? new Date(profileData.registration_date).toLocaleDateString() : 'N/A'}
+                />
+                <ProfileField 
+                  label="Last Updated" 
+                  value={profileData?.last_updated ? new Date(profileData.last_updated).toLocaleDateString() : 'N/A'}
+                />
+              </Col>
+              <Col md={6}>
+                <ProfileField 
+                  label="Constituency" 
+                  value={profileData?.constituency || 'General Constituency'}
+                />
+                <ProfileField 
+                  label="Polling Station" 
+                  value={profileData?.polling_station || 'Main Polling Station'}
+                />
               </Col>
             </Row>
           </Card.Body>
         </Card>
       </Card.Body>
+      {!editMode && (
+        <Card.Footer className="bg-white border-0">
+          <div className="d-flex justify-content-between">
+            <small className="text-muted">
+              Last login: {profileData?.last_login ? new Date(profileData.last_login).toLocaleString() : 'N/A'}
+            </small>
+            <Button 
+              variant="outline-primary" 
+              size="sm"
+              onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'security' }))}
+            >
+              <FaShieldAlt className="me-1" />
+              Security Settings
+            </Button>
+          </div>
+        </Card.Footer>
+      )}
     </Card>
   );
 };
@@ -2911,232 +3570,13 @@ const EnhancedVotingHistory = ({ voterId, enhancedVotingHistory, onLoadEnhanced 
 };
 
 // Enhanced Analytics Component
-const EnhancedAnalytics = ({ dashboardData, enhancedAnalytics, onLoadEnhanced }) => {
-  const [loading, setLoading] = useState(!enhancedAnalytics);
-
-  useEffect(() => {
-    if (!enhancedAnalytics) {
-      onLoadEnhanced();
-    }
-  }, [enhancedAnalytics, onLoadEnhanced]);
-
-  if (loading && !enhancedAnalytics) {
-    return (
-      <Card className="shadow-sm border-0">
-        <Card.Header className="bg-white border-0">
-          <h5 className="mb-0 d-flex align-items-center">
-            <FaChartBar className="me-2 text-primary" />
-            Voting Analytics
-          </h5>
-        </Card.Header>
-        <Card.Body className="text-center py-5">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-2">Loading enhanced analytics...</p>
-        </Card.Body>
-      </Card>
-    );
-  }
-
-  if (!enhancedAnalytics) {
-    return (
-      <Card className="shadow-sm border-0">
-        <Card.Header className="bg-white border-0">
-          <h5 className="mb-0 d-flex align-items-center">
-            <FaChartBar className="me-2 text-primary" />
-            Voting Analytics
-          </h5>
-        </Card.Header>
-        <Card.Body>
-          <Row>
-            <Col md={6}>
-              <Card className="border-0 bg-light">
-                <Card.Body>
-                  <h6>Participation Rate</h6>
-                  <ProgressBar now={75} variant="success" className="mb-2" />
-                  <small className="text-muted">75% of eligible elections</small>
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col md={6}>
-              <Card className="border-0 bg-light">
-                <Card.Body>
-                  <h6>Constituency Ranking</h6>
-                  <h4 className="text-primary">#12</h4>
-                  <small className="text-muted">Out of 150 voters</small>
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-        </Card.Body>
-      </Card>
-    );
-  }
-
-  const { profile_analytics, voting_analytics, comparison_analytics, security_analytics } = enhancedAnalytics;
-
-  return (
-    <div>
-      <Row className="mb-4">
-        <Col md={3}>
-          <Card className="border-0 bg-primary text-white">
-            <Card.Body className="text-center">
-              <h4>{profile_analytics?.completion_score || 0}%</h4>
-              <p className="mb-0">Profile Score</p>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3}>
-          <Card className="border-0 bg-success text-white">
-            <Card.Body className="text-center">
-              <h4>{voting_analytics?.participation_rate || 0}%</h4>
-              <p className="mb-0">Participation</p>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3}>
-          <Card className="border-0 bg-warning text-white">
-            <Card.Body className="text-center">
-              <h4>{profile_analytics?.trust_level || 'N/A'}</h4>
-              <p className="mb-0">Trust Level</p>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3}>
-          <Card className="border-0 bg-info text-white">
-            <Card.Body className="text-center">
-              <h4>#{comparison_analytics?.constituency_ranking?.rank || 'N/A'}</h4>
-              <p className="mb-0">Ranking</p>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-
-      <Row>
-        <Col lg={6}>
-          <Card className="shadow-sm border-0 mb-4">
-            <Card.Header className="bg-white border-0">
-              <h6 className="mb-0">Profile Analytics</h6>
-            </Card.Header>
-            <Card.Body>
-              <div className="mb-3">
-                <small className="text-muted">Verification Score</small>
-                <ProgressBar 
-                  now={profile_analytics?.verification_score || 0} 
-                  variant="success" 
-                  className="mt-1"
-                  label={`${profile_analytics?.verification_score || 0}%`}
-                />
-              </div>
-              <div className="mb-3">
-                <small className="text-muted">Activity Score</small>
-                <ProgressBar 
-                  now={profile_analytics?.activity_score || 0} 
-                  variant="info" 
-                  className="mt-1"
-                  label={`${profile_analytics?.activity_score || 0}%`}
-                />
-              </div>
-              <div>
-                <small className="text-muted">Trust Level: </small>
-                <Badge bg={
-                  profile_analytics?.trust_level === 'High' ? 'success' :
-                  profile_analytics?.trust_level === 'Medium' ? 'warning' : 'secondary'
-                }>
-                  {profile_analytics?.trust_level || 'N/A'}
-                </Badge>
-              </div>
-            </Card.Body>
-          </Card>
-
-          <Card className="shadow-sm border-0">
-            <Card.Header className="bg-white border-0">
-              <h6 className="mb-0">Security Analytics</h6>
-            </Card.Header>
-            <Card.Body>
-              <div className="mb-3">
-                <small className="text-muted">Account Health</small>
-                <ProgressBar 
-                  now={security_analytics?.account_health || 0} 
-                  variant="success" 
-                  className="mt-1"
-                  label={`${security_analytics?.account_health || 0}%`}
-                />
-              </div>
-              <div className="mb-3">
-                <small className="text-muted">Device Trust Score</small>
-                <ProgressBar 
-                  now={security_analytics?.device_trust_score || 0} 
-                  variant="info" 
-                  className="mt-1"
-                  label={`${security_analytics?.device_trust_score || 0}%`}
-                />
-              </div>
-            </Card.Body>
-          </Card>
-        </Col>
-
-        <Col lg={6}>
-          <Card className="shadow-sm border-0 mb-4">
-            <Card.Header className="bg-white border-0">
-              <h6 className="mb-0">Voting Patterns</h6>
-            </Card.Header>
-            <Card.Body>
-              {voting_analytics?.preferred_election_types && Object.entries(voting_analytics.preferred_election_types).map(([type, count]) => (
-                <div key={type} className="mb-2">
-                  <div className="d-flex justify-content-between">
-                    <span className="text-capitalize">{type}</span>
-                    <span className="fw-bold">{count}</span>
-                  </div>
-                  <ProgressBar 
-                    now={(count / voting_analytics.patterns?.total_elections) * 100} 
-                    variant={
-                      type === 'general' ? 'primary' :
-                      type === 'state' ? 'success' :
-                      type === 'local' ? 'warning' : 'info'
-                    }
-                    className="mt-1"
-                  />
-                </div>
-              ))}
-            </Card.Body>
-          </Card>
-
-          <Card className="shadow-sm border-0">
-            <Card.Header className="bg-white border-0">
-              <h6 className="mb-0">Comparison Analytics</h6>
-            </Card.Header>
-            <Card.Body>
-              {comparison_analytics?.age_group_comparison && (
-                <div className="mb-3">
-                  <h6>Age Group: {comparison_analytics.age_group_comparison.age_group}</h6>
-                  <div className="d-flex justify-content-between small text-muted">
-                    <span>Your Participation: {comparison_analytics.age_group_comparison.participation_rate}%</span>
-                    <span>Average: {comparison_analytics.age_group_comparison.average_votes} votes</span>
-                  </div>
-                </div>
-              )}
-              {comparison_analytics?.regional_comparison && (
-                <div>
-                  <h6>Region: {comparison_analytics.regional_comparison.region}</h6>
-                  <div className="d-flex justify-content-between small text-muted">
-                    <span>Regional Participation: {comparison_analytics.regional_comparison.regional_participation}%</span>
-                    <span>Average: {comparison_analytics.regional_comparison.regional_average} votes</span>
-                  </div>
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-    </div>
-  );
-};
-
-// Enhanced Security Component
 const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
   const [loading, setLoading] = useState(!enhancedSecurity);
   const [securityData, setSecurityData] = useState(null);
-  const [activeSection, setActiveSection] = useState('overview');
+  const [showManageDevices, setShowManageDevices] = useState(false);
+  const [devices, setDevices] = useState([]);
+  const [revokingDevice, setRevokingDevice] = useState(null);
+  const [loggingOutAll, setLoggingOutAll] = useState(false);
 
   useEffect(() => {
     if (!enhancedSecurity) {
@@ -3144,8 +3584,108 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
     } else {
       setSecurityData(enhancedSecurity);
       setLoading(false);
+      // Load devices data
+      loadDevices();
     }
   }, [enhancedSecurity, onLoadEnhanced]);
+
+  const loadDevices = async () => {
+    try {
+      const response = await voterAPI.getTrustedDevices();
+      if (response.success) {
+        setDevices(response.devices || []);
+      }
+    } catch (error) {
+      console.error('Failed to load devices:', error);
+    }
+  };
+
+  const handleRevokeDevice = async (deviceId) => {
+    setRevokingDevice(deviceId);
+    try {
+      const response = await voterAPI.revokeDevice(deviceId);
+      if (response.success) {
+        // Remove device from list
+        setDevices(prev => prev.filter(device => device.device_id !== deviceId));
+        // Show success message
+        alert('Device access revoked successfully');
+      } else {
+        alert('Failed to revoke device access');
+      }
+    } catch (error) {
+      console.error('Failed to revoke device:', error);
+      alert('Failed to revoke device access');
+    } finally {
+      setRevokingDevice(null);
+    }
+  };
+
+  const handleLogoutAllSessions = async () => {
+    if (!window.confirm('Are you sure you want to log out all active sessions? You will need to log in again on all devices.')) {
+      return;
+    }
+
+    setLoggingOutAll(true);
+    try {
+      const response = await voterAPI.logoutAllSessions();
+      if (response.success) {
+        alert('All sessions have been logged out successfully');
+        // Refresh security data
+        onLoadEnhanced();
+        // Reload devices
+        loadDevices();
+      } else {
+        alert('Failed to log out all sessions');
+      }
+    } catch (error) {
+      console.error('Failed to logout all sessions:', error);
+      alert('Failed to log out all sessions');
+    } finally {
+      setLoggingOutAll(false);
+    }
+  };
+
+  const handleEnable2FA = async () => {
+    try {
+      const response = await voterAPI.enableTwoFactorAuth();
+      if (response.success) {
+        if (response.requires_setup) {
+          // Show 2FA setup modal with QR code
+          alert('2FA setup required. Please scan the QR code.');
+          // In real app, show modal with QR code
+        } else {
+          alert('Two-factor authentication enabled successfully');
+          // Refresh security data
+          onLoadEnhanced();
+        }
+      } else {
+        alert('Failed to enable 2FA');
+      }
+    } catch (error) {
+      console.error('Failed to enable 2FA:', error);
+      alert('Failed to enable 2FA');
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    if (!window.confirm('Are you sure you want to disable two-factor authentication? This reduces your account security.')) {
+      return;
+    }
+
+    try {
+      const response = await voterAPI.disableTwoFactorAuth();
+      if (response.success) {
+        alert('Two-factor authentication disabled');
+        // Refresh security data
+        onLoadEnhanced();
+      } else {
+        alert('Failed to disable 2FA');
+      }
+    } catch (error) {
+      console.error('Failed to disable 2FA:', error);
+      alert('Failed to disable 2FA');
+    }
+  };
 
   const renderSecurityScore = (score) => {
     let color = 'danger';
@@ -3200,46 +3740,6 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
     );
   };
 
-  const renderVerificationStatus = (verifications) => {
-    if (!verifications) return null;
-    
-    return (
-      <Row>
-        {Object.entries(verifications).map(([key, value]) => {
-          if (key === 'overall') return null;
-          
-          const icons = {
-            email: FaEnvelope,
-            phone: FaPhone,
-            id: FaIdCard,
-            face: FaUserCheck
-          };
-          const Icon = icons[key] || FaCircleCheck;
-          const labels = {
-            email: 'Email',
-            phone: 'Phone',
-            id: 'ID',
-            face: 'Face'
-          };
-          
-          return (
-            <Col md={6} key={key} className="mb-3">
-              <Card className={`border-2 ${value ? 'border-success' : 'border-warning'} h-100`}>
-                <Card.Body className="text-center py-3">
-                  <Icon className={`fs-2 mb-2 ${value ? 'text-success' : 'text-warning'}`} />
-                  <h6 className="mb-1">{labels[key]} Verification</h6>
-                  <Badge bg={value ? "success" : "warning"}>
-                    {value ? 'Verified' : 'Pending'}
-                  </Badge>
-                </Card.Body>
-              </Card>
-            </Col>
-          );
-        })}
-      </Row>
-    );
-  };
-
   const renderDeviceCard = (device, index) => (
     <Card key={index} className="border-0 shadow-sm mb-2">
       <Card.Body className="py-2">
@@ -3254,12 +3754,28 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
               {device.browser} • {device.os}
             </small>
             <small className="text-muted">
-              Last used: {new Date(device.last_used).toLocaleDateString()}
+              Last used: {device.last_used ? new Date(device.last_used).toLocaleDateString() : 'Unknown'}
             </small>
           </div>
-          <Badge bg={device.is_trusted ? "success" : "warning"}>
-            {device.is_trusted ? 'Trusted' : 'New'}
-          </Badge>
+          <div className="d-flex gap-1">
+            <Badge bg={device.is_trusted ? "success" : "warning"}>
+              {device.is_trusted ? 'Trusted' : 'New'}
+            </Badge>
+            {showManageDevices && (
+              <Button 
+                variant="outline-danger" 
+                size="sm"
+                onClick={() => handleRevokeDevice(device.device_id)}
+                disabled={revokingDevice === device.device_id}
+              >
+                {revokingDevice === device.device_id ? (
+                  <Spinner animation="border" size="sm" />
+                ) : (
+                  'Revoke'
+                )}
+              </Button>
+            )}
+          </div>
         </div>
       </Card.Body>
     </Card>
@@ -3279,7 +3795,7 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
               {session.device} • {session.location || 'Unknown location'}
             </small>
             <small className="text-muted">
-              Active since: {new Date(session.started_at).toLocaleTimeString()}
+              Active since: {session.started_at ? new Date(session.started_at).toLocaleTimeString() : 'Unknown'}
             </small>
           </div>
           <Badge bg="success">
@@ -3289,47 +3805,6 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
       </Card.Body>
     </Card>
   );
-
-  const renderSecurityEvent = (event, index) => {
-    const icons = {
-      login: FaSignInAlt,
-      login_failed: FaExclamationTriangle,
-      password_change: FaKey,
-      profile_update: FaUserEdit
-    };
-    const Icon = icons[event.action] || FaBell;
-    
-    const colors = {
-      login: 'success',
-      login_failed: 'danger',
-      password_change: 'info',
-      profile_update: 'warning'
-    };
-    const color = colors[event.action] || 'secondary';
-    
-    return (
-      <div key={index} className="d-flex align-items-start mb-3">
-        <div className={`bg-${color} bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3`}
-             style={{ width: '40px', height: '40px' }}>
-          <Icon className={`text-${color}`} />
-        </div>
-        <div className="flex-grow-1">
-          <h6 className="mb-1">{event.action.replace('_', ' ').toUpperCase()}</h6>
-          <p className="mb-1 small text-muted">
-            {event.details || 'Security event recorded'}
-          </p>
-          <div className="d-flex justify-content-between">
-            <small className="text-muted">
-              {event.ip_address || 'Unknown IP'}
-            </small>
-            <small className="text-muted">
-              {new Date(event.timestamp).toLocaleString()}
-            </small>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   if (loading && !securityData) {
     return (
@@ -3374,6 +3849,38 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
 
   return (
     <div className="security-dashboard">
+      {/* Manage Devices Modal */}
+      <Modal show={showManageDevices} onHide={() => setShowManageDevices(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>
+            <FaDesktop className="me-2" />
+            Manage Trusted Devices
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="text-muted mb-4">
+            Manage devices that are authorized to access your account. Revoke access for any device you don't recognize.
+          </p>
+          
+          {devices.length > 0 ? (
+            <div>
+              {devices.map((device, index) => renderDeviceCard(device, index))}
+            </div>
+          ) : (
+            <div className="text-center py-4">
+              <FaDesktop className="text-muted fs-1 mb-3 opacity-50" />
+              <p className="text-muted mb-0">No trusted devices found</p>
+            </div>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowManageDevices(false)}>
+            Close
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Header */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h4 className="mb-1 fw-bold">
@@ -3384,10 +3891,34 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
             Monitor and manage your account security
           </p>
         </div>
-        <Button variant="outline-primary" size="sm">
-          <FaGear className="me-1" />
-          Security Settings
-        </Button>
+        <div className="d-flex gap-2">
+          <Button 
+            variant="outline-primary" 
+            size="sm"
+            onClick={handleLogoutAllSessions}
+            disabled={loggingOutAll}
+          >
+            {loggingOutAll ? (
+              <>
+                <Spinner animation="border" size="sm" className="me-2" />
+                Logging Out...
+              </>
+            ) : (
+              <>
+                <FaSignOutAlt className="me-1" />
+                Logout All Sessions
+              </>
+            )}
+          </Button>
+          <Button 
+            variant="outline-primary" 
+            size="sm"
+            onClick={() => setShowManageDevices(true)}
+          >
+            <FaDesktop className="me-1" />
+            Manage Devices
+          </Button>
+        </div>
       </div>
 
       {/* Security Overview */}
@@ -3436,6 +3967,25 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
                             <Badge bg={account_security?.two_factor_enabled ? "success" : "secondary"}>
                               {account_security?.two_factor_enabled ? 'Enabled' : 'Disabled'}
                             </Badge>
+                            <div className="mt-2">
+                              {account_security?.two_factor_enabled ? (
+                                <Button 
+                                  variant="outline-danger" 
+                                  size="sm"
+                                  onClick={handleDisable2FA}
+                                >
+                                  Disable 2FA
+                                </Button>
+                              ) : (
+                                <Button 
+                                  variant="outline-success" 
+                                  size="sm"
+                                  onClick={handleEnable2FA}
+                                >
+                                  Enable 2FA
+                                </Button>
+                              )}
+                            </div>
                           </p>
                         </div>
                       </div>
@@ -3494,28 +4044,69 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
               <h5 className="mb-0">Verification Status</h5>
             </Card.Header>
             <Card.Body>
-              {renderVerificationStatus(account_security?.verification_status)}
+              <Row>
+                {['email', 'phone', 'id', 'face'].map((type) => {
+                  const icons = {
+                    email: FaEnvelope,
+                    phone: FaPhone,
+                    id: FaIdCard,
+                    face: FaUserCheck
+                  };
+                  const Icon = icons[type];
+                  const verified = account_security?.verification_status?.[type];
+                  const labels = {
+                    email: 'Email',
+                    phone: 'Phone',
+                    id: 'ID',
+                    face: 'Face'
+                  };
+                  
+                  return (
+                    <Col md={6} key={type} className="mb-3">
+                      <Card className={`border-2 ${verified ? 'border-success' : 'border-warning'} h-100`}>
+                        <Card.Body className="text-center py-3">
+                          <Icon className={`fs-2 mb-2 ${verified ? 'text-success' : 'text-warning'}`} />
+                          <h6 className="mb-1">{labels[type]} Verification</h6>
+                          <Badge bg={verified ? "success" : "warning"}>
+                            {verified ? 'Verified' : 'Pending'}
+                          </Badge>
+                          {!verified && (
+                            <Button 
+                              variant="outline-primary" 
+                              size="sm" 
+                              className="mt-2"
+                              onClick={() => {/* Handle verification */}}
+                            >
+                              Verify Now
+                            </Button>
+                          )}
+                        </Card.Body>
+                      </Card>
+                    </Col>
+                  );
+                })}
+              </Row>
             </Card.Body>
           </Card>
 
-          {/* Recent Security Events */}
+          {/* Active Sessions */}
           <Card className="shadow-sm border-0">
             <Card.Header className="bg-white border-0 py-3 d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">Recent Security Events</h5>
-              <Badge bg="info">
-                Last 7 days
+              <h5 className="mb-0">Active Sessions</h5>
+              <Badge bg="success">
+                {session_security?.active_sessions?.length || 0} active
               </Badge>
             </Card.Header>
             <Card.Body>
-              {session_security?.recent_security_events?.length > 0 ? (
-                session_security.recent_security_events.map((event, index) => 
-                  renderSecurityEvent(event, index)
+              {session_security?.active_sessions?.length > 0 ? (
+                session_security.active_sessions.map((session, index) => 
+                  renderSessionCard(session, index)
                 )
               ) : (
                 <div className="text-center py-4">
-                  <FaCheckCircle className="text-success fs-1 mb-3" />
-                  <h6 className="text-muted">No Recent Security Events</h6>
-                  <p className="text-muted">Your account security is stable</p>
+                  <FaGlobe className="text-muted fs-1 mb-3 opacity-50" />
+                  <h6 className="text-muted">No Active Sessions</h6>
+                  <p className="text-muted">Your account is not currently logged in anywhere</p>
                 </div>
               )}
             </Card.Body>
@@ -3524,19 +4115,19 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
 
         {/* Right Column */}
         <Col lg={4}>
-          {/* Device Management */}
+          {/* Trusted Devices */}
           <Card className="shadow-sm border-0 mb-4">
             <Card.Header className="bg-white border-0 py-3">
               <div className="d-flex justify-content-between align-items-center">
                 <h6 className="mb-0">Trusted Devices</h6>
                 <Badge bg="primary">
-                  {device_security?.trusted_devices?.length || 0} devices
+                  {devices.length} devices
                 </Badge>
               </div>
             </Card.Header>
             <Card.Body>
-              {device_security?.trusted_devices?.length > 0 ? (
-                device_security.trusted_devices.slice(0, 3).map((device, index) => 
+              {devices.length > 0 ? (
+                devices.slice(0, 3).map((device, index) => 
                   renderDeviceCard(device, index)
                 )
               ) : (
@@ -3546,113 +4137,70 @@ const EnhancedSecurity = ({ voterId, enhancedSecurity, onLoadEnhanced }) => {
                 </div>
               )}
               <div className="mt-3">
-                <Button variant="outline-primary" size="sm" className="w-100">
+                <Button 
+                  variant="outline-primary" 
+                  size="sm" 
+                  className="w-100"
+                  onClick={() => setShowManageDevices(true)}
+                >
                   <FaWrench className="me-1" />
-                  Manage Devices
+                  Manage All Devices
                 </Button>
               </div>
             </Card.Body>
           </Card>
 
-          {/* Active Sessions */}
-          <Card className="shadow-sm border-0 mb-4">
-            <Card.Header className="bg-white border-0 py-3">
-              <div className="d-flex justify-content-between align-items-center">
-                <h6 className="mb-0">Active Sessions</h6>
-                <Badge bg="success">
-                  {session_security?.active_sessions?.length || 0} active
-                </Badge>
-              </div>
-            </Card.Header>
-            <Card.Body>
-              {session_security?.active_sessions?.length > 0 ? (
-                session_security.active_sessions.slice(0, 2).map((session, index) => 
-                  renderSessionCard(session, index)
-                )
-              ) : (
-                <div className="text-center py-3">
-                  <FaGlobe className="text-muted fs-1 mb-3 opacity-50" />
-                  <p className="text-muted mb-0">No active sessions</p>
-                </div>
-              )}
-              <div className="mt-3">
-                <Button variant="outline-danger" size="sm" className="w-100">
-                  <FaSignOutAlt className="me-1" />
-                  Logout All Sessions
-                </Button>
-              </div>
-            </Card.Body>
-          </Card>
-
-          {/* Security Recommendations */}
+          {/* Security Actions */}
           <Card className="shadow-sm border-0">
             <Card.Header className="bg-white border-0 py-3">
-              <h6 className="mb-0">Security Recommendations</h6>
+              <h6 className="mb-0">Security Actions</h6>
             </Card.Header>
             <Card.Body>
-              <ListGroup variant="flush">
-                {!account_security?.two_factor_enabled && (
-                  <ListGroup.Item className="border-0 py-2">
-                    <div className="d-flex">
-                      <FaShieldAlt className="text-warning me-2 mt-1" />
-                      <div>
-                        <strong>Enable 2FA</strong>
-                        <small className="d-block text-muted">Add an extra layer of security</small>
-                      </div>
-                    </div>
-                  </ListGroup.Item>
-                )}
-                {account_security?.password_streak === 'Weak' && (
-                  <ListGroup.Item className="border-0 py-2">
-                    <div className="d-flex">
-                      <FaKey className="text-danger me-2 mt-1" />
-                      <div>
-                        <strong>Strengthen Password</strong>
-                        <small className="d-block text-muted">Use a stronger password</small>
-                      </div>
-                    </div>
-                  </ListGroup.Item>
-                )}
-                {device_security?.unusual_activity && device_security.unusual_activity.length > 0 && (
-                  <ListGroup.Item className="border-0 py-2">
-                    <div className="d-flex">
-                      <FaExclamationTriangle className="text-warning me-2 mt-1" />
-                      <div>
-                        <strong>Review Activity</strong>
-                        <small className="d-block text-muted">
-                          {device_security.unusual_activity.length} unusual activities detected
-                        </small>
-                      </div>
-                    </div>
-                  </ListGroup.Item>
-                )}
-                <ListGroup.Item className="border-0 py-2">
-                  <div className="d-flex">
-                    <FaBell className="text-info me-2 mt-1" />
-                    <div>
-                      <strong>Enable Alerts</strong>
-                      <small className="d-block text-muted">Get notified of suspicious activity</small>
-                    </div>
-                  </div>
-                </ListGroup.Item>
-              </ListGroup>
+              <div className="d-grid gap-2">
+                <Button 
+                  variant="outline-primary"
+                  onClick={() => {/* Change password */}}
+                >
+                  <FaKey className="me-2" />
+                  Change Password
+                </Button>
+                <Button 
+                  variant="outline-success"
+                  onClick={handleEnable2FA}
+                  disabled={account_security?.two_factor_enabled}
+                >
+                  <FaLock className="me-2" />
+                  {account_security?.two_factor_enabled ? '2FA Enabled' : 'Enable 2FA'}
+                </Button>
+                <Button 
+                  variant="outline-danger"
+                  onClick={handleLogoutAllSessions}
+                  disabled={loggingOutAll}
+                >
+                  {loggingOutAll ? (
+                    <>
+                      <Spinner animation="border" size="sm" className="me-2" />
+                      Logging Out...
+                    </>
+                  ) : (
+                    <>
+                      <FaSignOutAlt className="me-2" />
+                      Logout All Sessions
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  variant="outline-warning"
+                  onClick={() => {/* View activity logs */}}
+                >
+                  <FaHistory className="me-2" />
+                  View Activity Logs
+                </Button>
+              </div>
             </Card.Body>
           </Card>
         </Col>
       </Row>
-
-      {/* Failed Login Attempts Alert */}
-      {session_security?.failed_login_attempts?.last_week > 0 && (
-        <Alert variant="warning" className="mt-4">
-          <FaExclamationTriangle className="me-2" />
-          <strong>Security Notice:</strong> {session_security.failed_login_attempts.last_week} failed login attempts in the last week.
-          {session_security.failed_login_attempts.last_24_hours > 0 && (
-            <div className="mt-1">
-              {session_security.failed_login_attempts.last_24_hours} in the last 24 hours.
-            </div>
-          )}
-        </Alert>
-      )}
     </div>
   );
 };
