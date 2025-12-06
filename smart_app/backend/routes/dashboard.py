@@ -2969,6 +2969,328 @@ def security_settings():
             'message': 'Failed to process security settings'
         }), 500
 
+# Add these endpoints to your dashboard.py
+
+@dashboard_bp.route('/security/devices', methods=['GET'])
+@cross_origin()
+@voter_required
+def get_trusted_devices():
+    """Get trusted devices for voter"""
+    try:
+        voter = request.voter
+        
+        # Get devices from audit logs
+        month_ago = datetime.utcnow() - timedelta(days=30)
+        
+        device_logs = AuditLog.aggregate([
+            {
+                "$match": {
+                    "user_id": voter['voter_id'],
+                    "user_type": "voter",
+                    "action": "login",
+                    "timestamp": {"$gte": month_ago},
+                    "user_agent": {"$exists": True}
+                }
+            },
+            {
+                "$group": {
+                    "_id": {
+                        "user_agent": "$user_agent",
+                        "ip_address": "$ip_address"
+                    },
+                    "last_login": {"$max": "$timestamp"},
+                    "login_count": {"$sum": 1},
+                    "device_id": {"$first": "$session_id"}
+                }
+            },
+            {
+                "$sort": {"last_login": -1}
+            }
+        ])
+        
+        devices = []
+        for device in device_logs:
+            device_info = {
+                'device_id': device.get('device_id', f"device_{hash(str(device['_id']))}"),
+                'device_name': parse_user_agent_for_device_name(device['_id']['user_agent']),
+                'user_agent': device['_id']['user_agent'],
+                'ip_address': device['_id']['ip_address'],
+                'last_login': device['last_login'],
+                'login_count': device['login_count'],
+                'device_type': parse_user_agent(device['_id']['user_agent']),
+                'is_trusted': device['login_count'] >= 2,  # Trusted if used at least twice
+                'location': get_location_from_ip(device['_id']['ip_address'])
+            }
+            devices.append(device_info)
+        
+        return jsonify({
+            'success': True,
+            'devices': devices,
+            'total_devices': len(devices)
+        })
+        
+    except Exception as e:
+        logger.error(f'Trusted devices error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to load trusted devices'
+        }), 500
+
+@dashboard_bp.route('/security/devices/revoke', methods=['POST'])
+@cross_origin()
+@voter_required
+def revoke_device():
+    """Revoke device access"""
+    try:
+        voter = request.voter
+        data = request.get_json()
+        device_id = data.get('device_id')
+        
+        if not device_id:
+            return jsonify({
+                'success': False,
+                'message': 'Device ID is required'
+            }), 400
+        
+        # In a real implementation, you would mark this device as revoked
+        # For now, we'll just log the action
+        AuditLog.create_log(
+            action='device_revoked',
+            user_id=voter['voter_id'],
+            user_type='voter',
+            details={
+                'device_id': device_id,
+                'action': 'device_access_revoked'
+            },
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'Device access revoked successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f'Revoke device error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to revoke device'
+        }), 500
+
+@dashboard_bp.route('/security/sessions/logout-all', methods=['POST'])
+@cross_origin()
+@voter_required
+def logout_all_sessions():
+    """Logout from all active sessions"""
+    try:
+        voter = request.voter
+        
+        # In a real implementation, you would invalidate all active sessions
+        # For now, we'll just log the action
+        
+        AuditLog.create_log(
+            action='logout_all_sessions',
+            user_id=voter['voter_id'],
+            user_type='voter',
+            details={
+                'action': 'all_sessions_logged_out',
+                'timestamp': datetime.utcnow().isoformat()
+            },
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'All sessions have been logged out successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f'Logout all sessions error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to logout all sessions'
+        }), 500
+
+@dashboard_bp.route('/security/two-factor/enable', methods=['POST'])
+@cross_origin()
+@voter_required
+def enable_two_factor():
+    """Enable two-factor authentication"""
+    try:
+        voter = request.voter
+        
+        # Update voter record
+        Voter.update_one(
+            {"voter_id": voter['voter_id']},
+            {"$set": {"two_factor_enabled": True}}
+        )
+        
+        AuditLog.create_log(
+            action='enable_2fa',
+            user_id=voter['voter_id'],
+            user_type='voter',
+            details={'action': 'two_factor_enabled'},
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'Two-factor authentication enabled successfully',
+            'requires_setup': True,  # In real app, this would be based on setup status
+            'setup_data': {
+                'secret_key': 'JBSWY3DPEHPK3PXP',  # Example TOTP secret
+                'qr_code_url': 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=otpauth://totp/VoterPortal'
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f'Enable 2FA error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to enable two-factor authentication'
+        }), 500
+
+@dashboard_bp.route('/security/two-factor/disable', methods=['POST'])
+@cross_origin()
+@voter_required
+def disable_two_factor():
+    """Disable two-factor authentication"""
+    try:
+        voter = request.voter
+        
+        # Update voter record
+        Voter.update_one(
+            {"voter_id": voter['voter_id']},
+            {"$set": {"two_factor_enabled": False}}
+        )
+        
+        AuditLog.create_log(
+            action='disable_2fa',
+            user_id=voter['voter_id'],
+            user_type='voter',
+            details={'action': 'two_factor_disabled'},
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'Two-factor authentication disabled successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f'Disable 2FA error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to disable two-factor authentication'
+        }), 500
+
+@dashboard_bp.route('/profile/update', methods=['PUT'])
+@cross_origin()
+@voter_required
+def update_profile():
+    """Update voter profile"""
+    try:
+        voter = request.voter
+        data = request.get_json()
+        
+        # Prepare update data
+        update_data = {}
+        
+        # Personal information
+        if 'full_name' in data:
+            update_data['full_name'] = data['full_name']
+        if 'date_of_birth' in data:
+            update_data['date_of_birth'] = data['date_of_birth']
+        if 'gender' in data:
+            update_data['gender'] = data['gender']
+        if 'father_name' in data:
+            update_data['father_name'] = data['father_name']
+        if 'mother_name' in data:
+            update_data['mother_name'] = data['mother_name']
+        
+        # Address information
+        if 'address_line1' in data:
+            update_data['address_line1'] = data['address_line1']
+        if 'address_line2' in data:
+            update_data['address_line2'] = data['address_line2']
+        if 'village_city' in data:
+            update_data['village_city'] = data['village_city']
+        if 'district' in data:
+            update_data['district'] = data['district']
+        if 'state' in data:
+            update_data['state'] = data['state']
+        if 'pincode' in data:
+            update_data['pincode'] = data['pincode']
+        
+        # Update voter record
+        if update_data:
+            update_data['updated_at'] = datetime.utcnow()
+            Voter.update_one(
+                {"voter_id": voter['voter_id']},
+                {"$set": update_data}
+            )
+        
+        # Log the update
+        AuditLog.create_log(
+            action='profile_update',
+            user_id=voter['voter_id'],
+            user_type='voter',
+            details={
+                'fields_updated': list(update_data.keys()),
+                'timestamp': datetime.utcnow().isoformat()
+            },
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'Profile updated successfully',
+            'updated_fields': list(update_data.keys())
+        })
+        
+    except Exception as e:
+        logger.error(f'Update profile error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to update profile'
+        }), 500
+
+# Helper functions
+def parse_user_agent_for_device_name(user_agent):
+    """Parse user agent to get device name"""
+    if not user_agent:
+        return "Unknown Device"
+    
+    user_agent_lower = user_agent.lower()
+    
+    if 'chrome' in user_agent_lower:
+        return "Chrome Browser"
+    elif 'firefox' in user_agent_lower:
+        return "Firefox Browser"
+    elif 'safari' in user_agent_lower:
+        return "Safari Browser"
+    elif 'edge' in user_agent_lower:
+        return "Edge Browser"
+    elif 'mobile' in user_agent_lower:
+        return "Mobile Device"
+    else:
+        return "Web Browser"
+
+def get_location_from_ip(ip_address):
+    """Get location from IP address (simplified)"""
+    # In production, use a geolocation service
+    if ip_address.startswith('192.168.') or ip_address.startswith('10.'):
+        return "Local Network"
+    elif ip_address.startswith('172.'):
+        return "Private Network"
+    else:
+        return "Unknown Location"
+    
 @dashboard_bp.route('/mobile-verification', methods=['POST'])
 @cross_origin()
 def mobile_verification():

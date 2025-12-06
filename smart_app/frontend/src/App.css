@@ -1,6 +1,6 @@
 /* App.css - Complete Updated Version with Footer Fix */
 
-/* ===== RESET & GLOBAL STYLES ===== */
+/* ===== RESET & GLOBAL STYLES - CRITICAL FIXES ===== */
 * {
   margin: 0;
   padding: 0;
@@ -19,8 +19,8 @@
   --transition: all 0.3s ease;
 }
 
-/* Critical root element fixes for footer positioning */
-html, body, #root {
+/* CRITICAL: Root element fixes for proper layout */
+html, body {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -33,37 +33,42 @@ body {
   color: var(--dark-color);
   background-color: var(--light-color);
   min-height: 100vh;
-}
-
-#root {
-  width: 100%;
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-/* ===== MAIN APP LAYOUT - CRITICAL FOOTER FIXES ===== */
+#root {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* ===== MAIN APP LAYOUT - FOOTER AT BOTTOM ===== */
 .App {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  position: relative;
+  width: 100%;
+  flex: 1;
 }
 
-/* Main content area - this pushes footer down */
+/* Main content area - this expands and pushes footer down */
 .main-content {
   flex: 1 0 auto;
-  min-height: calc(100vh - 200px); /* Prevents footer from overlapping */
   width: 100%;
   position: relative;
   padding-top: 0;
+  min-height: calc(100vh - 200px); /* Adjust based on header/footer height */
 }
 
-/* Container fluid adjustments */
+/* ===== CONTAINER FLUID FIXES ===== */
 .container-fluid.px-0 {
   min-height: 100%;
   display: flex;
   flex-direction: column;
+  flex: 1;
 }
 
 /* ===== HEADER STYLES ===== */
@@ -80,6 +85,36 @@ body {
   background: rgba(45, 55, 72, 0.95) !important;
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ===== FOOTER STYLES - CRITICAL POSITIONING FIXES ===== */
+/* FOOTER FIX: Remove all problematic positioning */
+.custom-footer {
+  background: linear-gradient(135deg, #0c0c1d 0%, #1a1a2e 100%);
+  color: #e3f2fd;
+  position: relative !important; /* Change from absolute/fixed */
+  z-index: 100;
+  flex-shrink: 0; /* Don't shrink */
+  width: 100%;
+  margin-top: auto; /* This pushes it to bottom */
+  padding: 0 !important;
+  border-top: 1px solid rgba(76, 201, 240, 0.2);
+}
+
+/* Remove any absolute/fixed positioning that causes overlap */
+footer {
+  position: relative !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  height: auto !important;
+}
+
+/* Ensure footer content has proper spacing */
+.custom-footer .container {
+  padding-top: 3rem;
+  padding-bottom: 1.5rem;
 }
 
 /* ===== HERO SECTION ===== */
@@ -309,38 +344,20 @@ body {
   50% { transform: scale(1.1); }
 }
 
-/* ===== FOOTER STYLES - CRITICAL FIXES ===== */
-/* Ensure footer stays at bottom */
-footer {
-  flex-shrink: 0;
-  width: 100%;
+/* ===== PAGE CONTENT WRAPPER - ENSURES FOOTER AT BOTTOM ===== */
+.page-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 70px - 350px); /* Header + Footer height */
 }
 
-.custom-footer {
-  background: linear-gradient(135deg, #0c0c1d 0%, #1a1a2e 100%);
-  color: #e3f2fd;
-  padding: 0;
-  margin-top: auto;
-  position: relative;
-  z-index: 100;
-  flex-shrink: 0;
-  width: 100%;
-}
-
-/* Remove any problematic positioning that causes overlap */
-.custom-footer {
-  position: relative !important;
-  bottom: auto !important;
-  left: auto !important;
-  right: auto !important;
-}
-
-footer h5 {
-  background: var(--primary-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-weight: 700;
+/* Emergency content wrapper for pages with little content */
+.content-min-height {
+  min-height: calc(100vh - 70px - 350px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
 
 /* ===== LOADING & ANIMATIONS ===== */
@@ -436,65 +453,25 @@ footer h5 {
     max-width: 100%;
   }
   
-  /* Mobile footer adjustments */
-  main.flex-grow-1 {
-    min-height: calc(100vh - 150px);
+  /* Mobile layout fixes */
+  #root {
+    padding: 0;
+  }
+  
+  .page-content {
+    min-height: calc(100vh - 60px - 400px);
   }
 }
 
 @media (max-width: 576px) {
-  #root {
-    padding: 1rem;
-  }
-  
   .card {
     margin: 0.5rem;
   }
   
   /* Mobile footer adjustments */
-  main.flex-grow-1 {
-    min-height: calc(100vh - 120px);
+  .page-content {
+    min-height: calc(100vh - 60px - 450px);
   }
-}
-
-/* ===== DARK MODE SUPPORT ===== */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --dark-color: #f7fafc;
-    --light-color: #2d3748;
-  }
-  
-  .card {
-    background: #4a5568;
-    color: white;
-  }
-  
-  .form-control {
-    background: #4a5568;
-    border-color: #718096;
-    color: white;
-  }
-}
-
-/* ===== ACCESSIBILITY ===== */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 /* ===== CUSTOM SCROLLBAR ===== */
@@ -516,25 +493,6 @@ footer h5 {
   background: var(--secondary-gradient);
 }
 
-/* ===== EMERGENCY FOOTER FIX - Use if needed ===== */
-/*
-.App {
-  position: relative;
-  min-height: 100vh;
-}
-
-main.flex-grow-1 {
-  padding-bottom: 400px;
-}
-
-.custom-footer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-}
-*/
-
 /* ===== ANIMATION CLASSES ===== */
 .fade-in {
   animation: fadeIn 0.5s ease-in;
@@ -549,6 +507,29 @@ main.flex-grow-1 {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ===== LAYOUT UTILITIES FOR FOOTER FIX ===== */
+.flex-fill {
+  flex: 1;
+}
+
+.flex-grow-1 {
+  flex-grow: 1 !important;
+}
+
+.min-vh-100 {
+  min-height: 100vh !important;
+}
+
+/* ===== FIX FOR SHORT PAGES ===== */
+/* Add this class to pages with minimal content */
+.short-page-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: calc(100vh - 70px);
 }
 
 /* ===== DASHBOARD ENHANCED STYLES ===== */
@@ -824,37 +805,6 @@ main.flex-grow-1 {
   }
 }
 
-/* Print styles for dashboard */
-@media print {
-  .dashboard-sidebar,
-  .navbar,
-  .btn,
-  .no-print {
-    display: none !important;
-  }
-  
-  .dashboard-overview {
-    font-size: 12px !important;
-  }
-}
-
-/* Dark mode support for dashboard */
-@media (prefers-color-scheme: dark) {
-  .dashboard-sidebar {
-    background: rgba(45, 55, 72, 0.95) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
-  }
-  
-  .stats-card {
-    background: rgba(255, 255, 255, 0.05) !important;
-  }
-  
-  .election-card-compact {
-    background: rgba(255, 255, 255, 0.05) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
-  }
-}
-
 /* Smooth transitions */
 * {
   scroll-behavior: smooth;
@@ -878,26 +828,28 @@ main.flex-grow-1 {
   100% { background-position: -200% 0; }
 }
 
-/* Toast notifications */
-.dashboard-toast {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 1060;
-  min-width: 300px;
-  max-width: 400px;
+/* ===== FIX FOR APP LAYOUT ===== */
+/* Use this structure in your App.js */
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
-/* Modal backdrop for dashboard */
-.dashboard-modal-backdrop {
-  background: rgba(0, 0, 0, 0.5) !important;
-  backdrop-filter: blur(5px) !important;
+.app-layout > main {
+  flex: 1;
 }
 
-/* Tooltip styles */
-.dashboard-tooltip {
-  font-size: 12px !important;
-  padding: 8px 12px !important;
-  border-radius: 6px !important;
-  max-width: 300px !important;
+.app-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main-content {
+  flex: 1 0 auto;
+}
+
+.footer-wrapper {
+  flex-shrink: 0;
 }
