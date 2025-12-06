@@ -4,7 +4,7 @@
   transition: all 0.3s ease;
   padding: 0.8rem 0;
   min-height: 70px;
-  position: fixed;
+  position: relative;
   top: 0;
   left: 0;
   right: 0;
@@ -19,9 +19,9 @@
   min-height: 60px;
 }
 
-body {
+/* body {
   padding-top: 70px;
-}
+} */
 
 .brand-logo {
   text-decoration: none;
@@ -199,9 +199,9 @@ body {
     min-height: 60px;
   }
   
-  body {
+  /* body {
     padding-top: 60px;
-  }
+  } */
   
   .custom-navbar.scrolled {
     min-height: 56px;
