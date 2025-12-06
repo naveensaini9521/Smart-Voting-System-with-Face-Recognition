@@ -75,7 +75,6 @@ const Header = () => {
       bg="dark" 
       variant="dark" 
       expand="lg" 
-      fixed="top"
       expanded={expanded}
       className={`custom-navbar ${scrolled ? 'scrolled' : ''} shadow-lg`}
       style={{
@@ -120,17 +119,17 @@ const Header = () => {
               <>
                 <Nav.Link 
                   as={Link} 
-                  to="/elections"
-                  className={`nav-link-custom ${isActiveRoute('/elections') ? 'active' : ''}`}
+                  to="/dashboard?tab=elections"
+                  className={`nav-link-custom ${isActiveRoute('/dashboard') && location.search.includes('tab=elections') ? 'active' : ''}`}
                   onClick={() => setExpanded(false)}
                 >
                   <FaVoteYea className="me-2" /> Elections
                 </Nav.Link>
-                
+
                 <Nav.Link 
                   as={Link} 
-                  to="/results"
-                  className={`nav-link-custom ${isActiveRoute('/results') ? 'active' : ''}`}
+                  to="/dashboard?tab=results"
+                  className={`nav-link-custom ${isActiveRoute('/dashboard') && location.search.includes('tab=results') ? 'active' : ''}`}
                   onClick={() => setExpanded(false)}
                 >
                   <FaChartBar className="me-2" /> Results
