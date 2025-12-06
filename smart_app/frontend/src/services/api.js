@@ -486,44 +486,152 @@ export const voterAPI = {
     }
   },
 
-  // Get enhanced voting history
-  getEnhancedVotingHistory: async () => {
-    try {
-      console.log('📜 Fetching enhanced voting history...');
-      const response = await api.get('/dashboard/voting-history/enhanced');
-      console.log('✅ Enhanced voting history response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error fetching enhanced voting history:', error);
-      throw error.response?.data || { message: 'Failed to fetch enhanced voting history' };
-    }
-  },
+    // Security API methods
+    getTrustedDevices: async () => {
+      try {
+        const response = await axios.get('/api/dashboard/security/devices', {
+          headers: getAuthHeaders()
+        });
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
+    },
+
+    revokeDevice: async (deviceId) => {
+      try {
+        const response = await axios.post('/api/dashboard/security/devices/revoke', 
+          { device_id: deviceId },
+          { headers: getAuthHeaders() }
+        );
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
+    },
+
+    logoutAllSessions: async () => {
+      try {
+        const response = await axios.post('/api/dashboard/security/sessions/logout-all', 
+          {},
+          { headers: getAuthHeaders() }
+        );
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
+    },
+
+    enableTwoFactorAuth: async () => {
+      try {
+        const response = await axios.post('/api/dashboard/security/two-factor/enable', 
+          {},
+          { headers: getAuthHeaders() }
+        );
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
+    },
+
+    disableTwoFactorAuth: async () => {
+      try {
+        const response = await axios.post('/api/dashboard/security/two-factor/disable', 
+          {},
+          { headers: getAuthHeaders() }
+        );
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
+    },
+
+    updateProfile: async (profileData) => {
+      try {
+        const response = await axios.put('/api/dashboard/profile/update', 
+          profileData,
+          { headers: getAuthHeaders() }
+        );
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
+    },
+
+  // // Get enhanced voting history
+  // getEnhancedVotingHistory: async () => {
+  //   try {
+  //     console.log('📜 Fetching enhanced voting history...');
+  //     const response = await api.get('/dashboard/voting-history/enhanced');
+  //     console.log('✅ Enhanced voting history response:', response.data);
+  //     return response.data;
+  //   } catch (error) {
+  //     console.error('❌ Error fetching enhanced voting history:', error);
+  //     throw error.response?.data || { message: 'Failed to fetch enhanced voting history' };
+  //   }
+  // },
 
   // Get enhanced analytics
-  getEnhancedAnalytics: async () => {
-    try {
-      console.log('📊 Fetching enhanced analytics...');
-      const response = await api.get('/dashboard/analytics/enhanced');
-      console.log('✅ Enhanced analytics response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error fetching enhanced analytics:', error);
-      throw error.response?.data || { message: 'Failed to fetch enhanced analytics' };
-    }
-  },
+  // getEnhancedAnalytics: async () => {
+  //   try {
+  //     console.log('📊 Fetching enhanced analytics...');
+  //     const response = await api.get('/dashboard/analytics/enhanced');
+  //     console.log('✅ Enhanced analytics response:', response.data);
+  //     return response.data;
+  //   } catch (error) {
+  //     console.error('❌ Error fetching enhanced analytics:', error);
+  //     throw error.response?.data || { message: 'Failed to fetch enhanced analytics' };
+  //   }
+  // },
 
   // Get enhanced security information
-  getEnhancedSecurity: async () => {
-    try {
-      console.log('🔒 Fetching enhanced security information...');
-      const response = await api.get('/dashboard/security/enhanced');
-      console.log('✅ Enhanced security response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error fetching enhanced security:', error);
-      throw error.response?.data || { message: 'Failed to fetch enhanced security information' };
+  // getEnhancedSecurity: async () => {
+  //   try {
+  //     console.log('🔒 Fetching enhanced security information...');
+  //     const response = await api.get('/dashboard/security/enhanced');
+  //     console.log('✅ Enhanced security response:', response.data);
+  //     return response.data;
+  //   } catch (error) {
+  //     console.error('❌ Error fetching enhanced security:', error);
+  //     throw error.response?.data || { message: 'Failed to fetch enhanced security information' };
+  //   }
+  // },
+
+   
+
+    getEnhancedSecurity: async () => {
+      try {
+        const response = await axios.get('/api/dashboard/security/enhanced', {
+          headers: getAuthHeaders()
+        });
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
+    },
+
+    getEnhancedAnalytics: async () => {
+      try {
+        const response = await axios.get('/api/dashboard/analytics/enhanced', {
+          headers: getAuthHeaders()
+        });
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
+    },
+
+    getEnhancedVotingHistory: async () => {
+      try {
+        const response = await axios.get('/api/dashboard/voting-history/enhanced', {
+          headers: getAuthHeaders()
+        });
+        return response.data;
+      } catch (error) {
+        throw error;
+      }
     }
-  },
+  };
 
   // Generate digital ID
   generateDigitalID: async () => {
@@ -540,16 +648,16 @@ export const voterAPI = {
 
   // Refresh dashboard data
   refreshDashboardData: async () => {
-    try {
-      console.log('🔄 Refreshing dashboard data...');
-      const response = await api.post('/dashboard/refresh-data');
-      console.log('✅ Dashboard refresh response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error refreshing dashboard data:', error);
-      throw error.response?.data || { message: 'Failed to refresh dashboard data' };
-    }
-  },
+  try {
+    console.log('🔄 Refreshing dashboard data...');
+    const response = await api.post('/dashboard/refresh-data');
+    console.log('✅ Dashboard refresh response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error refreshing dashboard data:', error);
+    throw error.response?.data || { message: 'Failed to refresh dashboard data' };
+  }
+},
 
   // Export data in specific format
   exportData: async (format) => {
