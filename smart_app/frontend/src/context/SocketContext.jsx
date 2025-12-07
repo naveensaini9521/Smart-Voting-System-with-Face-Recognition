@@ -24,7 +24,7 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (isAuthenticated && user && !socket) {
-      console.log(`🔌 Initializing global Socket.IO connection for ${userType}...`);
+      console.log(`Initializing global Socket.IO connection for ${userType}...`);
       
       // Prepare connection parameters based on user type
       let queryParams = {
@@ -61,23 +61,23 @@ export const SocketProvider = ({ children }) => {
       });
 
       newSocket.on('connect', () => {
-        console.log(`✅ Global Socket.IO connected for ${userType}: ${userType === 'voter' ? user.voter_id : user.admin_id}`);
+        console.log(`Global Socket.IO connected for ${userType}: ${userType === 'voter' ? user.voter_id : user.admin_id}`);
         setIsConnected(true);
       });
 
       newSocket.on('disconnect', (reason) => {
-        console.log(`❌ Global Socket.IO disconnected: ${reason}`);
+        console.log(`Global Socket.IO disconnected: ${reason}`);
         setIsConnected(false);
       });
 
       newSocket.on('connect_error', (error) => {
-        console.error('💥 Global Socket.IO connection error:', error);
+        console.error('Global Socket.IO connection error:', error);
         setIsConnected(false);
       });
 
       setSocket(newSocket);
     } else if (!isAuthenticated && socket) {
-      console.log('🔌 Cleaning up global Socket.IO connection...');
+      console.log('Cleaning up global Socket.IO connection...');
       socket.close();
       setSocket(null);
       setIsConnected(false);
