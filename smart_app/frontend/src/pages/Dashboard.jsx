@@ -27,9 +27,55 @@ import {
   FaPercentage, FaWrench,
   FaUserShield, FaKey, FaBug, FaNetworkWired,
   FaServer, FaDatabase, FaFingerprint,
-  FaSignInAlt
+  FaSignInAlt, FaArrowRight
 } from 'react-icons/fa';
 import { FaCircleCheck, FaCircleInfo, FaCircleXmark, FaClockRotateLeft, FaGear, FaLocationDot, FaShieldHalved, FaTriangleExclamation } from 'react-icons/fa6';
+
+// ============ ERROR BOUNDARY COMPONENT ============
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Card className="border-0 shadow-sm my-4">
+          <Card.Body className="text-center py-5">
+            <FaExclamationTriangle className="text-danger fa-4x mb-3" />
+            <h5 className="text-danger">Something went wrong</h5>
+            <p className="text-muted mb-3">
+              {this.state.error?.message || 'An unexpected error occurred'}
+            </p>
+            <Button 
+              variant="outline-danger" 
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="me-2"
+            >
+              Try Again
+            </Button>
+            <Button 
+              variant="danger" 
+              onClick={() => window.location.reload()}
+            >
+              Refresh Page
+            </Button>
+          </Card.Body>
+        </Card>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -119,10 +165,23 @@ const Dashboard = () => {
   // Read the tab parameter from URL
   useEffect(() => {
     const tabFromUrl = searchParams.get('tab');
-    if (tabFromUrl && ['overview', 'profile', 'elections', 'results', 'history', 'analytics', 'security'].includes(tabFromUrl)) {
-      setActiveTab(tabFromUrl);
+    
+    // If user just logged in (no tab in URL), default to overview
+    if (!tabFromUrl) {
+      setActiveTab('overview');
+      navigate('/dashboard?tab=overview', { replace: true });
+      return;
     }
-  }, [searchParams]);
+    
+    // Validate tab from URL
+    if (['overview', 'profile', 'elections', 'results', 'history', 'analytics', 'security'].includes(tabFromUrl)) {
+      setActiveTab(tabFromUrl);
+    } else {
+      // Invalid tab, default to overview
+      setActiveTab('overview');
+      navigate('/dashboard?tab=overview', { replace: true });
+    }
+  }, [searchParams, navigate]);
 
   // Enhanced data loading functions
   const loadDashboardData = async () => {
@@ -130,48 +189,65 @@ const Dashboard = () => {
       setLoading(true);
       setError('');
       
-      const [dashboardResponse, profileResponse] = await Promise.all([
-        voterAPI.getDashboardData(),
-        voterAPI.getProfile()
-      ]);
-
-      if (dashboardResponse.success) {
-        const sanitizedData = sanitizeDashboardData(dashboardResponse.dashboard_data);
-        setDashboardData(sanitizedData);
-        setLastUpdate(dashboardResponse.last_updated);
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      try {
+        const [dashboardResponse, profileResponse] = await Promise.all([
+          voterAPI.getDashboardData({ signal: controller.signal }),
+          voterAPI.getProfile({ signal: controller.signal })
+        ]);
         
-        const activeElections = sanitizedData.election_info?.active_elections || [];
-        const liveStatsData = {
-          total_active: activeElections.length,
-          votes_cast_today: dashboardResponse.dashboard_data?.quick_stats?.today_votes || 0,
-          voter_turnout: dashboardResponse.dashboard_data?.quick_stats?.participation_rate || 0,
-          last_updated: new Date().toISOString()
-        };
-        setLiveStats(liveStatsData);
+        clearTimeout(timeoutId);
+        
+        if (dashboardResponse.success) {
+          const sanitizedData = sanitizeDashboardData(dashboardResponse.dashboard_data);
+          setDashboardData(sanitizedData);
+          setLastUpdate(dashboardResponse.last_updated);
+          
+          const activeElections = sanitizedData.election_info?.active_elections || [];
+          const liveStatsData = {
+            total_active: activeElections.length,
+            votes_cast_today: dashboardResponse.dashboard_data?.quick_stats?.today_votes || 0,
+            voter_turnout: dashboardResponse.dashboard_data?.quick_stats?.participation_rate || 0,
+            last_updated: new Date().toISOString()
+          };
+          setLiveStats(liveStatsData);
 
-        const votedStatus = {};
-        activeElections.forEach(election => {
-          votedStatus[election.election_id] = election.has_voted || false;
-        });
-        setHasVoted(votedStatus);
+          const votedStatus = {};
+          activeElections.forEach(election => {
+            votedStatus[election.election_id] = election.has_voted || false;
+          });
+          setHasVoted(votedStatus);
 
-        // Generate quick actions
-        generateQuickActions(sanitizedData, votedStatus);
-      } else {
-        setError(dashboardResponse.message || 'Failed to load dashboard data');
-      }
+          // Generate quick actions
+          generateQuickActions(sanitizedData, votedStatus);
+        } else {
+          setError(dashboardResponse.message || 'Failed to load dashboard data');
+        }
 
-      if (profileResponse.success) {
-        setProfileData(sanitizeProfileData(profileResponse.profile_data));
+        if (profileResponse.success) {
+          setProfileData(sanitizeProfileData(profileResponse.profile_data));
+        }
+      } catch (err) {
+        clearTimeout(timeoutId);
+        
+        if (err.name === 'AbortError') {
+          setError('Request timeout. Please check your internet connection.');
+        } else {
+          const errorMsg = err.response?.data?.message || err.message || 'Failed to load dashboard data. Please try again.';
+          setError(errorMsg);
+          
+          if (err.response?.status === 401) {
+            logout();
+            navigate('/login');
+          }
+        }
       }
     } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || 'Failed to load dashboard data. Please try again.';
-      setError(errorMsg);
-      
-      if (err.response?.status === 401) {
-        logout();
-        navigate('/login');
-      }
+      console.error('Unexpected error in loadDashboardData:', err);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -316,33 +392,80 @@ const Dashboard = () => {
   const handleExportData = async (format) => {
     try {
       setLoading(true);
-      const response = await voterAPI.exportData(format);
+      setError('');
       
-      if (response.success) {
-        if (format === 'json') {
-          // For JSON, download manually
+      console.log(`Exporting data as ${format}...`);
+      
+      let response;
+      
+      if (format === 'json') {
+        // For JSON, use the existing export endpoint
+        response = await voterAPI.exportData('json');
+        
+        if (response.success && response.data) {
           const dataStr = JSON.stringify(response.data, null, 2);
           const dataBlob = new Blob([dataStr], { type: 'application/json' });
           downloadBlob(dataBlob, `voter_data_${user?.voter_id}_${Date.now()}.json`);
-        } else if (response.download_url) {
-          // For PDF/CSV, open download URL
-          window.open(response.download_url, '_blank');
+          
+          setRealTimeUpdates(prev => [{
+            id: Date.now(),
+            type: 'system',
+            action: 'export',
+            title: 'Data Exported',
+            message: `Data exported successfully as ${format.toUpperCase()}`,
+            timestamp: new Date().toISOString(),
+            urgent: false
+          }, ...prev.slice(0, 9)]);
+          
+          setShowExportModal(false);
+          return;
         }
+      } else {
+        // For PDF/CSV, call the specific endpoint
+        response = await voterAPI.exportData(format);
         
-        setRealTimeUpdates(prev => [{
-          id: Date.now(),
-          type: 'system',
-          action: 'export',
-          title: 'Data Exported',
-          message: `Data exported successfully as ${format.toUpperCase()}`,
-          timestamp: new Date().toISOString(),
-          urgent: false
-        }, ...prev.slice(0, 9)]);
-        
-        setShowExportModal(false);
+        if (response.success) {
+          // Handle download based on response type
+          if (response.download_url) {
+            // Open download URL in new tab
+            window.open(response.download_url, '_blank');
+          } else if (response.data) {
+            // Create and download blob
+            const dataBlob = new Blob(
+              [response.data], 
+              { type: format === 'pdf' ? 'application/pdf' : 'text/csv' }
+            );
+            
+            const filename = format === 'pdf' 
+              ? `voter_data_${user?.voter_id}_${Date.now()}.pdf`
+              : `voter_data_${user?.voter_id}_${Date.now()}.csv`;
+            
+            downloadBlob(dataBlob, filename);
+          }
+          
+          setRealTimeUpdates(prev => [{
+            id: Date.now(),
+            type: 'system',
+            action: 'export',
+            title: 'Data Exported',
+            message: `Data exported successfully as ${format.toUpperCase()}`,
+            timestamp: new Date().toISOString(),
+            urgent: false
+          }, ...prev.slice(0, 9)]);
+          
+          setShowExportModal(false);
+          return;
+        }
       }
+      
+      // If we get here, something went wrong
+      if (!response.success) {
+        setError(response.message || `Failed to export data as ${format}`);
+      }
+      
     } catch (error) {
-      setError(`Failed to export data as ${format}`);
+      console.error('Export error:', error);
+      setError(`Failed to export data as ${format}: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -486,19 +609,19 @@ const Dashboard = () => {
     }
   };
 
-  // Auto-refresh data every 30 seconds
+  // Auto-refresh data every 90 seconds
   useEffect(() => {
-    if (isAuthenticated && !loading && isConnected) {
+    if (isAuthenticated && !loading && isConnected && dashboardData) {
       const interval = setInterval(() => {
         loadDashboardData();
         if (activeTab === 'elections' || activeTab === 'results') {
           loadCompletedElections();
         }
-      }, 30000);
+      }, 90000); // 60 seconds
 
       return () => clearInterval(interval);
     }
-  }, [isAuthenticated, loading, isConnected, activeTab]);
+  }, [isAuthenticated, loading, isConnected, activeTab, dashboardData]);
 
   // Initial data load
   useEffect(() => {
@@ -507,8 +630,8 @@ const Dashboard = () => {
       navigate('/login');
       return;
     }
-    loadDashboardData();
-    loadCompletedElections();
+    loadDashboardDataWithRetry();
+    loadCompletedElectionsWithRetry();
   }, [isAuthenticated, authLoading, navigate]);
 
   // Socket event handlers
@@ -647,25 +770,17 @@ const Dashboard = () => {
     });
   }, []);
 
-  // Helper functions
   const formatDate = (dateValue) => {
     if (!dateValue) return 'N/A';
     try {
-      if (typeof dateValue === 'object' && dateValue.$date) {
-        return new Date(dateValue.$date).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-      }
-      if (dateValue instanceof Date || typeof dateValue === 'string') {
-        return new Date(dateValue).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-      }
-      return 'Invalid Date';
+      const date = parseDate(dateValue);
+      if (!date) return 'Invalid Date';
+      
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
     } catch (error) {
       console.error('Error formatting date:', dateValue, error);
       return 'Invalid Date';
@@ -675,44 +790,74 @@ const Dashboard = () => {
   const formatDateTime = (dateValue) => {
     if (!dateValue) return 'N/A';
     try {
-      if (typeof dateValue === 'object' && dateValue.$date) {
-        return new Date(dateValue.$date).toLocaleString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      }
-      if (dateValue instanceof Date || typeof dateValue === 'string') {
-        return new Date(dateValue).toLocaleString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      }
-      return 'Invalid Date';
+      const date = parseDate(dateValue);
+      if (!date) return 'Invalid Date';
+      
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
     } catch (error) {
       console.error('Error formatting date-time:', dateValue, error);
       return 'Invalid Date';
     }
   };
 
+
+// Retry utility with exponential backoff
+  const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === maxRetries - 1) throw error;
+        
+        // Wait with exponential backoff
+        const delay = baseDelay * Math.pow(2, i);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  };
+
+  // Then update your load functions to use it
+  const loadDashboardDataWithRetry = async () => {
+    return retryWithBackoff(loadDashboardData, 2, 1000);
+  };
+
+  // Also create retry versions for other load functions
+  const loadCompletedElectionsWithRetry = async () => {
+    return retryWithBackoff(loadCompletedElections, 2, 1000);
+  };
+
   const safeRender = (value, defaultValue = 'N/A') => {
     if (value === null || value === undefined || value === '') {
       return defaultValue;
     }
+    
     if (typeof value === 'object' && value.$date) {
       return formatDate(value);
     }
-    if (typeof value === 'object' && !(value instanceof Date)) {
+    
+    if (value instanceof Date || typeof value === 'string') {
+      try {
+        return formatDate(value);
+      } catch (error) {
+        console.error('Error formatting date:', value, error);
+        return defaultValue;
+      }
+    }
+    
+    if (typeof value === 'object' && !Array.isArray(value)) {
       return '[Object]';
     }
+    
     if (Array.isArray(value)) {
       return value.join(', ');
     }
+    
     return value.toString();
   };
 
@@ -722,18 +867,22 @@ const Dashboard = () => {
       ...data,
       voter_info: {
         ...data.voter_info,
-        registration_date: data.voter_info?.registration_date || 'N/A',
-        last_login: data.voter_info?.last_login || 'N/A'
+        registration_date: formatDate(data.voter_info?.registration_date) || 'N/A',
+        last_login: formatDateTime(data.voter_info?.last_login) || 'N/A'
       },
       election_info: {
         ...data.election_info,
         upcoming_elections: (data.election_info?.upcoming_elections || []).map(election => ({
           ...election,
-          date: election.date || 'N/A'
+          date: formatDate(election.date) || 'N/A',
+          voting_start: formatDateTime(election.voting_start) || 'N/A',
+          voting_end: formatDateTime(election.voting_end) || 'N/A'
         })),
         active_elections: (data.election_info?.active_elections || []).map(election => ({
           ...election,
-          date: election.date || 'N/A'
+          date: formatDate(election.date) || 'N/A',
+          voting_start: formatDateTime(election.voting_start) || 'N/A',
+          voting_end: formatDateTime(election.voting_end) || 'N/A'
         }))
       },
       quick_stats: data.quick_stats || {}
@@ -744,12 +893,51 @@ const Dashboard = () => {
     if (!data) return null;
     return {
       ...data,
-      date_of_birth: data.date_of_birth || 'N/A',
-      registration_date: data.registration_date || 'N/A',
+      date_of_birth: formatDate(data.date_of_birth) || 'N/A',
+      registration_date: formatDate(data.registration_date) || 'N/A',
+      last_login: formatDateTime(data.last_login) || 'N/A',
+      last_updated: formatDateTime(data.last_updated) || 'N/A',
       verification_status: data.verification_status || {},
       address: data.address || {},
       national_id: data.national_id || {}
     };
+  };
+
+  const parseDate = (dateValue) => {
+    if (!dateValue) return null;
+    try {
+      // Handle MongoDB date format
+      if (typeof dateValue === 'object' && dateValue.$date) {
+        const dateStr = dateValue.$date;
+        // Clean the date string
+        const cleanDateStr = dateStr.replace('Z', '').split('.')[0];
+        return new Date(cleanDateStr);
+      }
+      
+      // Handle ISO string
+      if (typeof dateValue === 'string') {
+        // Clean the string - remove milliseconds and timezone
+        const cleanDateStr = dateValue.replace('Z', '').split('.')[0];
+        const date = new Date(cleanDateStr);
+        
+        // Check if date is valid
+        if (isNaN(date.getTime())) {
+          console.warn('Invalid date string:', dateValue);
+          return null;
+        }
+        return date;
+      }
+      
+      // Handle Date object
+      if (dateValue instanceof Date) {
+        return dateValue;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error parsing date:', dateValue, error);
+      return null;
+    }
   };
 
   const handleLogout = async () => {
@@ -1274,71 +1462,86 @@ const Dashboard = () => {
               <Col lg={10} md={9}>
                 <Tab.Content>
                   <Tab.Pane eventKey="overview">
-                    <EnhancedOverview 
-                      dashboardData={dashboardData}
-                      liveStats={liveStats}
-                      isConnected={isConnected}
-                      onRefresh={handleRefreshData}
-                      loading={loading}
-                      BroadcastIcon={BroadcastIcon}
-                      onStartVoting={handleStartVoting}
-                      onViewResults={handleViewResults}
-                      hasVoted={hasVoted}
-                      completedElections={completedElections}
-                      quickActions={quickActions}
-                    />
+                    <ErrorBoundary>
+                      <EnhancedOverview 
+                        dashboardData={dashboardData}
+                        liveStats={liveStats}
+                        isConnected={isConnected}
+                        onRefresh={handleRefreshData}
+                        loading={loading}
+                        BroadcastIcon={BroadcastIcon}
+                        onStartVoting={handleStartVoting}
+                        onViewResults={handleViewResults}
+                        hasVoted={hasVoted}
+                        completedElections={completedElections}
+                        quickActions={quickActions}
+                        calculateProfileCompletion={calculateProfileCompletion}
+                      />
+                    </ErrorBoundary>
                   </Tab.Pane>
 
                   <Tab.Pane eventKey="profile">
-                    <EnhancedProfile 
-                      profileData={profileData}
-                      dashboardData={dashboardData}
-                    />
+                    <ErrorBoundary>
+                      <EnhancedProfile 
+                        profileData={profileData}
+                        dashboardData={dashboardData}
+                      />
+                    </ErrorBoundary>
                   </Tab.Pane>
 
                   <Tab.Pane eventKey="elections">
-                    <EnhancedElections 
-                      dashboardData={dashboardData}
-                      voterId={user?.voter_id}
-                      isConnected={isConnected}
-                      BroadcastIcon={BroadcastIcon}
-                      onStartVoting={handleStartVoting}
-                      onViewResults={handleViewResults}
-                      hasVoted={hasVoted}
-                      completedElections={completedElections}
-                    />
+                    <ErrorBoundary>
+                      <EnhancedElections 
+                        dashboardData={dashboardData}
+                        voterId={user?.voter_id}
+                        isConnected={isConnected}
+                        BroadcastIcon={BroadcastIcon}
+                        onStartVoting={handleStartVoting}
+                        onViewResults={handleViewResults}
+                        hasVoted={hasVoted}
+                        completedElections={completedElections}
+                      />
+                    </ErrorBoundary>
                   </Tab.Pane>
 
                   {/* NEW: Results Tab */}
                   <Tab.Pane eventKey="results">
-                    <ResultsTab 
-                      completedElections={completedElections}
-                      onViewResults={handleViewResults}
-                    />
+                    <ErrorBoundary>
+                      <ResultsTab 
+                        completedElections={completedElections}
+                        onViewResults={handleViewResults}
+                      />
+                    </ErrorBoundary>
                   </Tab.Pane>
 
                   <Tab.Pane eventKey="history">
-                    <EnhancedVotingHistory 
-                      voterId={user?.voter_id}
-                      enhancedVotingHistory={enhancedVotingHistory}
-                      onLoadEnhanced={handleLoadEnhancedVotingHistory}
-                    />
+                    <ErrorBoundary>
+                      <EnhancedVotingHistory 
+                        voterId={user?.voter_id}
+                        enhancedVotingHistory={enhancedVotingHistory}
+                        onLoadEnhanced={handleLoadEnhancedVotingHistory}
+                      />
+                    </ErrorBoundary>
                   </Tab.Pane>
                   
                   <Tab.Pane eventKey="analytics">
-                    <EnhancedAnalytics 
-                      dashboardData={dashboardData}
-                      enhancedAnalytics={enhancedAnalytics}
-                      onLoadEnhanced={handleLoadEnhancedAnalytics}
-                    />
+                    <ErrorBoundary>
+                      <EnhancedAnalytics 
+                        dashboardData={dashboardData}
+                        enhancedAnalytics={enhancedAnalytics}
+                        onLoadEnhanced={handleLoadEnhancedAnalytics}
+                      />
+                    </ErrorBoundary>
                   </Tab.Pane>
                   
                   <Tab.Pane eventKey="security">
-                    <EnhancedSecurity 
-                      voterId={user?.voter_id}
-                      enhancedSecurity={enhancedSecurity}
-                      onLoadEnhanced={handleLoadEnhancedSecurity}
-                    />
+                    <ErrorBoundary>
+                      <EnhancedSecurity 
+                        voterId={user?.voter_id}
+                        enhancedSecurity={enhancedSecurity}
+                        onLoadEnhanced={handleLoadEnhancedSecurity}
+                      />
+                    </ErrorBoundary>
                   </Tab.Pane>
                 </Tab.Content>
               </Col>
@@ -1631,13 +1834,9 @@ const ResultsTab = ({ completedElections, onViewResults }) => {
                 <div className="mb-3">
                   <div className="d-flex align-items-center mb-2">
                     <FaCalendarAlt className="text-muted me-2" />
-                    <small>
-                      Ended: {new Date(election.voting_end).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
-                    </small>
+                    <small className="text-muted">
+              {formatDateSafely(election.voting_start)} - {formatDateSafely(election.voting_end)}  {/* Use safe formatting */}
+            </small>
                   </div>
                   <div className="d-flex align-items-center mb-2">
                     <FaMapMarkerAlt className="text-muted me-2" />
@@ -1683,7 +1882,7 @@ const ResultsTab = ({ completedElections, onViewResults }) => {
 };
 
 // Enhanced Overview Component
-
+// Enhanced Overview Component
 const EnhancedOverview = ({ 
   dashboardData, 
   liveStats, 
@@ -1695,348 +1894,264 @@ const EnhancedOverview = ({
   onViewResults,
   hasVoted,
   completedElections,
-  quickActions
+  quickActions,
+  calculateProfileCompletion
 }) => {
   const [securityAlert, setSecurityAlert] = useState(false);
-  const [voteConfirmation, setVoteConfirmation] = useState(null);
   const [activeElections, setActiveElections] = useState([]);
-  
-  // Check for security alerts
-  useEffect(() => {
-    const checkSecurityAlerts = () => {
-      const lastLogin = dashboardData?.voter_info?.last_login;
-      if (lastLogin) {
-        const lastLoginDate = new Date(lastLogin);
-        const hoursSinceLogin = (new Date() - lastLoginDate) / (1000 * 60 * 60);
-        if (hoursSinceLogin > 24) {
-          setSecurityAlert(true);
-        }
-      }
-    };
-    
-    if (dashboardData) {
-      checkSecurityAlerts();
-      // Extract active elections
-      const active = dashboardData?.election_info?.active_elections || [];
-      setActiveElections(active);
-    }
-  }, [dashboardData]);
+  const [stats, setStats] = useState({
+    profileCompletion: 0,
+    votingStreak: 0,
+    constituencyRank: 'N/A',
+    securityScore: 0,
+    recentActivity: []
+  });
 
-  // Election status indicators
-  const getElectionStatusIndicator = (election) => {
-    const now = new Date();
-    const start = new Date(election.voting_start);
-    const end = new Date(election.voting_end);
-    
-    if (now < start) {
-      return {
-        type: 'upcoming',
-        text: 'Starts Soon',
-        color: 'warning',
-        icon: FaClock
-      };
-    } else if (now >= start && now <= end) {
-      return {
-        type: 'active',
-        text: 'Voting Now',
-        color: 'success',
-        icon: FaPlay
-      };
-    } else {
-      return {
-        type: 'ended',
-        text: 'Voting Ended',
-        color: 'secondary',
-        icon: FaStop
-      };
+  // Parse date safely
+  const parseDate = (dateValue) => {
+    if (!dateValue) return null;
+    try {
+      // Handle MongoDB date format
+      if (typeof dateValue === 'object' && dateValue.$date) {
+        const dateStr = dateValue.$date;
+        const cleanDateStr = dateStr.replace('Z', '').split('.')[0];
+        return new Date(cleanDateStr);
+      }
+      
+      // Handle ISO string
+      if (typeof dateValue === 'string') {
+        const cleanDateStr = dateValue.replace('Z', '').split('.')[0];
+        const date = new Date(cleanDateStr);
+        
+        if (isNaN(date.getTime())) {
+          console.warn('Invalid date string:', dateValue);
+          return null;
+        }
+        return date;
+      }
+      
+      // Handle Date object
+      if (dateValue instanceof Date) {
+        return dateValue;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error parsing date:', dateValue, error);
+      return null;
     }
   };
 
-  // Render security card with enhanced features
-  const renderSecurityCard = () => (
-    <Card className="border-0 shadow-sm security-card">
-      <Card.Header className="bg-primary bg-opacity-10 border-0">
-        <div className="d-flex align-items-center justify-content-between">
-          <h6 className="mb-0 d-flex align-items-center">
-            <FaShieldAlt className="me-2 text-primary" />
-            Security Status
-          </h6>
-          <Button 
-            variant="outline-primary" 
-            size="sm"
-            onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'security' }))}
-          >
-            <FaWrench className="me-1" />
-            Manage
-          </Button>
-        </div>
-      </Card.Header>
-      <Card.Body>
-        <div className="mb-3">
-          <div className="d-flex justify-content-between mb-2">
-            <span>Security Score</span>
-            <Badge bg={
-              dashboardData?.security_status?.security_score >= 80 ? "success" :
-              dashboardData?.security_status?.security_score >= 60 ? "warning" : "danger"
-            }>
-              {dashboardData?.security_status?.security_score || 0}/100
-            </Badge>
-          </div>
-          <ProgressBar 
-            now={dashboardData?.security_status?.security_score || 0}
-            variant={
-              dashboardData?.security_status?.security_score >= 80 ? "success" :
-              dashboardData?.security_status?.security_score >= 60 ? "warning" : "danger"
-            }
-          />
-        </div>
-        
-        <ListGroup variant="flush">
-          <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
-            <div className="d-flex align-items-center">
-              <FaLock className="text-success me-2" />
-              <span>Account Protection</span>
-            </div>
-            {dashboardData?.security_status?.two_factor_enabled ? 
-              <FaCircleCheck className="text-success" /> : 
-              <FaTimesCircle className="text-warning" />
-            }
-          </ListGroup.Item>
-          <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
-            <div className="d-flex align-items-center">
-              <FaShieldHalved className="text-info me-2" />
-              <span>Active Sessions</span>
-            </div>
-            <Badge bg="info">
-              {dashboardData?.security_status?.active_sessions || 0}
-            </Badge>
-          </ListGroup.Item>
-          <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
-            <div className="d-flex align-items-center">
-              <FaUserCheck className="text-primary me-2" />
-              <span>Verified Devices</span>
-            </div>
-            <Badge bg="success">
-              {dashboardData?.security_status?.trusted_devices || 0}
-            </Badge>
-          </ListGroup.Item>
-          <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
-            <div className="d-flex align-items-center">
-              <FaBell className="text-warning me-2" />
-              <span>Security Alerts</span>
-            </div>
-            <Badge bg={dashboardData?.security_status?.alerts_count > 0 ? "warning" : "secondary"}>
-              {dashboardData?.security_status?.alerts_count || 0}
-            </Badge>
-          </ListGroup.Item>
-        </ListGroup>
-        
-        <Button 
-          variant="outline-primary" 
-          size="sm" 
-          className="w-100 mt-3"
-          onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'security' }))}
-        >
-          <FaShieldAlt className="me-2" />
-          Security Center
-        </Button>
-      </Card.Body>
-    </Card>
-  );
-
-  // Enhanced results card
-  const renderLiveResultsCard = () => {
-    if (!completedElections || completedElections.length === 0) return null;
+  // Format date safely
+  const formatDate = (dateValue) => {
+    const date = parseDate(dateValue);
+    if (!date) return 'N/A';
     
-    return (
-      <Card className="border-0 shadow-sm results-card">
-        <Card.Header className="bg-warning bg-opacity-10 border-0">
-          <div className="d-flex align-items-center justify-content-between">
-            <h6 className="mb-0 d-flex align-items-center">
-              <FaTrophy className="text-warning me-2" />
-              Recent Results
-            </h6>
-            <Button 
-              variant="outline-warning" 
-              size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'results' }))}
-            >
-              View All
-            </Button>
-          </div>
-        </Card.Header>
-        <Card.Body>
-          <div className="results-list">
-            {completedElections.slice(0, 3).map(election => (
-              <div key={election.election_id} className="result-item mb-3 pb-3 border-bottom">
-                <div className="d-flex justify-content-between align-items-start mb-2">
-                  <h6 className="mb-0">{election.title}</h6>
-                  <Badge bg="warning">Results</Badge>
-                </div>
-                <p className="text-muted small mb-2">{election.constituency}</p>
-                
-                {election.winner && (
-                  <div className="bg-light rounded p-2 mb-2">
-                    <div className="d-flex align-items-center">
-                      <FaMedal className="text-warning me-2" />
-                      <div>
-                        <strong className="d-block">{election.winner.candidate_name}</strong>
-                        <small className="text-muted">{election.winner.party}</small>
-                        <Badge bg="success" className="ms-2">
-                          {election.winner.vote_percentage}% Votes
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="d-flex justify-content-between align-items-center">
-                  <small className="text-muted">
-                    Ended: {new Date(election.voting_end).toLocaleDateString()}
-                  </small>
-                  <Button 
-                    variant="outline-warning" 
-                    size="sm"
-                    onClick={() => onViewResults(election)}
-                  >
-                    View
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card.Body>
-      </Card>
-    );
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  // Format date and time safely
+  const formatDateTime = (dateValue) => {
+    const date = parseDate(dateValue);
+    if (!date) return 'N/A';
+    
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  // Initialize data
+  useEffect(() => {
+    if (dashboardData) {
+      const active = dashboardData?.election_info?.active_elections || [];
+      setActiveElections(active);
+      
+      // Calculate stats
+      const profileCompletion = calculateProfileCompletion(dashboardData?.voter_info);
+      const securityScore = dashboardData?.security_status?.security_score || 0;
+      
+      setStats({
+        profileCompletion,
+        votingStreak: dashboardData?.quick_stats?.voting_streak || 0,
+        constituencyRank: dashboardData?.quick_stats?.constituency_rank || 'N/A',
+        securityScore,
+        recentActivity: getRecentActivity(dashboardData)
+      });
+
+      // Check security alerts
+      const lastLogin = dashboardData?.voter_info?.last_login;
+      if (lastLogin) {
+        const lastLoginDate = parseDate(lastLogin);
+        if (lastLoginDate) {
+          const hoursSinceLogin = (new Date() - lastLoginDate) / (1000 * 60 * 60);
+          if (hoursSinceLogin > 24) {
+            setSecurityAlert(true);
+          }
+        }
+      }
+    }
+  }, [dashboardData, calculateProfileCompletion]);
+
+  // Helper function to get recent activity
+  const getRecentActivity = (data) => {
+    const activities = [];
+    
+    // Add profile completion activity
+    if (calculateProfileCompletion(data?.voter_info) > 0) {
+      activities.push({
+        type: 'profile',
+        action: 'Profile Updated',
+        time: 'Just now',
+        icon: FaUserEdit,
+        color: 'primary'
+      });
+    }
+    
+    // Add voting activity if any
+    if (data?.quick_stats?.votes_cast > 0) {
+      activities.push({
+        type: 'vote',
+        action: 'Vote Cast',
+        time: 'Today',
+        icon: FaVoteYea,
+        color: 'success'
+      });
+    }
+    
+    // Add security activity
+    if (data?.security_status?.security_score > 70) {
+      activities.push({
+        type: 'security',
+        action: 'Security Updated',
+        time: 'This week',
+        icon: FaShieldAlt,
+        color: 'warning'
+      });
+    }
+    
+    return activities.slice(0, 3);
   };
 
   // Enhanced stat card component
-  const EnhancedStatCard = ({ title, value, icon: Icon, color = 'primary', subtitle = '', onClick = null }) => (
+  const EnhancedStatCard = ({ title, value, icon: Icon, color = 'primary', subtitle = '', trend = null, onClick = null }) => (
     <Card 
       className={`border-0 shadow-sm h-100 cursor-pointer ${onClick ? 'clickable-stat-card' : ''}`}
       onClick={onClick}
     >
-      <Card.Body className="d-flex align-items-center p-3">
-        <div className={`bg-${color} bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3`}
-             style={{ width: '50px', height: '50px' }}>
-          <Icon className={`text-${color} fs-4`} />
-        </div>
-        <div className="flex-grow-1">
-          <h3 className="mb-1 fw-bold">{value}</h3>
-          <p className="mb-0 text-muted small">{title}</p>
-          {subtitle && <small className="opacity-75 d-block mt-1">{subtitle}</small>}
-          {onClick && (
-            <small className="text-primary d-block mt-2">
-              Click to view details →
-            </small>
+      <Card.Body className="p-4">
+        <div className="d-flex align-items-center justify-content-between mb-3">
+          <div className={`bg-${color} bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center`}
+               style={{ width: '60px', height: '60px' }}>
+            <Icon className={`text-${color} fs-3`} />
+          </div>
+          {trend && (
+            <Badge bg={trend > 0 ? "success" : trend < 0 ? "danger" : "secondary"}>
+              {trend > 0 ? `+${trend}` : trend}%
+            </Badge>
           )}
         </div>
+        <h2 className="mb-2 fw-bold display-6">{value}</h2>
+        <h6 className="mb-1">{title}</h6>
+        {subtitle && <p className="text-muted small mb-0">{subtitle}</p>}
+        {onClick && (
+          <small className="text-primary d-block mt-3 fw-semibold">
+            View Details <FaArrowRight className="ms-1" />
+          </small>
+        )}
       </Card.Body>
     </Card>
   );
 
   // Enhanced election card
-  const EnhancedElectionCard = ({ election, onStartVoting, onViewResults, compact = false, hasVoted }) => {
-    const status = getElectionStatusIndicator(election);
-    const StatusIcon = status.icon;
-    
+  const EnhancedElectionCard = ({ election, onStartVoting, hasVoted }) => {
+    const now = new Date();
+    const start = parseDate(election.voting_start);
+    const end = parseDate(election.voting_end);
+    const isActive = start && end && now >= start && now <= end;
+    const timeRemaining = end ? Math.max(0, end - now) : 0;
+    const daysRemaining = Math.ceil(timeRemaining / (1000 * 60 * 60 * 24));
+
     return (
-      <Card className="border-0 shadow-sm election-card h-100 hover-lift">
-        <Card.Header className={`bg-${status.color} bg-opacity-10 border-0`}>
+      <Card className="border-0 shadow-sm h-100 hover-lift transition-all">
+        <Card.Header className="bg-white border-0 pb-0">
           <div className="d-flex justify-content-between align-items-center">
-            <div className="d-flex align-items-center">
-              <StatusIcon className={`text-${status.color} me-2`} />
-              <strong>{status.text}</strong>
-            </div>
-            {isConnected && (
-              <Badge bg="success" pill>
-                <BroadcastIcon className="me-1" /> Live
+            <Badge bg={isActive ? "success" : "secondary"} className="px-3 py-2">
+              {isActive ? 'ACTIVE NOW' : 'COMING SOON'}
+            </Badge>
+            {hasVoted && (
+              <Badge bg="success" className="px-3 py-2">
+                <FaCheckCircle className="me-1" /> VOTED
               </Badge>
             )}
           </div>
         </Card.Header>
-        <Card.Body>
-          <h5 className="mb-2">{election.title}</h5>
-          <div className="mb-3">
-            <div className="d-flex align-items-center mb-1">
-              <FaCalendarAlt className="text-muted me-2" size={12} />
-              <small>
-                {new Date(election.voting_start).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric'
-                })} - {new Date(election.voting_end).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric'
-                })}
+        <Card.Body className="pt-3">
+          <h5 className="mb-3 fw-bold">{election.title}</h5>
+          <div className="mb-4">
+            <div className="d-flex align-items-center mb-2">
+              <FaCalendarAlt className="text-muted me-2" />
+              <small className="text-muted">
+                {formatDate(election.voting_start)} - {formatDate(election.voting_end)}
               </small>
             </div>
-            <div className="d-flex align-items-center mb-1">
-              <FaMapMarkerAlt className="text-muted me-2" size={12} />
-              <small>{election.constituency}</small>
+            <div className="d-flex align-items-center mb-2">
+              <FaMapMarkerAlt className="text-muted me-2" />
+              <small className="text-muted">{election.constituency}</small>
             </div>
             <div className="d-flex align-items-center">
-              <FaUsers className="text-muted me-2" size={12} />
-              <small>{election.candidates_count || 0} Candidates</small>
+              <FaUsers className="text-muted me-2" />
+              <small className="text-muted">{election.candidates_count || 0} Candidates</small>
             </div>
           </div>
-          
-          {status.type === 'active' && (
-            <div className="mt-3">
-              {hasVoted ? (
-                <Alert variant="success" className="py-2 mb-2">
-                  <div className="d-flex align-items-center">
-                    <FaCheckCircle className="me-2" />
-                    <div>
-                      <strong>Vote Cast!</strong>
-                      <div className="small">Your vote has been recorded</div>
-                    </div>
-                  </div>
-                </Alert>
-              ) : (
-                <Button 
-                  variant="primary" 
-                  className="w-100"
-                  onClick={() => onStartVoting(election)}
-                >
-                  <FaVoteYea className="me-2" />
-                  Cast Your Vote
-                </Button>
-              )}
-              
-              {election.total_votes > 0 && (
-                <div className="mt-2">
-                  <ProgressBar 
-                    now={(election.total_votes / 1000) * 100}
-                    label={`${election.total_votes} votes`}
-                    variant="info"
-                    className="mb-1"
-                  />
-                  <small className="text-muted">Current Turnout</small>
-                </div>
-              )}
-            </div>
-          )}
-          
-          {status.type === 'ended' && election.results_available && (
+
+          {isActive && !hasVoted && (
             <Button 
-              variant="warning" 
-              className="w-100 mt-2"
-              onClick={() => onViewResults(election)}
+              variant="primary" 
+              className="w-100 py-3 fw-bold"
+              onClick={() => onStartVoting(election)}
             >
-              <FaChartBar className="me-2" />
-              View Results
+              <FaVoteYea className="me-2" />
+              VOTE NOW
             </Button>
           )}
+
+          {isActive && hasVoted && (
+            <Alert variant="success" className="mb-0">
+              <div className="d-flex align-items-center">
+                <FaCheckCircle className="me-2 fs-4" />
+                <div>
+                  <strong>Vote Submitted!</strong>
+                  <div className="small">Thank you for participating</div>
+                </div>
+              </div>
+            </Alert>
+          )}
+
+          {!isActive && (
+            <div className="text-center">
+              <FaClock className="text-warning fs-1 mb-2" />
+              <p className="mb-0 fw-bold">
+                {daysRemaining > 0 ? `Starts in ${daysRemaining} days` : 'Starting Soon'}
+              </p>
+            </div>
+          )}
         </Card.Body>
-        <Card.Footer className="bg-light border-0 py-2">
-          <div className="d-flex justify-content-between align-items-center">
-            <small className="text-muted">
+        <Card.Footer className="bg-light border-0">
+          <div className="d-flex justify-content-between align-items-center small">
+            <span className="text-muted">
               <FaLock className="me-1" />
-              Secure Blockchain Verified
-            </small>
-            <Badge bg="light" text="dark" className="small">
-              ID: {election.election_id?.substring(0, 8)}...
+              Secure Voting
+            </span>
+            <Badge bg="light" text="dark">
+              ID: {election.election_id?.substring(0, 6)}...
             </Badge>
           </div>
         </Card.Footer>
@@ -2047,77 +2162,105 @@ const EnhancedOverview = ({
   // Quick action card
   const QuickActionCard = ({ action }) => (
     <Card 
-      className="border-0 shadow-sm h-100 hover-shadow cursor-pointer"
+      className="border-0 shadow-sm h-100 hover-lift transition-all cursor-pointer"
       onClick={action.onClick}
       key={action.id}
     >
-      <Card.Body className="text-center p-3">
-        <div className={`bg-${action.color} bg-opacity-10 rounded-circle d-inline-flex align-items-center justify-content-center mb-3`}
-             style={{ width: '50px', height: '50px' }}>
-          <action.icon className={`text-${action.color} fs-4`} />
+      <Card.Body className="text-center p-4">
+        <div className={`bg-${action.color} bg-opacity-10 rounded-circle d-inline-flex align-items-center justify-content-center mb-4`}
+             style={{ width: '70px', height: '70px' }}>
+          <action.icon className={`text-${action.color} fs-3`} />
         </div>
-        <h6 className="mb-2">{action.title}</h6>
-        <p className="small text-muted mb-3">{action.description}</p>
-        <small className="text-primary fw-semibold">
-          Take Action →
-        </small>
+        <h6 className="mb-2 fw-bold">{action.title}</h6>
+        <p className="small text-muted mb-4">{action.description}</p>
+        <Button variant={`outline-${action.color}`} size="sm" className="w-100">
+          Take Action <FaArrowRight className="ms-2" />
+        </Button>
       </Card.Body>
     </Card>
   );
 
+  // Recent activity item
+  const ActivityItem = ({ activity }) => {
+    const Icon = activity.icon;
+    return (
+      <div className="d-flex align-items-center py-3 border-bottom">
+        <div className={`bg-${activity.color} bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3`}
+             style={{ width: '45px', height: '45px' }}>
+          <Icon className={`text-${activity.color}`} />
+        </div>
+        <div className="flex-grow-1">
+          <h6 className="mb-0 fw-semibold">{activity.action}</h6>
+          <small className="text-muted">{activity.time}</small>
+        </div>
+      </div>
+    );
+  };
+
+  if (!dashboardData) {
+    return (
+      <div className="text-center py-5">
+        <Spinner animation="border" variant="primary" size="lg" />
+        <p className="mt-3">Loading dashboard data...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="election-dashboard">
-      {/* Security Alert Banner */}
-      {securityAlert && (
-        <Alert variant="warning" className="d-flex align-items-center mb-4">
-          <FaShieldHalved className="me-3 fs-4" />
-          <div className="flex-grow-1">
-            <strong>Security Notice</strong>
-            <div className="small">It's been more than 24 hours since your last login. 
-              Please verify your account activity.</div>
+      {/* Welcome Header */}
+      <div className="welcome-banner bg-gradient-primary text-white rounded-3 p-4 mb-4">
+        <div className="d-flex justify-content-between align-items-center">
+          <div>
+            <h1 className="mb-2 fw-bold">
+              Welcome back, {dashboardData?.voter_info?.full_name?.split(' ')[0] || 'Voter'}! 👋
+            </h1>
+            <p className="mb-0 opacity-75">
+              Ready to participate in democratic processes and make your voice heard
+            </p>
           </div>
-          <Button 
-            variant="outline-warning" 
-            size="sm"
-            onClick={() => setSecurityAlert(false)}
-          >
-            Dismiss
-          </Button>
-        </Alert>
-      )}
-
-      {/* Header Section */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <div>
-          <h4 className="mb-1 fw-bold text-dark">
-            Welcome back, {dashboardData?.voter_info?.full_name?.split(' ')[0] || 'Voter'}! 👋
+          <div className="d-flex align-items-center">
             {isConnected && (
-              <Badge bg="success" className="ms-2 align-middle">
-                <BroadcastIcon className="me-1" />
-                Live
+              <Badge bg="white" text="primary" className="me-3 px-3 py-2">
+                <BroadcastIcon className="me-2" />
+                LIVE CONNECTED
               </Badge>
             )}
-          </h4>
-          <p className="text-muted mb-0">
-            Dashboard • {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </p>
-        </div>
-        <div className="d-flex gap-2">
-          <Button 
-            variant="outline-primary" 
-            size="sm"
-            onClick={onRefresh}
-            disabled={loading}
-            className="dashboard-btn d-flex align-items-center"
-          >
-            <FaSync className={`me-1 ${loading ? 'spinner' : ''}`} />
-            Refresh
-          </Button>
+            <Button 
+              variant="outline-light" 
+              className="d-flex align-items-center"
+              onClick={onRefresh}
+              disabled={loading}
+            >
+              <FaSync className={`me-2 ${loading ? 'spinner' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
       </div>
 
+      {/* Security Alert */}
+      {securityAlert && (
+        <Alert variant="warning" className="border-0 shadow-sm mb-4">
+          <div className="d-flex align-items-center">
+            <FaShieldHalved className="fs-3 me-3" />
+            <div className="flex-grow-1">
+              <strong className="d-block">Security Notice</strong>
+              <small>It's been more than 24 hours since your last login. Please verify recent activity.</small>
+            </div>
+            <Button 
+              variant="outline-warning" 
+              size="sm"
+              onClick={() => setSecurityAlert(false)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       {/* Quick Stats Grid */}
-      <Row className="mb-4 g-3">
+      <Row className="mb-4 g-4">
         <Col xl={3} lg={6}>
           <EnhancedStatCard
             title="Active Elections"
@@ -2125,63 +2268,66 @@ const EnhancedOverview = ({
             icon={FaVoteYea}
             color="primary"
             subtitle="Open for voting"
+            trend={+5}
             onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'elections' }))}
           />
         </Col>
         <Col xl={3} lg={6}>
           <EnhancedStatCard
-            title="Your Votes"
-            value={dashboardData?.quick_stats?.votes_cast || 0}
-            icon={FaCheckCircle}
-            color="success"
-            subtitle="Total votes cast"
+            title="Voting Streak"
+            value={stats.votingStreak}
+            icon={FaFire}
+            color="warning"
+            subtitle="Consecutive votes"
+            trend={+10}
             onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'history' }))}
           />
         </Col>
         <Col xl={3} lg={6}>
           <EnhancedStatCard
-            title="Participation"
-            value={`${dashboardData?.quick_stats?.participation_rate || 0}%`}
-            icon={FaPercentage}
-            color="info"
-            subtitle="Voting participation"
-            onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'analytics' }))}
+            title="Profile Score"
+            value={`${stats.profileCompletion}%`}
+            icon={FaUserCheck}
+            color="success"
+            subtitle="Completion status"
+            trend={+15}
+            onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'profile' }))}
           />
         </Col>
         <Col xl={3} lg={6}>
           <EnhancedStatCard
             title="Security Score"
-            value={`${dashboardData?.security_status?.security_score || 0}/100`}
+            value={`${stats.securityScore}/100`}
             icon={FaShieldAlt}
-            color={dashboardData?.security_status?.security_score >= 80 ? "success" : "warning"}
+            color={stats.securityScore >= 80 ? "success" : "warning"}
             subtitle="Account protection"
+            trend={+8}
             onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'security' }))}
           />
         </Col>
       </Row>
 
-      {/* Main Content Grid */}
+      {/* Main Content */}
       <Row className="g-4">
-        {/* Left Column - Elections */}
+        {/* Left Column - Elections & Actions */}
         <Col lg={8}>
           {/* Active Elections Section */}
-          <Card className="shadow-sm border-0 mb-4">
-            <Card.Header className="bg-white border-0 d-flex justify-content-between align-items-center py-3">
-              <h5 className="mb-0 d-flex align-items-center">
-                <FaVoteYea className="me-2 text-primary" />
-                Active Elections
-                <Badge bg="primary" className="ms-2">
-                  {activeElections.length || 0}
-                </Badge>
-              </h5>
-              <Button 
-                variant="outline-primary" 
-                size="sm"
-                onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'elections' }))}
-                className="dashboard-btn"
-              >
-                View All
-              </Button>
+          <Card className="border-0 shadow-sm mb-4">
+            <Card.Header className="bg-white border-0 py-3">
+              <div className="d-flex justify-content-between align-items-center">
+                <h5 className="mb-0 d-flex align-items-center fw-bold">
+                  <FaVoteYea className="me-3 text-primary" />
+                  Active Elections
+                  <Badge bg="primary" className="ms-3">{activeElections.length}</Badge>
+                </h5>
+                <Button 
+                  variant="outline-primary" 
+                  onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'elections' }))}
+                  className="dashboard-btn"
+                >
+                  View All <FaArrowRight className="ms-2" />
+                </Button>
+              </div>
             </Card.Header>
             <Card.Body>
               {activeElections.length > 0 ? (
@@ -2191,7 +2337,6 @@ const EnhancedOverview = ({
                       <EnhancedElectionCard 
                         election={election} 
                         onStartVoting={onStartVoting}
-                        onViewResults={onViewResults}
                         hasVoted={hasVoted[election.election_id]}
                       />
                     </Col>
@@ -2199,7 +2344,7 @@ const EnhancedOverview = ({
                 </Row>
               ) : (
                 <div className="text-center py-5">
-                  <FaVoteYea className="text-muted fs-1 mb-3 opacity-50" />
+                  <FaVoteYea className="text-muted fs-1 mb-3 opacity-25" />
                   <h6 className="text-muted mb-2">No Active Elections</h6>
                   <p className="text-muted mb-4">Check back later for upcoming elections</p>
                   <Button 
@@ -2207,7 +2352,7 @@ const EnhancedOverview = ({
                     onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'elections' }))}
                     className="dashboard-btn"
                   >
-                    View Upcoming Elections
+                    Browse Upcoming Elections
                   </Button>
                 </div>
               )}
@@ -2216,10 +2361,10 @@ const EnhancedOverview = ({
 
           {/* Quick Actions */}
           {quickActions && quickActions.length > 0 && (
-            <Card className="shadow-sm border-0 mb-4">
+            <Card className="border-0 shadow-sm mb-4">
               <Card.Header className="bg-white border-0 py-3">
-                <h5 className="mb-0 d-flex align-items-center">
-                  <FaRocket className="me-2 text-success" />
+                <h5 className="mb-0 d-flex align-items-center fw-bold">
+                  <FaRocket className="me-3 text-success" />
                   Quick Actions
                 </h5>
               </Card.Header>
@@ -2234,122 +2379,120 @@ const EnhancedOverview = ({
               </Card.Body>
             </Card>
           )}
-
-          {/* Voter Insights */}
-          <Card className="shadow-sm border-0">
-            <Card.Header className="bg-white border-0 py-3">
-              <h5 className="mb-0 d-flex align-items-center">
-                <FaLightbulb className="me-2 text-warning" />
-                Your Voting Insights
-              </h5>
-            </Card.Header>
-            <Card.Body>
-              <Row>
-                <Col md={6}>
-                  <div className="mb-4">
-                    <h6 className="text-muted mb-3">Profile Completion</h6>
-                    <div className="d-flex justify-content-between mb-1">
-                      <small>Progress</small>
-                      <small>{calculateProfileCompletion(dashboardData?.voter_info)}%</small>
-                    </div>
-                    <ProgressBar 
-                      now={calculateProfileCompletion(dashboardData?.voter_info)}
-                      variant="primary"
-                      style={{ height: '8px' }}
-                      className="rounded-pill"
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <div className="d-flex justify-content-between mb-2">
-                      <span>Voting Streak</span>
-                      <Badge bg="warning">
-                        <FaFire className="me-1" />
-                        {dashboardData?.quick_stats?.voting_streak || 0}
-                      </Badge>
-                    </div>
-                    <div className="d-flex justify-content-between mb-2">
-                      <span>Constituency Rank</span>
-                      <Badge bg="info">
-                        #{dashboardData?.quick_stats?.constituency_rank || 'N/A'}
-                      </Badge>
-                    </div>
-                  </div>
-                </Col>
-                <Col md={6}>
-                  <h6 className="text-muted mb-3">Verification Status</h6>
-                  <div className="d-flex flex-wrap gap-2 mb-3">
-                    {['email', 'phone', 'id', 'face'].map(type => (
-                      <Card 
-                        key={type}
-                        className={`text-center p-2 ${dashboardData?.voter_info?.[`${type}_verified`] ? 'border-success' : 'border-secondary'}`}
-                        style={{ width: '70px' }}
-                      >
-                        <div className={`fs-4 mb-1 ${dashboardData?.voter_info?.[`${type}_verified`] ? 'text-success' : 'text-secondary'}`}>
-                          {type === 'email' && <FaEnvelope />}
-                          {type === 'phone' && <FaPhone />}
-                          {type === 'id' && <FaIdCard />}
-                          {type === 'face' && <FaUserCheck />}
-                        </div>
-                        <small className="text-capitalize">{type}</small>
-                      </Card>
-                    ))}
-                  </div>
-                  <Button 
-                    variant="outline-primary" 
-                    size="sm" 
-                    className="w-100"
-                    onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'profile' }))}
-                  >
-                    <FaUserEdit className="me-2" />
-                    Complete Profile
-                  </Button>
-                </Col>
-              </Row>
-            </Card.Body>
-          </Card>
         </Col>
 
-        {/* Right Column - Sidebar */}
+        {/* Right Column - Stats & Info */}
         <Col lg={4}>
-          {/* Security Status */}
-          {renderSecurityCard()}
-          
-          {/* Recent Results */}
-          {renderLiveResultsCard()}
-          
-          {/* System Status */}
-          <Card className="shadow-sm border-0 mt-4">
+          {/* Voter Status Card */}
+          <Card className="border-0 shadow-sm mb-4">
             <Card.Header className="bg-white border-0 py-3">
-              <h6 className="mb-0 d-flex align-items-center">
-                <FaServer className="me-2 text-info" />
+              <h6 className="mb-0 d-flex align-items-center fw-bold">
+                <FaUser className="me-3 text-primary" />
+                Your Status
+              </h6>
+            </Card.Header>
+            <Card.Body>
+              <div className="text-center mb-4">
+                <div className="position-relative d-inline-block mb-3">
+                  <div className="circular-progress" style={{ width: '100px', height: '100px' }}>
+                    <svg width="100" height="100" viewBox="0 0 100 100">
+                      <circle cx="50" cy="50" r="45" fill="none" stroke="#e9ecef" strokeWidth="8" />
+                      <circle 
+                        cx="50" 
+                        cy="50" 
+                        r="45" 
+                        fill="none" 
+                        stroke="var(--bs-primary)" 
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={`${stats.profileCompletion * 2.827} 283`}
+                        transform="rotate(-90 50 50)"
+                      />
+                    </svg>
+                    <div className="position-absolute top-50 start-50 translate-middle">
+                      <h4 className="mb-0 fw-bold">{stats.profileCompletion}%</h4>
+                    </div>
+                  </div>
+                </div>
+                <h6 className="mb-2">Profile Completion</h6>
+                <ProgressBar 
+                  now={stats.profileCompletion}
+                  variant="primary"
+                  className="mb-3"
+                />
+              </div>
+              
+              <ListGroup variant="flush">
+                <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
+                  <span>Voter ID</span>
+                  <Badge bg="light" text="dark">
+                    {dashboardData?.voter_info?.voter_id}
+                  </Badge>
+                </ListGroup.Item>
+                <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
+                  <span>Constituency</span>
+                  <span className="fw-semibold">{dashboardData?.voter_info?.constituency}</span>
+                </ListGroup.Item>
+                <ListGroup.Item className="d-flex justify-content-between align-items-center border-0 px-0 py-2">
+                  <span>Verification</span>
+                  <Badge bg="success">
+                    <FaCheckCircle className="me-1" />
+                    Verified
+                  </Badge>
+                </ListGroup.Item>
+              </ListGroup>
+            </Card.Body>
+          </Card>
+
+          {/* Recent Activity */}
+          <Card className="border-0 shadow-sm mb-4">
+            <Card.Header className="bg-white border-0 py-3">
+              <h6 className="mb-0 d-flex align-items-center fw-bold">
+                <FaHistory className="me-3 text-info" />
+                Recent Activity
+              </h6>
+            </Card.Header>
+            <Card.Body className="p-0">
+              {stats.recentActivity.length > 0 ? (
+                stats.recentActivity.map((activity, index) => (
+                  <ActivityItem key={index} activity={activity} />
+                ))
+              ) : (
+                <div className="text-center py-4">
+                  <FaClock className="text-muted fs-1 mb-3 opacity-50" />
+                  <p className="text-muted mb-0">No recent activity</p>
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+
+          {/* System Status */}
+          <Card className="border-0 shadow-sm">
+            <Card.Header className="bg-white border-0 py-3">
+              <h6 className="mb-0 d-flex align-items-center fw-bold">
+                <FaServer className="me-3 text-success" />
                 System Status
               </h6>
             </Card.Header>
             <Card.Body>
               <div className="mb-3">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <span className="text-muted">Real-time Updates</span>
+                <div className="d-flex justify-content-between align-items-center mb-3">
+                  <span className="text-muted">Connection</span>
                   <Badge bg={isConnected ? "success" : "warning"}>
-                    {isConnected ? 'Connected' : 'Connecting...'}
+                    {isConnected ? 'Live' : 'Offline'}
                   </Badge>
                 </div>
-                <div className="d-flex justify-content-between align-items-center mb-2">
+                <div className="d-flex justify-content-between align-items-center mb-3">
                   <span className="text-muted">Active Users</span>
-                  <span className="fw-semibold">{liveStats?.connected_users || 0}</span>
+                  <span className="fw-semibold">{liveStats?.connected_users || '0'}</span>
                 </div>
-                <div className="d-flex justify-content-between align-items-center mb-2">
+                <div className="d-flex justify-content-between align-items-center mb-3">
                   <span className="text-muted">Uptime</span>
                   <Badge bg="success">99.9%</Badge>
                 </div>
-                <div className="d-flex justify-content-between align-items-center">
-                  <span className="text-muted">Last Update</span>
-                  <small className="text-muted">
-                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </small>
-                </div>
               </div>
               <Button 
-                variant="outline-info" 
+                variant="outline-success" 
                 size="sm" 
                 className="w-100"
                 onClick={() => window.location.reload()}
@@ -2359,64 +2502,69 @@ const EnhancedOverview = ({
               </Button>
             </Card.Body>
           </Card>
-
-          {/* Quick Tips */}
-          <Card className="shadow-sm border-0 mt-4">
-            <Card.Header className="bg-white border-0 py-3">
-              <h6 className="mb-0 d-flex align-items-center">
-                <FaCircleInfo className="me-2 text-success" />
-                Quick Tips
-              </h6>
-            </Card.Header>
-            <Card.Body className="p-0">
-              <ListGroup variant="flush">
-                <ListGroup.Item className="border-0 py-3">
-                  <div className="d-flex">
-                    <div className="bg-success bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
-                         style={{ width: '30px', height: '30px' }}>
-                      <FaCheckCircle className="text-success" />
-                    </div>
-                    <div>
-                      <strong>Verify Your Account</strong>
-                      <p className="small text-muted mb-0 mt-1">
-                        Complete all verifications for full voting access
-                      </p>
-                    </div>
-                  </div>
-                </ListGroup.Item>
-                <ListGroup.Item className="border-0 py-3">
-                  <div className="d-flex">
-                    <div className="bg-warning bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
-                         style={{ width: '30px', height: '30px' }}>
-                      <FaBell className="text-warning" />
-                    </div>
-                    <div>
-                      <strong>Enable Notifications</strong>
-                      <p className="small text-muted mb-0 mt-1">
-                        Get alerts for election updates and results
-                      </p>
-                    </div>
-                  </div>
-                </ListGroup.Item>
-                <ListGroup.Item className="border-0 py-3">
-                  <div className="d-flex">
-                    <div className="bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
-                         style={{ width: '30px', height: '30px' }}>
-                      <FaVoteYea className="text-primary" />
-                    </div>
-                    <div>
-                      <strong>Vote Early</strong>
-                      <p className="small text-muted mb-0 mt-1">
-                        Cast your vote early to avoid last-minute congestion
-                      </p>
-                    </div>
-                  </div>
-                </ListGroup.Item>
-              </ListGroup>
-            </Card.Body>
-          </Card>
         </Col>
       </Row>
+
+      {/* Bottom Section - Election Results */}
+      {completedElections && completedElections.length > 0 && (
+        <Card className="border-0 shadow-sm mt-4">
+          <Card.Header className="bg-white border-0 py-3">
+            <div className="d-flex justify-content-between align-items-center">
+              <h5 className="mb-0 d-flex align-items-center fw-bold">
+                <FaTrophy className="me-3 text-warning" />
+                Recent Election Results
+              </h5>
+              <Button 
+                variant="outline-warning"
+                onClick={() => window.dispatchEvent(new CustomEvent('setActiveTab', { detail: 'results' }))}
+              >
+                View All <FaArrowRight className="ms-2" />
+              </Button>
+            </div>
+          </Card.Header>
+          <Card.Body>
+            <Row>
+              {completedElections.slice(0, 3).map(election => (
+                <Col lg={4} key={election.election_id}>
+                  <Card className="border-0 bg-light h-100">
+                    <Card.Body>
+                      <div className="d-flex align-items-start mb-3">
+                        <FaTrophy className="text-warning fs-3 me-3" />
+                        <div>
+                          <h6 className="mb-1">{election.title}</h6>
+                          <small className="text-muted">{election.constituency}</small>
+                        </div>
+                      </div>
+                      {election.winner && (
+                        <div className="bg-white rounded p-3 mb-3">
+                          <div className="d-flex align-items-center">
+                            <FaMedal className="text-warning me-2" />
+                            <div>
+                              <strong className="d-block">{election.winner.candidate_name}</strong>
+                              <small className="text-muted">{election.winner.party}</small>
+                            </div>
+                          </div>
+                          <Badge bg="success" className="mt-2">
+                            {election.winner.vote_percentage}% Votes
+                          </Badge>
+                        </div>
+                      )}
+                      <Button 
+                        variant="warning" 
+                        size="sm" 
+                        className="w-100"
+                        onClick={() => onViewResults(election)}
+                      >
+                        View Full Results
+                      </Button>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          </Card.Body>
+        </Card>
+      )}
     </div>
   );
 };
@@ -2450,7 +2598,9 @@ const EnhancedElectionCard = ({
   const getTimeRemaining = () => {
     if (!election.voting_end) return null;
     
-    const endTime = new Date(election.voting_end);
+    const endTime = parseDate(election.voting_end);
+    if (!endTime) return 'Unknown';
+    
     const now = new Date();
     const diffMs = endTime - now;
     
@@ -2804,48 +2954,67 @@ const EnhancedElections = ({
       console.log('Loading elections with filter:', filter);
       
       let response;
-      switch (filter) {
-        case 'active':
-          response = await voterAPI.getActiveElections();
-          if (response.success) {
-            console.log(`Found ${response.elections.length} active elections`);
-            setActiveElections(response.elections || []);
-          }
-          break;
-        case 'upcoming':
-          response = await voterAPI.getUpcomingElections();
-          if (response.success) {
-            setUpcomingElections(response.elections || []);
-          }
-          break;
-        case 'completed':
-          setLoading(false);
-          return;
-        default:
-          response = await voterAPI.getActiveElections();
-          if (response.success) {
-            setActiveElections(response.elections || []);
-          }
-      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
-      if (!response.success) {
-        setError(response.message || `Failed to load ${filter} elections`);
+      try {
+        switch (filter) {
+          case 'active':
+            response = await voterAPI.getActiveElections({ signal: controller.signal });
+            if (response.success) {
+              console.log(`Found ${response.elections.length} active elections`);
+              setActiveElections(response.elections || []);
+            }
+            break;
+          case 'upcoming':
+            response = await voterAPI.getUpcomingElections({ signal: controller.signal });
+            if (response.success) {
+              setUpcomingElections(response.elections || []);
+            }
+            break;
+          case 'completed':
+            // Use already loaded completed elections
+            setLoading(false);
+            clearTimeout(timeoutId);
+            return;
+          default:
+            response = await voterAPI.getActiveElections({ signal: controller.signal });
+            if (response.success) {
+              setActiveElections(response.elections || []);
+            }
+        }
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.success) {
+          setError(response.message || `Failed to load ${filter} elections`);
+        }
+      } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          setError('Request timeout. Please try again.');
+        } else {
+          const errorMsg = err.response?.data?.message || err.message || `Failed to load ${filter} elections`;
+          setError(errorMsg);
+          console.error('Error loading elections:', err);
+        }
       }
-    } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || `Failed to load ${filter} elections`;
-      setError(errorMsg);
-      console.error('Error loading elections:', err);
     } finally {
       setLoading(false);
     }
   };
 
+  // Define getElectionsToDisplay function
   const getElectionsToDisplay = () => {
     switch (filter) {
-      case 'active': return activeElections;
-      case 'upcoming': return upcomingElections;
-      case 'completed': return completedElections || [];
-      default: return activeElections;
+      case 'active':
+        return activeElections;
+      case 'upcoming':
+        return upcomingElections;
+      case 'completed':
+        return completedElections || [];
+      default:
+        return activeElections;
     }
   };
 
@@ -3347,11 +3516,11 @@ const EnhancedProfile = ({ profileData, dashboardData }) => {
               <Col md={6}>
                 <ProfileField 
                   label="Registration Date" 
-                  value={profileData?.registration_date ? new Date(profileData.registration_date).toLocaleDateString() : 'N/A'}
+                  value={profileData?.registration_date || 'N/A'}
                 />
                 <ProfileField 
                   label="Last Updated" 
-                  value={profileData?.last_updated ? new Date(profileData.last_updated).toLocaleDateString() : 'N/A'}
+                  value={profileData?.last_updated || 'N/A'}
                 />
               </Col>
               <Col md={6}>
@@ -3563,6 +3732,339 @@ const EnhancedVotingHistory = ({ voterId, enhancedVotingHistory, onLoadEnhanced 
               </p>
             </div>
           )}
+        </Card.Body>
+      </Card>
+    </div>
+  );
+};
+
+// Enhanced Analytics Component
+const EnhancedAnalytics = ({ dashboardData, enhancedAnalytics, onLoadEnhanced }) => {
+  const [loading, setLoading] = useState(!enhancedAnalytics);
+
+  useEffect(() => {
+    if (!enhancedAnalytics) {
+      onLoadEnhanced();
+    }
+  }, [enhancedAnalytics, onLoadEnhanced]);
+
+  if (loading && !enhancedAnalytics) {
+    return (
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0 d-flex align-items-center">
+            <FaChartBar className="me-2 text-primary" />
+            Analytics Dashboard
+          </h5>
+        </Card.Header>
+        <Card.Body className="text-center py-5">
+          <Spinner animation="border" variant="primary" />
+          <p className="mt-2">Loading enhanced analytics...</p>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  if (!enhancedAnalytics) {
+    return (
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0">
+          <h5 className="mb-0 d-flex align-items-center">
+            <FaChartBar className="me-2 text-primary" />
+            Analytics Dashboard
+          </h5>
+        </Card.Header>
+        <Card.Body className="text-center py-5">
+          <FaChartBar className="text-muted fs-1 mb-3" />
+          <h5 className="text-muted">Analytics Data Unavailable</h5>
+          <p className="text-muted">Unable to load analytics data at this time.</p>
+          <Button variant="primary" onClick={onLoadEnhanced}>
+            <FaSync className="me-2" />
+            Try Again
+          </Button>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  const { profile_analytics, voting_analytics, comparison_analytics, security_analytics } = enhancedAnalytics;
+
+  return (
+    <div className="analytics-dashboard">
+      {/* Header */}
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h4 className="mb-1 fw-bold">
+            <FaChartBar className="me-2 text-primary" />
+            Analytics Dashboard
+          </h4>
+          <p className="text-muted mb-0">
+            Detailed insights into your voting activity and account
+          </p>
+        </div>
+        <div className="d-flex gap-2">
+          <Button variant="outline-primary" size="sm">
+            <FaDownload className="me-1" />
+            Export
+          </Button>
+          <Button variant="outline-primary" size="sm" onClick={onLoadEnhanced}>
+            <FaSync className="me-1" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Profile Analytics */}
+      <Card className="shadow-sm border-0 mb-4">
+        <Card.Header className="bg-white border-0 py-3">
+          <h5 className="mb-0">Profile Analytics</h5>
+        </Card.Header>
+        <Card.Body>
+          <Row>
+            <Col md={3}>
+              <Card className="border-0 bg-primary text-white">
+                <Card.Body className="text-center">
+                  <h4>{profile_analytics?.completion_score || 0}%</h4>
+                  <p className="mb-0">Profile Completion</p>
+                </Card.Body>
+              </Card>
+            </Col>
+            <Col md={3}>
+              <Card className="border-0 bg-success text-white">
+                <Card.Body className="text-center">
+                  <h4>{profile_analytics?.verification_score || 0}%</h4>
+                  <p className="mb-0">Verification Score</p>
+                </Card.Body>
+              </Card>
+            </Col>
+            <Col md={3}>
+              <Card className="border-0 bg-warning text-white">
+                <Card.Body className="text-center">
+                  <h4>{profile_analytics?.trust_level || 'Low'}</h4>
+                  <p className="mb-0">Trust Level</p>
+                </Card.Body>
+              </Card>
+            </Col>
+            <Col md={3}>
+              <Card className="border-0 bg-info text-white">
+                <Card.Body className="text-center">
+                  <h4>{profile_analytics?.activity_score || 0}/100</h4>
+                  <p className="mb-0">Activity Score</p>
+                </Card.Body>
+              </Card>
+            </Col>
+          </Row>
+        </Card.Body>
+      </Card>
+
+      {/* Voting Analytics */}
+      <Card className="shadow-sm border-0 mb-4">
+        <Card.Header className="bg-white border-0 py-3">
+          <h5 className="mb-0">Voting Analytics</h5>
+        </Card.Header>
+        <Card.Body>
+          <Row>
+            <Col md={6}>
+              <h6>Participation Rate</h6>
+              <ProgressBar 
+                now={voting_analytics?.participation_rate || 0} 
+                label={`${voting_analytics?.participation_rate || 0}%`}
+                className="mb-3"
+              />
+              
+              <h6 className="mt-4">Voting Patterns</h6>
+              {voting_analytics?.voting_patterns && (
+                <ListGroup variant="flush">
+                  <ListGroup.Item className="d-flex justify-content-between align-items-center">
+                    <span>Total Elections</span>
+                    <Badge bg="primary">{voting_analytics.voting_patterns.total_elections}</Badge>
+                  </ListGroup.Item>
+                  <ListGroup.Item className="d-flex justify-content-between align-items-center">
+                    <span>Average Votes/Year</span>
+                    <Badge bg="success">{voting_analytics.voting_patterns.average_votes_per_year}</Badge>
+                  </ListGroup.Item>
+                  <ListGroup.Item className="d-flex justify-content-between align-items-center">
+                    <span>Consistency Score</span>
+                    <Badge bg="info">{voting_analytics.voting_patterns.consistency_score}%</Badge>
+                  </ListGroup.Item>
+                </ListGroup>
+              )}
+            </Col>
+            <Col md={6}>
+              <h6>Preferred Election Types</h6>
+              {voting_analytics?.preferred_election_types && Object.entries(voting_analytics.preferred_election_types).map(([type, count]) => (
+                <div key={type} className="mb-2">
+                  <div className="d-flex justify-content-between">
+                    <span className="text-capitalize">{type.replace('_', ' ')}</span>
+                    <span className="fw-bold">{count}</span>
+                  </div>
+                  <ProgressBar 
+                    now={count * 20} // Assuming max of 5 votes per type for demo
+                    variant={
+                      type === 'general' ? 'success' : 
+                      type === 'state' ? 'warning' : 
+                      type === 'local' ? 'info' : 'secondary'
+                    }
+                  />
+                </div>
+              ))}
+              
+              <h6 className="mt-4">Voting Times</h6>
+              {voting_analytics?.voting_times && (
+                <div className="mt-2">
+                  <div className="d-flex justify-content-between mb-1">
+                    <small>Morning (6AM-12PM)</small>
+                    <small>{voting_analytics.voting_times.morning_votes || 0}</small>
+                  </div>
+                  <div className="d-flex justify-content-between mb-1">
+                    <small>Afternoon (12PM-6PM)</small>
+                    <small>{voting_analytics.voting_times.afternoon_votes || 0}</small>
+                  </div>
+                  <div className="d-flex justify-content-between">
+                    <small>Evening (6PM-12AM)</small>
+                    <small>{voting_analytics.voting_times.evening_votes || 0}</small>
+                  </div>
+                </div>
+              )}
+            </Col>
+          </Row>
+        </Card.Body>
+      </Card>
+
+      {/* Comparison Analytics */}
+      <Row className="mb-4">
+        <Col md={6}>
+          <Card className="shadow-sm border-0 h-100">
+            <Card.Header className="bg-white border-0 py-3">
+              <h6 className="mb-0">Constituency Comparison</h6>
+            </Card.Header>
+            <Card.Body>
+              {comparison_analytics?.constituency_ranking && (
+                <div className="text-center">
+                  <FaTrophy className="text-warning fs-1 mb-3" />
+                  <h2>Rank #{comparison_analytics.constituency_ranking.rank}</h2>
+                  <p className="text-muted">
+                    Out of {comparison_analytics.constituency_ranking.total_voters} voters in your constituency
+                  </p>
+                  <Badge bg="success" className="fs-6">
+                    Top {comparison_analytics.constituency_ranking.percentile}%
+                  </Badge>
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={6}>
+          <Card className="shadow-sm border-0 h-100">
+            <Card.Header className="bg-white border-0 py-3">
+              <h6 className="mb-0">Regional Comparison</h6>
+            </Card.Header>
+            <Card.Body>
+              {comparison_analytics?.regional_comparison && (
+                <div>
+                  <div className="d-flex justify-content-between mb-3">
+                    <span>Your Region</span>
+                    <Badge bg="primary">{comparison_analytics.regional_comparison.region}</Badge>
+                  </div>
+                  <div className="d-flex justify-content-between mb-2">
+                    <span>Regional Participation</span>
+                    <span className="fw-bold">{comparison_analytics.regional_comparison.regional_participation}%</span>
+                  </div>
+                  <div className="d-flex justify-content-between">
+                    <span>Regional Average Votes</span>
+                    <span className="fw-bold">{comparison_analytics.regional_comparison.regional_average}</span>
+                  </div>
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Security Analytics */}
+      <Card className="shadow-sm border-0">
+        <Card.Header className="bg-white border-0 py-3">
+          <h5 className="mb-0">Security Analytics</h5>
+        </Card.Header>
+        <Card.Body>
+          <Row>
+            <Col md={6}>
+              <h6>Account Health Score</h6>
+              <div className="text-center mb-4">
+                <div className="position-relative d-inline-block">
+                  <div className="circular-progress" style={{ width: '120px', height: '120px' }}>
+                    <svg width="120" height="120" viewBox="0 0 120 120">
+                      <circle 
+                        cx="60" 
+                        cy="60" 
+                        r="54" 
+                        fill="none" 
+                        stroke="#e9ecef" 
+                        strokeWidth="8"
+                      />
+                      <circle 
+                        cx="60" 
+                        cy="60" 
+                        r="54" 
+                        fill="none" 
+                        stroke="var(--bs-success)" 
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={`${security_analytics?.account_health || 0 * 3.39} 340`}
+                        transform="rotate(-90 60 60)"
+                      />
+                    </svg>
+                    <div className="position-absolute top-50 start-50 translate-middle">
+                      <h2 className="mb-0 fw-bold">{security_analytics?.account_health || 0}</h2>
+                      <small className="text-muted">/100</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <h6 className="mt-4">Login Patterns</h6>
+              {security_analytics?.login_patterns && (
+                <div>
+                  <div className="d-flex justify-content-between mb-2">
+                    <span>Usual Login Times</span>
+                    <small className="text-muted">
+                      {security_analytics.login_patterns.usual_login_times?.join(', ') || 'Not available'}
+                    </small>
+                  </div>
+                  <div className="d-flex justify-content-between mb-2">
+                    <span>Unusual Activities</span>
+                    <Badge bg="warning">
+                      {security_analytics.login_patterns.unusual_activities || 0}
+                    </Badge>
+                  </div>
+                </div>
+              )}
+            </Col>
+            <Col md={6}>
+              <h6>Device Trust Score</h6>
+              <ProgressBar 
+                now={security_analytics?.device_trust_score || 0} 
+                label={`${security_analytics?.device_trust_score || 0}/100`}
+                className="mb-3"
+              />
+              
+              <h6 className="mt-4">Account Status Overview</h6>
+              <ListGroup variant="flush">
+                <ListGroup.Item className="d-flex justify-content-between align-items-center">
+                  <span>Account Age</span>
+                  <span>{comparison_analytics?.age_group_comparison?.age_group || 'Unknown'}</span>
+                </ListGroup.Item>
+                <ListGroup.Item className="d-flex justify-content-between align-items-center">
+                  <span>Age Group Participation</span>
+                  <span>{comparison_analytics?.age_group_comparison?.participation_rate || 0}%</span>
+                </ListGroup.Item>
+                <ListGroup.Item className="d-flex justify-content-between align-items-center">
+                  <span>Age Group Average</span>
+                  <span>{comparison_analytics?.age_group_comparison?.average_votes || 0} votes</span>
+                </ListGroup.Item>
+              </ListGroup>
+            </Col>
+          </Row>
         </Card.Body>
       </Card>
     </div>

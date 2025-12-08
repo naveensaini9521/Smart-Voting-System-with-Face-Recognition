@@ -9,6 +9,7 @@ import qrcode
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import json
+import hashlib
 from functools import wraps
 import base64
 from smart_app.backend.extensions import socketio
@@ -2971,25 +2972,31 @@ def security_settings():
 
 # Add these endpoints to your dashboard.py
 
-@dashboard_bp.route('/security/devices', methods=['GET'])
+# Add these imports at the top if not present
+import hashlib
+
+# Add these new endpoints to dashboard.py:
+
+@dashboard_bp.route('/security/devices/trusted', methods=['GET'])
 @cross_origin()
 @voter_required
-def get_trusted_devices():
+def get_trusted_devices_endpoint():
     """Get trusted devices for voter"""
     try:
         voter = request.voter
         
-        # Get devices from audit logs
+        # Get devices from audit logs (last 30 days)
         month_ago = datetime.utcnow() - timedelta(days=30)
         
-        device_logs = AuditLog.aggregate([
+        # Aggregate device information from audit logs
+        pipeline = [
             {
                 "$match": {
                     "user_id": voter['voter_id'],
                     "user_type": "voter",
                     "action": "login",
                     "timestamp": {"$gte": month_ago},
-                    "user_agent": {"$exists": True}
+                    "user_agent": {"$exists": True, "$ne": ""}
                 }
             },
             {
@@ -3000,28 +3007,89 @@ def get_trusted_devices():
                     },
                     "last_login": {"$max": "$timestamp"},
                     "login_count": {"$sum": 1},
-                    "device_id": {"$first": "$session_id"}
+                    "device_id": {
+                        "$first": {
+                            "$concat": [
+                                {"$substrCP": ["$user_agent", 0, 10]},
+                                "-",
+                                {"$substrCP": ["$ip_address", -5, 5]}
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "$project": {
+                    "device_id": 1,
+                    "device_name": {
+                        "$concat": [
+                            {"$cond": [
+                                {"$regexMatch": {"input": "$_id.user_agent", "regex": "Mobile", "options": "i"}},
+                                "Mobile",
+                                {"$cond": [
+                                    {"$regexMatch": {"input": "$_id.user_agent", "regex": "Tablet", "options": "i"}},
+                                    "Tablet",
+                                    "Desktop"
+                                ]}
+                            ]},
+                            " Device"
+                        ]
+                    },
+                    "user_agent": "$_id.user_agent",
+                    "ip_address": "$_id.ip_address",
+                    "last_login": 1,
+                    "login_count": 1,
+                    "browser": {
+                        "$cond": [
+                            {"$regexMatch": {"input": "$_id.user_agent", "regex": "Chrome", "options": "i"}},
+                            "Chrome",
+                            {"$cond": [
+                                {"$regexMatch": {"input": "$_id.user_agent", "regex": "Firefox", "options": "i"}},
+                                "Firefox",
+                                {"$cond": [
+                                    {"$regexMatch": {"input": "$_id.user_agent", "regex": "Safari", "options": "i"}},
+                                    "Safari",
+                                    {"$cond": [
+                                        {"$regexMatch": {"input": "$_id.user_agent", "regex": "Edge", "options": "i"}},
+                                        "Edge",
+                                        "Other Browser"
+                                    ]}
+                                ]}
+                            ]}
+                        ]
+                    },
+                    "os": {
+                        "$cond": [
+                            {"$regexMatch": {"input": "$_id.user_agent", "regex": "Windows", "options": "i"}},
+                            "Windows",
+                            {"$cond": [
+                                {"$regexMatch": {"input": "$_id.user_agent", "regex": "Mac", "options": "i"}},
+                                "macOS",
+                                {"$cond": [
+                                    {"$regexMatch": {"input": "$_id.user_agent", "regex": "Linux", "options": "i"}},
+                                    "Linux",
+                                    {"$cond": [
+                                        {"$regexMatch": {"input": "$_id.user_agent", "regex": "Android", "options": "i"}},
+                                        "Android",
+                                        {"$cond": [
+                                            {"$regexMatch": {"input": "$_id.user_agent", "regex": "iPhone|iPad", "options": "i"}},
+                                            "iOS",
+                                            "Unknown OS"
+                                        ]}
+                                    ]}
+                                ]}
+                            ]}
+                        ]
+                    },
+                    "is_trusted": {"$gte": ["$login_count", 2]}
                 }
             },
             {
                 "$sort": {"last_login": -1}
             }
-        ])
+        ]
         
-        devices = []
-        for device in device_logs:
-            device_info = {
-                'device_id': device.get('device_id', f"device_{hash(str(device['_id']))}"),
-                'device_name': parse_user_agent_for_device_name(device['_id']['user_agent']),
-                'user_agent': device['_id']['user_agent'],
-                'ip_address': device['_id']['ip_address'],
-                'last_login': device['last_login'],
-                'login_count': device['login_count'],
-                'device_type': parse_user_agent(device['_id']['user_agent']),
-                'is_trusted': device['login_count'] >= 2,  # Trusted if used at least twice
-                'location': get_location_from_ip(device['_id']['ip_address'])
-            }
-            devices.append(device_info)
+        devices = list(AuditLog.get_collection().aggregate(pipeline))
         
         return jsonify({
             'success': True,
@@ -3039,28 +3107,31 @@ def get_trusted_devices():
 @dashboard_bp.route('/security/devices/revoke', methods=['POST'])
 @cross_origin()
 @voter_required
-def revoke_device():
-    """Revoke device access"""
+def revoke_device_endpoint():
+    """Revoke a trusted device"""
     try:
         voter = request.voter
         data = request.get_json()
-        device_id = data.get('device_id')
         
-        if not device_id:
+        if not data or 'device_id' not in data:
             return jsonify({
                 'success': False,
                 'message': 'Device ID is required'
             }), 400
         
-        # In a real implementation, you would mark this device as revoked
-        # For now, we'll just log the action
+        device_id = data['device_id']
+        
+        # In a real implementation, you would store device information
+        # and mark it as revoked. For now, we'll log the action.
+        
         AuditLog.create_log(
             action='device_revoked',
             user_id=voter['voter_id'],
             user_type='voter',
             details={
                 'device_id': device_id,
-                'action': 'device_access_revoked'
+                'action': 'device_access_revoked',
+                'timestamp': datetime.utcnow().isoformat()
             },
             ip_address=request.remote_addr,
             user_agent=request.headers.get('User-Agent')
@@ -3081,21 +3152,30 @@ def revoke_device():
 @dashboard_bp.route('/security/sessions/logout-all', methods=['POST'])
 @cross_origin()
 @voter_required
-def logout_all_sessions():
+def logout_all_sessions_endpoint():
     """Logout from all active sessions"""
     try:
         voter = request.voter
         
-        # In a real implementation, you would invalidate all active sessions
-        # For now, we'll just log the action
+        # Generate a new session secret to invalidate all existing sessions
+        session_secret = hashlib.sha256(f"{voter['voter_id']}-{datetime.utcnow().isoformat()}".encode()).hexdigest()
         
+        # Store the new session secret (in real app, store in database)
+        Voter.update_one(
+            {"voter_id": voter['voter_id']},
+            {"$set": {"session_secret": session_secret}}
+        )
+        
+        # Log all active sessions as logged out
+        day_ago = datetime.utcnow() - timedelta(days=1)
         AuditLog.create_log(
             action='logout_all_sessions',
             user_id=voter['voter_id'],
             user_type='voter',
             details={
-                'action': 'all_sessions_logged_out',
-                'timestamp': datetime.utcnow().isoformat()
+                'action': 'all_sessions_invalidated',
+                'new_session_secret': session_secret[:10] + '...',  # Don't log full secret
+                'sessions_logged_out': 'all'
             },
             ip_address=request.remote_addr,
             user_agent=request.headers.get('User-Agent')
@@ -3103,7 +3183,8 @@ def logout_all_sessions():
         
         return jsonify({
             'success': True,
-            'message': 'All sessions have been logged out successfully'
+            'message': 'All sessions have been logged out successfully',
+            'requires_relogin': True
         })
         
     except Exception as e:
@@ -3116,33 +3197,58 @@ def logout_all_sessions():
 @dashboard_bp.route('/security/two-factor/enable', methods=['POST'])
 @cross_origin()
 @voter_required
-def enable_two_factor():
+def enable_two_factor_endpoint():
     """Enable two-factor authentication"""
     try:
         voter = request.voter
         
-        # Update voter record
+        # Check if 2FA is already enabled
+        if voter.get('two_factor_enabled'):
+            return jsonify({
+                'success': False,
+                'message': 'Two-factor authentication is already enabled'
+            }), 400
+        
+        # Generate a secret key for TOTP (in production, use pyotp library)
+        import secrets
+        import base64
+        
+        secret = base64.b32encode(secrets.token_bytes(20)).decode('utf-8')
+        
+        # Store the secret (in production, encrypt this)
         Voter.update_one(
             {"voter_id": voter['voter_id']},
-            {"$set": {"two_factor_enabled": True}}
+            {"$set": {
+                "two_factor_secret": secret,
+                "two_factor_enabled": False,  # Not enabled until verified
+                "two_factor_backup_codes": generate_backup_codes()
+            }}
         )
         
+        # Generate QR code data for authenticator app
+        qr_data = f"otpauth://totp/VoterPortal:{voter['email']}?secret={secret}&issuer=VoterPortal"
+        
         AuditLog.create_log(
-            action='enable_2fa',
+            action='two_factor_setup_started',
             user_id=voter['voter_id'],
             user_type='voter',
-            details={'action': 'two_factor_enabled'},
+            details={
+                'action': '2fa_setup_initiated',
+                'has_secret': True
+            },
             ip_address=request.remote_addr,
             user_agent=request.headers.get('User-Agent')
         )
         
         return jsonify({
             'success': True,
-            'message': 'Two-factor authentication enabled successfully',
-            'requires_setup': True,  # In real app, this would be based on setup status
+            'message': 'Two-factor authentication setup started',
+            'requires_setup': True,
             'setup_data': {
-                'secret_key': 'JBSWY3DPEHPK3PXP',  # Example TOTP secret
-                'qr_code_url': 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=otpauth://totp/VoterPortal'
+                'secret': secret,
+                'qr_data': qr_data,
+                'backup_codes': generate_backup_codes(),
+                'instructions': 'Scan the QR code with your authenticator app'
             }
         })
         
@@ -3153,25 +3259,102 @@ def enable_two_factor():
             'message': 'Failed to enable two-factor authentication'
         }), 500
 
+@dashboard_bp.route('/security/two-factor/verify', methods=['POST'])
+@cross_origin()
+@voter_required
+def verify_two_factor_endpoint():
+    """Verify and enable two-factor authentication"""
+    try:
+        voter = request.voter
+        data = request.get_json()
+        
+        if not data or 'token' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'Verification token is required'
+            }), 400
+        
+        token = data['token']
+        secret = voter.get('two_factor_secret')
+        
+        if not secret:
+            return jsonify({
+                'success': False,
+                'message': 'Two-factor setup not started'
+            }), 400
+        
+        # In production, verify the token using pyotp.TOTP(secret).verify(token)
+        # For demo purposes, we'll accept any 6-digit token
+        if len(token) == 6 and token.isdigit():
+            # Enable 2FA
+            Voter.update_one(
+                {"voter_id": voter['voter_id']},
+                {"$set": {
+                    "two_factor_enabled": True,
+                    "two_factor_enabled_at": datetime.utcnow()
+                }}
+            )
+            
+            AuditLog.create_log(
+                action='two_factor_enabled',
+                user_id=voter['voter_id'],
+                user_type='voter',
+                details={
+                    'action': '2fa_enabled_successfully'
+                },
+                ip_address=request.remote_addr,
+                user_agent=request.headers.get('User-Agent')
+            )
+            
+            return jsonify({
+                'success': True,
+                'message': 'Two-factor authentication enabled successfully',
+                'backup_codes': voter.get('two_factor_backup_codes', [])
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid verification token'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f'Verify 2FA error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': 'Failed to verify two-factor authentication'
+        }), 500
+
 @dashboard_bp.route('/security/two-factor/disable', methods=['POST'])
 @cross_origin()
 @voter_required
-def disable_two_factor():
+def disable_two_factor_endpoint():
     """Disable two-factor authentication"""
     try:
         voter = request.voter
         
-        # Update voter record
+        # Check if 2FA is enabled
+        if not voter.get('two_factor_enabled'):
+            return jsonify({
+                'success': False,
+                'message': 'Two-factor authentication is not enabled'
+            }), 400
+        
+        # Disable 2FA
         Voter.update_one(
             {"voter_id": voter['voter_id']},
-            {"$set": {"two_factor_enabled": False}}
+            {"$set": {
+                "two_factor_enabled": False,
+                "two_factor_disabled_at": datetime.utcnow()
+            }}
         )
         
         AuditLog.create_log(
-            action='disable_2fa',
+            action='two_factor_disabled',
             user_id=voter['voter_id'],
             user_type='voter',
-            details={'action': 'two_factor_disabled'},
+            details={
+                'action': '2fa_disabled'
+            },
             ip_address=request.remote_addr,
             user_agent=request.headers.get('User-Agent')
         )
@@ -3187,6 +3370,19 @@ def disable_two_factor():
             'success': False,
             'message': 'Failed to disable two-factor authentication'
         }), 500
+
+def generate_backup_codes():
+    """Generate backup codes for 2FA"""
+    import secrets
+    codes = []
+    for _ in range(10):
+        code = '-'.join([
+            secrets.token_hex(2).upper(),
+            secrets.token_hex(2).upper(),
+            secrets.token_hex(2).upper()
+        ])
+        codes.append(code)
+    return codes
 
 @dashboard_bp.route('/profile/update', methods=['PUT'])
 @cross_origin()
@@ -3290,7 +3486,7 @@ def get_location_from_ip(ip_address):
         return "Private Network"
     else:
         return "Unknown Location"
-    
+    smart_app/frontend/src/App.css
 @dashboard_bp.route('/mobile-verification', methods=['POST'])
 @cross_origin()
 def mobile_verification():
