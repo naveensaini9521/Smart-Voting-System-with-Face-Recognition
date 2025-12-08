@@ -1,4 +1,5 @@
 from datetime import datetime, date, timedelta
+from venv import logger
 from bson import ObjectId
 from flask import current_app
 from smart_app.backend.extensions import mongo
@@ -7,7 +8,8 @@ import string
 import bcrypt
 import uuid
 import hashlib
-
+import logging
+import numpy as np
 class MongoBase:
     """Base class for MongoDB models"""
     
@@ -127,8 +129,7 @@ class Voter(MongoBase):
     @classmethod
     def create_voter(cls, data):
         """Create a new voter with all required fields"""
-        print(f"=== CREATING VOTER ===")
-        print(f"Data received: {data}")
+        logger.info(f"Creating voter for: {data.get('full_name', 'Unknown')}")
         
         # Check for existing records
         if cls.find_by_email(data['email']):
@@ -145,14 +146,14 @@ class Voter(MongoBase):
             data['full_name']
         )
         
-        print(f"Generated Voter ID: {voter_id}")
+        logger.info(f"Generated Voter ID: {voter_id}")
         
-        # Hash password - FIXED: Use provided password or generate random one
+        # Hash password - Use provided password or generate random one
         password = data.get('password')
         if not password:
             # Generate random password if not provided
             password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-            print(f"Generated random password: {password}")
+            logger.info(f"Generated random password")
         
         # Use bcrypt for password hashing
         try:
@@ -162,7 +163,7 @@ class Voter(MongoBase):
             if isinstance(password_hash, bytes):
                 password_hash = password_hash.decode('utf-8')
         except Exception as e:
-            print(f"Password hashing error: {str(e)}")
+            logger.error(f"Password hashing error: {str(e)}")
             raise ValueError("Failed to hash password")
         
         # Hash security answer if provided
@@ -174,7 +175,7 @@ class Voter(MongoBase):
                 if isinstance(security_answer_hash, bytes):
                     security_answer_hash = security_answer_hash.decode('utf-8')
             except Exception as e:
-                print(f"Security answer hashing error: {str(e)}")
+                logger.error(f"Security answer hashing error: {str(e)}")
         
         # Convert date to datetime for MongoDB compatibility
         date_of_birth = data['date_of_birth']
@@ -185,6 +186,10 @@ class Voter(MongoBase):
                 raise ValueError("Invalid date format. Use YYYY-MM-DD")
         elif isinstance(date_of_birth, date):
             date_of_birth = datetime.combine(date_of_birth, datetime.min.time())
+        
+        # Check for face verification status from hybrid system
+        face_methods = data.get('face_methods', [])
+        face_quality_score = data.get('face_quality_score', 0.0)
         
         voter_data = {
             "voter_id": voter_id,
@@ -216,22 +221,26 @@ class Voter(MongoBase):
             "face_verified": data.get('face_verified', False),
             "is_active": True,
             "face_encoding_id": None,
-            "registration_status": "pending",
+            "face_methods": face_methods,
+            "face_quality_score": face_quality_score,
+            "registration_status": "pending_face_verification",  # Updated status
             "constituency": cls.generate_constituency(data['district'], data['state']),
             "polling_station": cls.generate_polling_station(data['pincode']),
             "registration_step": "personal_info",
             "notes": data.get('notes'),
             "verified_by": data.get('verified_by'),
-            "verified_at": data.get('verified_at')
+            "verified_at": data.get('verified_at'),
+            "last_login": None,
+            "last_face_verification": None
         }
         
-        print(f"Voter data prepared for creation. Voter ID: {voter_id}")
+        logger.info(f"Voter data prepared for creation. Voter ID: {voter_id}")
         
         # Insert into MongoDB and return the MongoDB _id
         result = cls.get_collection().insert_one(voter_data)
         mongo_id = str(result.inserted_id)
         
-        print(f"Voter created with MongoDB ID: {mongo_id}, Voter ID: {voter_id}")
+        logger.info(f"Voter created with MongoDB ID: {mongo_id}, Voter ID: {voter_id}")
         
         # Return both the MongoDB ID and the voter ID for reference
         return mongo_id
@@ -249,9 +258,7 @@ class Voter(MongoBase):
     @classmethod
     def find_by_voter_id(cls, voter_id):
         """Find voter by voter_id (the 8-character ID)"""
-        print(f"Looking for voter with ID: {voter_id}")
         voter = cls.get_collection().find_one({"voter_id": voter_id})
-        print(f"Voter found: {voter is not None}")
         return voter
     
     @classmethod
@@ -270,7 +277,7 @@ class Voter(MongoBase):
     def verify_password(cls, voter_doc, password):
         """Verify voter password"""
         if not voter_doc or 'password_hash' not in voter_doc:
-            print("No voter document or password hash found")
+            logger.warning("No voter document or password hash found")
             return False
         
         try:
@@ -285,14 +292,14 @@ class Voter(MongoBase):
                 
             # Verify password
             result = bcrypt.checkpw(password_bytes, stored_hash_bytes)
-            print(f"Password verification result: {result}")
+            logger.debug(f"Password verification result: {result}")
             return result
             
         except Exception as e:
-            print(f"Password verification error: {str(e)}")
+            logger.error(f"Password verification error: {str(e)}")
             # Fallback for development: check if it's a simple string comparison
             if isinstance(stored_hash, str) and stored_hash == password:
-                print("Using fallback password verification")
+                logger.warning("Using fallback password verification")
                 return True
             return False
     
@@ -344,6 +351,8 @@ class Voter(MongoBase):
             'phone_verified': voter.get('phone_verified', False),
             'id_verified': voter.get('id_verified', False),
             'face_verified': voter.get('face_verified', False),
+            'face_quality_score': voter.get('face_quality_score', 0),
+            'face_methods': voter.get('face_methods', []),
             'is_active': voter.get('is_active', True),
             'fully_verified': all([
                 voter.get('email_verified', False),
@@ -355,7 +364,57 @@ class Voter(MongoBase):
             'registration_status': voter.get('registration_status', 'pending'),
             'registration_step': voter.get('registration_step', 'personal_info')
         }
-
+    
+    @classmethod
+    def update_face_verification(cls, voter_id, face_encoding_id, quality_score, methods_used):
+        """Update voter with face verification info from hybrid system"""
+        return cls.update_one(
+            {"voter_id": voter_id},
+            {"$set": {
+                "face_encoding_id": face_encoding_id,
+                "face_verified": True,
+                "face_quality_score": quality_score,
+                "face_methods": methods_used,
+                "face_registered_at": datetime.utcnow(),
+                "last_face_verification": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+                "registration_status": "completed"
+            }}
+        )
+    
+    @classmethod
+    def find_all_with_face_encodings(cls):
+        """Find all voters with face encodings"""
+        pipeline = [
+            {
+                "$lookup": {
+                    "from": "face_encodings",
+                    "localField": "voter_id",
+                    "foreignField": "voter_id",
+                    "as": "face_encodings"
+                }
+            },
+            {
+                "$match": {
+                    "face_encodings": {"$ne": []},
+                    "face_verified": True
+                }
+            },
+            {
+                "$project": {
+                    "voter_id": 1,
+                    "full_name": 1,
+                    "email": 1,
+                    "phone": 1,
+                    "face_quality_score": 1,
+                    "face_methods": 1,
+                    "registration_status": 1
+                }
+            }
+        ]
+        
+        return list(cls.get_collection().aggregate(pipeline))
+    
 class OTP(MongoBase):
     collection_name = "otps"
     
@@ -418,18 +477,29 @@ class FaceEncoding(MongoBase):
     collection_name = "face_encodings"
     
     @classmethod
-    def create_encoding(cls, voter_id, encoding_data, image_metadata=None):
-        """Create face encoding record"""
+    def create_encoding(cls, voter_id, encoding_data, image_metadata=None, knn_indexed=False):
+        """Create face encoding record with hybrid support"""
         encoding_id = str(uuid.uuid4())
+        
+        # Convert encoding data to list for MongoDB storage
+        if isinstance(encoding_data, np.ndarray):
+            encoding_data = encoding_data.tolist()
+        elif isinstance(encoding_data, dict):
+            # For hybrid system - store multiple encodings
+            encoding_data = {k: (v.tolist() if isinstance(v, np.ndarray) else v) 
+                           for k, v in encoding_data.items()}
         
         encoding_doc = {
             "encoding_id": encoding_id,
             "voter_id": voter_id,
             "encoding_data": encoding_data,
             "image_metadata": image_metadata or {},
+            "knn_indexed": knn_indexed,
+            "encoding_methods": list(encoding_data.keys()) if isinstance(encoding_data, dict) else ['single'],
             "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
             "is_active": True,
-            "version": "1.0"
+            "version": "2.0"  # Updated version for hybrid system
         }
         
         return cls.create(encoding_doc)
@@ -441,6 +511,162 @@ class FaceEncoding(MongoBase):
             "voter_id": voter_id,
             "is_active": True
         })
+    
+    @classmethod
+    def get_all_encodings_with_voters(cls):
+        """Get all face encodings with voter IDs for KNN reindexing"""
+        try:
+            encodings = cls.find_all({"is_active": True})
+            
+            # Format for KNN service
+            result = []
+            for enc in encodings:
+                encoding_data = enc.get('encoding_data')
+                voter_id = enc.get('voter_id')
+                
+                if encoding_data and voter_id:
+                    # Extract primary encoding (use ensemble or first available)
+                    if isinstance(encoding_data, dict):
+                        if 'ensemble' in encoding_data:
+                            primary_encoding = encoding_data['ensemble']
+                        elif 'face_recognition' in encoding_data:
+                            primary_encoding = encoding_data['face_recognition']
+                        else:
+                            # Use first encoding method
+                            first_key = next(iter(encoding_data))
+                            primary_encoding = encoding_data[first_key]
+                    else:
+                        primary_encoding = encoding_data
+                    
+                    result.append({
+                        'voter_id': voter_id,
+                        'encoding': primary_encoding,
+                        'encoding_id': enc.get('encoding_id'),
+                        'methods': enc.get('encoding_methods', []),
+                        'knn_indexed': enc.get('knn_indexed', False)
+                    })
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error getting all encodings: {str(e)}")
+            return []
+    
+    @classmethod
+    def update_knn_status(cls, voter_id, is_indexed=True):
+        """Update KNN indexing status"""
+        try:
+            return cls.update_one(
+                {"voter_id": voter_id, "is_active": True},
+                {"$set": {
+                    "knn_indexed": is_indexed,
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+        except Exception as e:
+            logger.error(f"Error updating KNN status: {str(e)}")
+            return False
+    
+    @classmethod
+    def add_encoding_method(cls, voter_id, method_name, encoding):
+        """Add additional encoding method to existing record"""
+        try:
+            enc_doc = cls.find_by_voter_id(voter_id)
+            if not enc_doc:
+                return False
+            
+            encoding_data = enc_doc.get('encoding_data', {})
+            
+            # Ensure encoding_data is dict
+            if not isinstance(encoding_data, dict):
+                # Convert existing single encoding to dict
+                encoding_data = {'original': encoding_data}
+            
+            # Add new method
+            encoding_data[method_name] = encoding.tolist() if isinstance(encoding, np.ndarray) else encoding
+            
+            # Update methods list
+            methods = enc_doc.get('encoding_methods', [])
+            if method_name not in methods:
+                methods.append(method_name)
+            
+            return cls.update_one(
+                {"voter_id": voter_id, "is_active": True},
+                {"$set": {
+                    "encoding_data": encoding_data,
+                    "encoding_methods": methods,
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+        except Exception as e:
+            logger.error(f"Error adding encoding method: {str(e)}")
+            return False
+    
+    @classmethod
+    def get_encoding_statistics(cls):
+        """Get statistics about face encodings"""
+        try:
+            total_encodings = cls.count({"is_active": True})
+            
+            # Count by method
+            pipeline = [
+                {"$match": {"is_active": True}},
+                {"$project": {"methods": "$encoding_methods"}},
+                {"$unwind": "$methods"},
+                {"$group": {"_id": "$methods", "count": {"$sum": 1}}}
+            ]
+            
+            method_counts = list(cls.get_collection().aggregate(pipeline))
+            
+            # Count KNN indexed
+            knn_indexed = cls.count({"is_active": True, "knn_indexed": True})
+            
+            return {
+                "total_encodings": total_encodings,
+                "method_counts": {item["_id"]: item["count"] for item in method_counts},
+                "knn_indexed": knn_indexed,
+                "knn_percentage": (knn_indexed / total_encodings * 100) if total_encodings > 0 else 0
+            }
+        except Exception as e:
+            logger.error(f"Error getting encoding statistics: {str(e)}")
+            return {}
+    
+    @classmethod
+    def migrate_to_hybrid_format(cls):
+        """Migrate existing single encodings to hybrid format"""
+        try:
+            # Find all encodings that are not in dict format
+            old_encodings = cls.find_all({
+                "is_active": True,
+                "encoding_data": {"$not": {"$type": "object"}}
+            })
+            
+            migrated_count = 0
+            for enc in old_encodings:
+                encoding_data = enc.get('encoding_data')
+                if not isinstance(encoding_data, dict):
+                    # Convert to hybrid format
+                    hybrid_data = {
+                        "legacy": encoding_data,
+                        "migrated_at": datetime.utcnow().isoformat()
+                    }
+                    
+                    cls.update_one(
+                        {"encoding_id": enc.get("encoding_id")},
+                        {"$set": {
+                            "encoding_data": hybrid_data,
+                            "encoding_methods": ["legacy"],
+                            "version": "2.0",
+                            "updated_at": datetime.utcnow()
+                        }}
+                    )
+                    migrated_count += 1
+            
+            logger.info(f"Migrated {migrated_count} encodings to hybrid format")
+            return migrated_count
+            
+        except Exception as e:
+            logger.error(f"Migration error: {str(e)}")
+            return 0
 
 # Helper functions
 def calculate_age(date_of_birth):
@@ -795,19 +1021,16 @@ class Admin(MongoBase):
     @classmethod
     def find_by_username(cls, username):
         """Find admin by username"""
-        print(f"🔍 Searching for admin with username: '{username}'")
+        logger.info(f"Searching for admin with username: '{username}'")
         try:
             admin = cls.get_collection().find_one({"username": username})
             if admin:
-                print(f"Admin found: {admin.get('username')} - {admin.get('admin_id')}")
+                logger.info(f"Admin found: {admin.get('username')} - {admin.get('admin_id')}")
             else:
-                print(f"Admin NOT found with username: '{username}'")
-                # Debug: List all usernames in admins collection
-                all_admins = list(cls.get_collection().find({}, {'username': 1}))
-                print(f"   📋 All available usernames: {[a.get('username') for a in all_admins]}")
+                logger.warning(f"Admin NOT found with username: '{username}'")
             return admin
         except Exception as e:
-            print(f"Error in find_by_username: {str(e)}")
+            logger.error(f"Error in find_by_username: {str(e)}")
             return None
     
     @classmethod
@@ -817,23 +1040,23 @@ class Admin(MongoBase):
     @classmethod
     def find_by_admin_id(cls, admin_id):
         """Find admin by admin_id"""
-        print(f"🔍 Searching for admin with admin_id: '{admin_id}'")
+        logger.info(f"Searching for admin with admin_id: '{admin_id}'")
         try:
             admin = cls.get_collection().find_one({"admin_id": admin_id})
             if admin:
-                print(f"Admin found by admin_id: {admin.get('username')} - {admin.get('admin_id')}")
+                logger.info(f"Admin found by admin_id: {admin.get('username')} - {admin.get('admin_id')}")
             else:
-                print(f"Admin NOT found with admin_id: '{admin_id}'")
+                logger.warning(f"Admin NOT found with admin_id: '{admin_id}'")
             return admin
         except Exception as e:
-            print(f"Error in find_by_admin_id: {str(e)}")
+            logger.error(f"Error in find_by_admin_id: {str(e)}")
             return None
     
     @classmethod
     def verify_password(cls, admin_doc, password):
         """Verify admin password"""
         if not admin_doc or 'password_hash' not in admin_doc:
-            print("No admin document or password hash found")
+            logger.warning("No admin document or password hash found")
             return False
         
         try:
@@ -849,11 +1072,11 @@ class Admin(MongoBase):
                 
             # Verify password
             result = bcrypt.checkpw(password_bytes, stored_hash_bytes)
-            print(f"🔐 Password verification result: {result}")
+            logger.info(f"Password verification result: {result}")
             return result
             
         except Exception as e:
-            print(f"Password verification error: {str(e)}")
+            logger.error(f"Password verification error: {str(e)}")
             return False
     
     @classmethod
@@ -1077,3 +1300,68 @@ def create_dashboard_indexes():
     # Audit log indexes
     collections.audit_logs.create_index([("user_id", 1)])
     collections.audit_logs.create_index([("timestamp", -1)])
+
+    # OTP indexes
+    collections.otps.create_index([("email", 1)])
+    collections.otps.create_index([("phone", 1)])
+    collections.otps.create_index([("expires_at", 1)], expireAfterSeconds=3600)  # Auto expire after 1 hour
+
+# Utility functions for hybrid face system
+def normalize_encoding(encoding):
+    """Normalize face encoding vector"""
+    if isinstance(encoding, list):
+        encoding = np.array(encoding, dtype=np.float32)
+    
+    norm = np.linalg.norm(encoding)
+    if norm > 0:
+        return encoding / norm
+    
+    return encoding
+
+def create_ensemble_encoding(encodings_dict):
+    """Create ensemble encoding from multiple methods"""
+    if not encodings_dict:
+        return None
+    
+    all_encodings = []
+    
+    for method, encoding in encodings_dict.items():
+        if isinstance(encoding, list):
+            encoding = np.array(encoding, dtype=np.float32)
+        
+        # Normalize each encoding
+        normalized = normalize_encoding(encoding)
+        all_encodings.append(normalized)
+    
+    # Average all normalized encodings
+    ensemble = np.mean(all_encodings, axis=0)
+    
+    # Normalize the ensemble
+    ensemble_normalized = normalize_encoding(ensemble)
+    
+    return ensemble_normalized.tolist()
+
+def validate_encoding_data(encoding_data):
+    """Validate encoding data for hybrid system"""
+    if not encoding_data:
+        return False, "No encoding data provided"
+    
+    if isinstance(encoding_data, dict):
+        if not encoding_data:
+            return False, "Empty encoding dictionary"
+        
+        for method, encoding in encoding_data.items():
+            if not isinstance(encoding, (list, np.ndarray)):
+                return False, f"Invalid encoding type for method {method}"
+            
+            if isinstance(encoding, list) and len(encoding) == 0:
+                return False, f"Empty encoding list for method {method}"
+    
+    elif isinstance(encoding_data, (list, np.ndarray)):
+        if len(encoding_data) == 0:
+            return False, "Empty encoding list/array"
+    
+    else:
+        return False, "Invalid encoding data type"
+    
+    return True, "Encoding data is valid"
