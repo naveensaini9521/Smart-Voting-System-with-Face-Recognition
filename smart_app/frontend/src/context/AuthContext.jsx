@@ -435,10 +435,10 @@ export const AuthProvider = ({ children }) => {
 
   // Direct voter login with token and user data
   const login = (token, userData) => {
-    console.log('🔑 Direct voter login with token for user:', userData?.voter_id);
+    console.log('Direct voter login with token for user:', userData?.voter_id);
     
     if (!token || !userData) {
-      console.error('❌ Invalid login data provided');
+      console.error('Invalid login data provided');
       return;
     }
     
@@ -450,6 +450,7 @@ export const AuthProvider = ({ children }) => {
     // Clear any existing admin auth
     clearAdminAuthData();
 
+    // IMPORTANT: Dispatch login success
     dispatch({
       type: AUTH_ACTIONS.LOGIN_SUCCESS,
       payload: { 
@@ -458,6 +459,9 @@ export const AuthProvider = ({ children }) => {
         userType: 'voter'
       }
     });
+    
+    // IMPORTANT: Force a state update to ensure components re-render
+    console.log('Auth context updated with voter data');
   };
 
   // Admin authentication functions
