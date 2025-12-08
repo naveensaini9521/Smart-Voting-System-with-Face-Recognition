@@ -37,11 +37,13 @@ class MongoBase:
         return cls.get_collection().find_one(query)
     
     @classmethod
-    def find_all(cls, query=None, sort=None, limit=0):
+    def find_all(cls, query=None, sort=None, limit=0, skip=0):
         """Find all documents matching query"""
         cursor = cls.get_collection().find(query or {})
         if sort:
             cursor = cursor.sort(sort)
+        if skip > 0:
+            cursor = cursor.skip(skip)
         if limit > 0:
             cursor = cursor.limit(limit)
         return list(cursor)
