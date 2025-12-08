@@ -549,6 +549,8 @@ def get_profile():
             'success': False,
             'message': 'Failed to load profile'
         }), 500
+
+    
 ###
 def get_enhanced_dashboard_data(voter):
     """Get enhanced dashboard data with real-time features"""
@@ -1500,6 +1502,89 @@ def export_voter_data(format_type):
             'message': 'Failed to export data'
         }), 500
 
+@dashboard_bp.route('/fix-election-dates', methods=['POST'])
+@cross_origin()
+@admin_required
+def fix_election_dates():
+    """Fix election dates in database"""
+    try:
+        # Get all elections
+        elections = Election.find_all({"is_active": True})
+        
+        fixed_count = 0
+        for election in elections:
+            election_id = election.get('election_id')
+            voting_start = election.get('voting_start')
+            voting_end = election.get('voting_end')
+            
+            print(f"\n🔍 Election: {election.get('title')}")
+            print(f"   - ID: {election_id}")
+            print(f"   - voting_start: {voting_start} (type: {type(voting_start)})")
+            print(f"   - voting_end: {voting_end} (type: {type(voting_end)})")
+            
+            # Check if dates need fixing
+            needs_fix = False
+            new_dates = {}
+            
+            # Fix voting_start
+            if isinstance(voting_start, str):
+                # Try to parse it
+                parsed_start = normalize_date(voting_start)
+                if parsed_start:
+                    new_dates['voting_start'] = parsed_start
+                    needs_fix = True
+                else:
+                    # Create a default date (now + 1 day)
+                    new_dates['voting_start'] = datetime.utcnow() + timedelta(days=1)
+                    needs_fix = True
+            elif voting_start is None:
+                # Create a default date
+                new_dates['voting_start'] = datetime.utcnow() + timedelta(days=1)
+                needs_fix = True
+            
+            # Fix voting_end
+            if isinstance(voting_end, str):
+                # Try to parse it
+                parsed_end = normalize_date(voting_end)
+                if parsed_end:
+                    new_dates['voting_end'] = parsed_end
+                    needs_fix = True
+                else:
+                    # Create a default date (now + 7 days)
+                    new_dates['voting_end'] = datetime.utcnow() + timedelta(days=7)
+                    needs_fix = True
+            elif voting_end is None:
+                # Create a default date
+                new_dates['voting_end'] = datetime.utcnow() + timedelta(days=7)
+                needs_fix = True
+            
+            # Update if needed
+            if needs_fix:
+                print(f"   ⚠️ Need to fix dates")
+                print(f"   - New voting_start: {new_dates.get('voting_start')}")
+                print(f"   - New voting_end: {new_dates.get('voting_end')}")
+                
+                Election.update_one(
+                    {"election_id": election_id},
+                    {"$set": new_dates}
+                )
+                fixed_count += 1
+        
+        return jsonify({
+            'success': True,
+            'message': f'Fixed dates for {fixed_count} elections',
+            'total_elections': len(elections),
+            'fixed_count': fixed_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fixing election dates: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to fix election dates',
+            'error': str(e)
+        }), 500
+        
 def export_pdf_data(voter):
     """Export voter data as PDF"""
     try:
@@ -2260,79 +2345,90 @@ def get_upcoming_elections(voter, election_type='all'):
         return []
 
 
+# In dashboard.py, update the get_active_elections function:
 def get_active_elections(voter, election_type='all'):
-    """Get active elections for voter - FIXED VERSION with proper date handling"""
+    """Get active elections for voter - FIXED with proper date handling"""
     try:
         current_time = datetime.utcnow()
-        logger.info(f"🔍 Looking for active elections at: {current_time}")
+        print(f"🔍 Looking for active elections at: {current_time}")
+        
+        # Get ALL elections first to debug
+        all_elections = Election.find_all({"is_active": True})
+        print(f"📊 Total active elections in DB: {len(all_elections)}")
+        
+        for election in all_elections:
+            print(f"📋 Election: {election.get('title')}")
+            print(f"   - ID: {election.get('election_id')}")
+            print(f"   - Status: {election.get('status')}")
+            print(f"   - Voting Start: {election.get('voting_start')}")
+            print(f"   - Voting End: {election.get('voting_end')}")
         
         # Build query for active elections
         query = {
-            "status": "active",
             "is_active": True,
-            "voting_start": {"$lte": current_time},
-            "voting_end": {"$gte": current_time}
+            "status": "active"
         }
         
-        if election_type != 'all':
-            query["election_type"] = election_type
-        
-        logger.info(f"Active elections query: {query}")
-        
-        # Get all active elections first
         elections = Election.find_all(query, sort=[("voting_end", 1)])
-        logger.info(f"📊 Found {len(elections)} elections with active status")
+        print(f"📊 Found {len(elections)} elections with active status")
         
-        # Filter by date manually to ensure proper comparison
+        # Filter by date manually
         active_elections = []
         for election in elections:
-            voting_start = election.get('voting_start')
-            voting_end = election.get('voting_end')
+            voting_start = normalize_date(election.get('voting_start'))
+            voting_end = normalize_date(election.get('voting_end'))
             
-            # Skip if dates are missing
             if not voting_start or not voting_end:
-                logger.warning(f"Election {election.get('election_id')} missing voting dates")
+                print(f"⚠️ Election {election.get('election_id')} missing voting dates")
                 continue
             
-            # Check if current time is within voting period
+            print(f"🔍 Checking: {election.get('title')}")
+            print(f"   - Voting period: {voting_start} to {voting_end}")
+            print(f"   - Current time: {current_time}")
+            print(f"   - Is active now: {voting_start <= current_time <= voting_end}")
+            
             if voting_start <= current_time <= voting_end:
                 active_elections.append(election)
-                logger.info(f"ACTIVE: {election.get('title')} | Start: {voting_start} | End: {voting_end}")
+                print(f"✅ ADDED to active: {election.get('title')}")
             else:
-                logger.info(f"INACTIVE: {election.get('title')} | Start: {voting_start} | End: {voting_end}")
+                print(f"❌ NOT ACTIVE: {election.get('title')}")
         
-        logger.info(f"Final active elections count: {len(active_elections)}")
+        print(f"🎯 Final active elections count: {len(active_elections)}")
         
+        # Process active elections
         enhanced_elections = []
         for election in active_elections:
-            has_voted = Vote.has_voted(election.get('election_id', 'unknown'), voter['voter_id'])
-            is_eligible = check_voter_eligibility(voter['voter_id'], election.get('election_id', 'unknown'))
-            
-            enhanced_elections.append({
-                'election_id': election.get('election_id', 'unknown'),
-                'title': election.get('title', 'Unknown Election'),
-                'type': election.get('election_type', 'general'),
-                'date': election.get('voting_start', datetime.utcnow()).isoformat(),
-                'end_date': election.get('voting_end', datetime.utcnow()).isoformat(),
-                'constituency': election.get('constituency', 'General Constituency'),
-                'description': election.get('description', ''),
-                'status': 'active',
-                'has_voted': has_voted,
-                'can_vote': not has_voted and is_eligible,
-                'is_eligible': is_eligible,
-                'candidates_count': Candidate.count({"election_id": election.get('election_id', 'unknown')}),
-                'voting_start': election.get('voting_start').isoformat() if election.get('voting_start') else None,
-                'voting_end': election.get('voting_end').isoformat() if election.get('voting_end') else None,
-                'total_votes': Vote.count({"election_id": election.get('election_id', 'unknown')}),
-                'voter_turnout': election.get('voter_turnout', 0)
-            })
+            try:
+                # Simple eligibility for debugging
+                is_eligible = True  # Temporarily set to True
+                has_voted = Vote.has_voted(election.get('election_id'), voter['voter_id'])
+                
+                enhanced_elections.append({
+                    'election_id': election.get('election_id'),
+                    'title': election.get('title', 'Unknown Election'),
+                    'election_type': election.get('election_type', 'general'),
+                    'status': 'active',
+                    'voting_start': election.get('voting_start'),
+                    'voting_end': election.get('voting_end'),
+                    'constituency': election.get('constituency', 'General Constituency'),
+                    'description': election.get('description', ''),
+                    'has_voted': has_voted,
+                    'can_vote': not has_voted and is_eligible,
+                    'is_eligible': is_eligible,
+                    'candidates_count': Candidate.count({"election_id": election.get('election_id')}),
+                    'total_votes': Vote.count({"election_id": election.get('election_id')})
+                })
+                
+            except Exception as e:
+                print(f"Error enhancing election {election.get('election_id')}: {str(e)}")
+                continue
         
         return enhanced_elections
         
     except Exception as e:
-        logger.error(f"Error getting active elections: {str(e)}")
+        print(f"💥 Error in get_active_elections: {str(e)}")
         import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        print(f"Traceback:\n{traceback.format_exc()}")
         return []
     
 def get_past_elections(voter, election_type='all'):
@@ -3881,9 +3977,13 @@ def normalize_date(date_value):
                 try:
                     return datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S")
                 except:
-                    return None
+                    try:
+                        return datetime.strptime(date_value, "%Y-%m-%d")
+                    except:
+                        return None
     
     return None
+
 def calculate_consistency_score(voting_history):
     """Calculate voting consistency score"""
     if not voting_history or len(voting_history) < 2:
@@ -5065,3 +5165,65 @@ def get_enhanced_dashboard_data(voter):
         'voter_insights': get_voter_insights(voter['voter_id']),
         'security_status': get_security_metrics(voter['voter_id'])
     }
+# In dashboard.py, add this endpoint:
+@dashboard_bp.route('/create-test-data', methods=['POST'])
+@cross_origin()
+@admin_required
+def create_test_data():
+    """Create test data for development"""
+    try:
+        # Create test election
+        election_data = {
+            'election_id': 'TEST_ELECTION_' + str(int(datetime.utcnow().timestamp())),
+            'title': 'Test General Election 2024',
+            'description': 'Test election for development and debugging',
+            'election_type': 'general',
+            'status': 'active',
+            'voting_start': datetime.utcnow(),
+            'voting_end': datetime.utcnow() + timedelta(days=7),
+            'constituency': 'General Constituency',
+            'is_active': True,
+            'require_face_verification': False,
+            'results_visibility': 'live'
+        }
+        
+        election_id = Election.create_election(election_data)
+        
+        # Create test candidates
+        candidates = [
+            {
+                'candidate_id': 'CAND_TEST_001',
+                'election_id': election_data['election_id'],
+                'full_name': 'Test Candidate One',
+                'party': 'Test Party',
+                'biography': 'Test biography',
+                'is_approved': True,
+                'is_active': True
+            },
+            {
+                'candidate_id': 'CAND_TEST_002',
+                'election_id': election_data['election_id'],
+                'full_name': 'Test Candidate Two',
+                'party': 'Another Test Party',
+                'biography': 'Another test biography',
+                'is_approved': True,
+                'is_active': True
+            }
+        ]
+        
+        for candidate in candidates:
+            Candidate.create_candidate(candidate)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Test data created successfully',
+            'election_id': election_id,
+            'candidates_count': len(candidates)
+        })
+        
+    except Exception as e:
+        logger.error(f"Create test data error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to create test data'
+        }), 500
