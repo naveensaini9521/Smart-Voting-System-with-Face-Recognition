@@ -17,29 +17,52 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [step, setStep] = useState(1); // 1: Credentials, 2: Face Verification, 3: Success
+  const [step, setStep] = useState(1);
   const [showFaceModal, setShowFaceModal] = useState(false);
   const [faceVerifying, setFaceVerifying] = useState(false);
   const [verificationProgress, setVerificationProgress] = useState(0);
   const [verificationResult, setVerificationResult] = useState(null);
   const [userData, setUserData] = useState(null);
-  const [faceImage, setFaceImage] = useState(null);
 
-  // Background images for login page
+  // Background images
   const backgroundImages = [
     'https://images.unsplash.com/photo-1555848969-2c6c707af528?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80',
     'https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80',
     'https://images.unsplash.com/photo-1507679799987-c73779587ccf?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80'
   ];
-
   const [currentBgIndex, setCurrentBgIndex] = useState(0);
 
-  // Animate background images
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+        const token = localStorage.getItem('authToken');
+        
+        if (isAuthenticated && token) {
+          const response = await voterAPI.verifyToken();
+          if (response.success) {
+            navigate('/dashboard');
+          } else {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('voterData');
+            localStorage.removeItem('isAuthenticated');
+          }
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('voterData');
+        localStorage.removeItem('isAuthenticated');
+      }
+    };
+    
+    checkAuth();
+  }, [navigate]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentBgIndex((prevIndex) => (prevIndex + 1) % backgroundImages.length);
     }, 5000);
-
     return () => clearInterval(interval);
   }, []);
 
@@ -50,11 +73,45 @@ const LoginPage = () => {
       ...prev,
       [name]: value
     }));
-    // Clear error when user starts typing
     if (error) setError('');
   };
 
-  // Handle login form submission
+  // Format Voter ID
+  const formatVoterId = (value) => {
+    return value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  };
+
+  const handleVoterIdChange = (e) => {
+    const formattedValue = formatVoterId(e.target.value);
+    setLoginData(prev => ({
+      ...prev,
+      voterId: formattedValue
+    }));
+  };
+
+  // Simple image utility functions
+  const prepareImageData = (base64Data) => {
+    if (!base64Data) {
+      console.error('❌ No image data provided');
+      return null;
+    }
+    
+    // If it's already base64 without data URL prefix
+    if (!base64Data.startsWith('data:image/')) {
+      return base64Data;
+    }
+    
+    // Extract base64 part from data URL
+    const commaIndex = base64Data.indexOf(',');
+    if (commaIndex === -1) {
+      console.error('❌ Invalid data URL format');
+      return null;
+    }
+    
+    return base64Data.substring(commaIndex + 1);
+  };
+
+  // ✅ Handle login form submission
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -67,7 +124,6 @@ const LoginPage = () => {
         password: '***' 
       });
       
-      // Call backend API to verify credentials
       const response = await voterAPI.verifyCredentials({
         voter_id: loginData.voterId,
         password: loginData.password
@@ -95,76 +151,95 @@ const LoginPage = () => {
     }
   };
 
-  // Handle face capture for verification
-  const handleFaceCapture = async (imageData, success) => {
-    if (success && userData) {
-      setFaceVerifying(true);
-      setVerificationProgress(0);
-      setFaceImage(imageData);
+  // Handle face capture
+  const handleFaceCapture = async (imageData) => {
+    console.log('=== FACE VERIFICATION START ===');
+    
+    if (!imageData) {
+      console.error('❌ No image data received');
+      setError('No image data received from camera');
+      return;
+    }
+    
+    if (!userData?.voter_id) {
+      console.error('❌ No user data found');
+      setError('User data not found. Please restart login process.');
+      return;
+    }
+    
+    setFaceVerifying(true);
+    setVerificationProgress(0);
 
-      try {
-        // Simulate verification progress
-        const progressInterval = setInterval(() => {
-          setVerificationProgress(prev => {
-            if (prev >= 90) {
-              clearInterval(progressInterval);
-              return 90;
-            }
-            return prev + 30;
-          });
-        }, 500);
-
-        // Call backend for face verification
-        const response = await voterAPI.verifyFace({
-          voter_id: userData.voter_id,
-          image_data: imageData
-        });
-
-        clearInterval(progressInterval);
-        setVerificationProgress(100);
-
-        if (response.success) {
-          setVerificationResult(true);
-          setMessage('Face verification successful! Logging you in...');
-          
-          console.log('Face verification successful, storing auth data...');
-          
-          // Store authentication data
-          localStorage.setItem('authToken', response.token);
-          localStorage.setItem('voterData', JSON.stringify(response.voter_data));
-          localStorage.setItem('isAuthenticated', 'true');
-          
-          // Update auth context immediately
-          login(response.token, response.voter_data);
-          
-          setTimeout(() => {
-            setStep(3);
-            setShowFaceModal(false);
-          }, 2000);
-        } else {
-          setVerificationResult(false);
-          setError(response.message || 'Face verification failed. Please try again.');
-        }
-      } catch (err) {
-        console.error('Face verification error:', err);
-        setVerificationResult(false);
-        setError('Face verification failed. Please try again.');
-      } finally {
-        setFaceVerifying(false);
+    try {
+      console.log('🔄 Starting face verification...');
+      
+      // Prepare image data
+      const preparedImageData = prepareImageData(imageData);
+      
+      if (!preparedImageData) {
+        throw new Error('Failed to prepare image data');
       }
-    } else {
-      setError('Face capture failed. Please try again.');
+
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+        setVerificationProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 30;
+        });
+      }, 500);
+
+      // Call API
+      const response = await voterAPI.verifyFaceHybrid({
+        voter_id: userData.voter_id,
+        image_data: preparedImageData
+      });
+
+      clearInterval(progressInterval);
+      setVerificationProgress(100);
+
+      console.log('✅ API Response:', response);
+      
+      const token = response.token || response.auth_token;
+      
+      if (response.success && token) {
+        console.log('🎉 Face verification successful!');
+        
+        // Store auth data
+        localStorage.setItem('authToken', token);
+        localStorage.setItem('voterData', JSON.stringify(response.voter_data || userData));
+        localStorage.setItem('isAuthenticated', 'true');
+        
+        // Update auth context
+        login(token, response.voter_data || userData);
+        
+        // Navigate to dashboard
+        setTimeout(() => {
+          navigate('/dashboard', { replace: true });
+        }, 1000);
+        
+      } else {
+        throw new Error(response.message || 'Face verification failed');
+      }
+      
+    } catch (error) {
+      console.error('❌ Face verification error:', error.message);
+      setError(error.message);
+      setVerificationResult(false);
+    } finally {
+      setVerificationProgress(0);
+      setFaceVerifying(false);
     }
   };
 
-  // Retry face verification
+  // Other handlers
   const retryFaceVerification = () => {
     setVerificationResult(null);
     setVerificationProgress(0);
-    setFaceImage(null);
   };
 
-  // Close face modal
   const handleCloseFaceModal = () => {
     setShowFaceModal(false);
     if (step === 2) {
@@ -172,42 +247,35 @@ const LoginPage = () => {
     }
   };
 
-  // Format Voter ID input
-  const formatVoterId = (value) => {
-    return value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-  };
-
-  // Handle Voter ID input
-  const handleVoterIdChange = (e) => {
-    const formattedValue = formatVoterId(e.target.value);
-    setLoginData(prev => ({
-      ...prev,
-      voterId: formattedValue
-    }));
-  };
-
-  // Handle dashboard navigation
   const handleGoToDashboard = () => {
     console.log('Navigating to dashboard...');
-    
-    // Force check auth status before navigating
     checkAuthStatus();
-    
-    // Small delay to ensure auth state is updated
-    setTimeout(() => {
-      navigate('/dashboard');
-    }, 100);
+    navigate('/dashboard');
   };
 
-  // Handle print voter slip
   const handlePrintVoterSlip = () => {
     window.print();
   };
 
-  // Handle admin login navigation
   const handleAdminLogin = () => {
     navigate('/admin/login');
   };
+
+  const testAPI = async () => {
+    console.log('🧪 Testing API connection...');
+    try {
+      const testResponse = await fetch('/api/auth/test');
+      const data = await testResponse.json();
+      console.log('API test response:', data);
+      return data;
+    } catch (error) {
+      console.error('API test failed:', error);
+      return null;
+    }
+  };
+
+  // ✅ Add this debug statement to check if function exists
+  console.log('🔍 handleLoginSubmit exists:', typeof handleLoginSubmit);
 
   return (
     <div 
@@ -246,6 +314,7 @@ const LoginPage = () => {
                     {error && <Alert variant="danger" className="alert-custom">{error}</Alert>}
                     {message && <Alert variant="info" className="alert-custom">{message}</Alert>}
 
+                    {/* ✅ This Form uses handleLoginSubmit */}
                     <Form onSubmit={handleLoginSubmit}>
                       <Form.Group className="mb-3">
                         <Form.Label>
@@ -317,19 +386,31 @@ const LoginPage = () => {
                       </small>
                     </div>
 
-                  {/* Admin Access Section */}
-                  <div className="text-center mt-4 pt-3 border-top">
-                    <p className="text-muted mb-2">Administrator Access</p>
-                    <Button 
-                      variant="outline-dark" 
-                      size="sm"
-                      onClick={handleAdminLogin}
-                      className="admin-access-btn"
-                    >
-                      <FaUserCog className="me-2" />
-                      Admin Login
-                    </Button>
-                  </div>
+                    {/* Admin Access Section */}
+                    <div className="text-center mt-4 pt-3 border-top">
+                      <p className="text-muted mb-2">Administrator Access</p>
+                      <Button 
+                        variant="outline-dark" 
+                        size="sm"
+                        onClick={handleAdminLogin}
+                        className="admin-access-btn"
+                      >
+                        <FaUserCog className="me-2" />
+                        Admin Login
+                      </Button>
+                    </div>
+                    
+                    {/* Debug button */}
+                    <div className="text-center mt-3 pt-3 border-top">
+                      <Button 
+                        variant="outline-info" 
+                        size="sm"
+                        onClick={testAPI}
+                        className="debug-btn"
+                      >
+                        Test API Connection
+                      </Button>
+                    </div>
                   </div>
                 )}
 
