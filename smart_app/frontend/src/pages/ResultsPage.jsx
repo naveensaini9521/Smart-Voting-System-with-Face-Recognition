@@ -15,8 +15,8 @@ import {
   Tabs,
   Tab
 } from 'react-bootstrap';
-import { useParams, useNavigate } from 'react-router-dom';
-import { voterAPI, adminAPI } from '../services/api';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { voterAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { 
   FaChartBar, 
@@ -33,13 +33,15 @@ import {
   FaArrowLeft,
   FaEye,
   FaPrint,
-  FaFileExport
+  FaFileExport,
+  FaHome
 } from 'react-icons/fa';
 
 const ResultsPage = () => {
   const { electionId } = useParams();
   const navigate = useNavigate();
-  const { user, isAuthenticated, isAdmin } = useAuth();
+  const location = useLocation();
+  const { user } = useAuth();
   
   const [results, setResults] = useState(null);
   const [election, setElection] = useState(null);
@@ -56,34 +58,19 @@ const ResultsPage = () => {
       return;
     }
     
-    if (!isAuthenticated) {
-      navigate('/login');
-      return;
-    }
-    
     loadResults();
-  }, [electionId, isAuthenticated, navigate]);
+  }, [electionId]);
 
   const loadResults = async () => {
     try {
       setLoading(true);
       setError('');
       
-      let response;
-      if (isAdmin) {
-        response = await adminAPI.getElectionResults(electionId);
-      } else {
-        response = await voterAPI.getElectionResults(electionId);
-      }
+      const response = await voterAPI.getElectionResults(electionId);
       
       if (response.success) {
         setResults(response.results);
         setElection(response.election);
-        
-        // Check if results are available
-        if (!response.results_available) {
-          setError('Results are not available yet. They will be published after the election ends.');
-        }
       } else {
         setError(response.message || 'Failed to load results');
       }
@@ -95,77 +82,8 @@ const ResultsPage = () => {
     }
   };
 
-  const handleExportResults = async (format) => {
-    try {
-      setExporting(true);
-      let response;
-      
-      if (isAdmin) {
-        response = await adminAPI.exportResults(electionId, format);
-      } else {
-        response = await voterAPI.exportResults(electionId, format);
-      }
-      
-      if (response.success) {
-        // Create download link
-        const blob = new Blob([response.data], { type: response.contentType });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${election?.title}_results.${format}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      } else {
-        setError(response.message || 'Failed to export results');
-      }
-    } catch (err) {
-      setError('Failed to export results');
-    } finally {
-      setExporting(false);
-      setShowExportModal(false);
-    }
-  };
-
   const handleBackToDashboard = () => {
-    if (isAdmin) {
-      navigate('/admin/dashboard');
-    } else {
-      navigate('/dashboard');
-    }
-  };
-
-  const handleShareResults = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: `${election?.title} - Election Results`,
-        text: `Check out the election results for ${election?.title}`,
-        url: window.location.href,
-      });
-    } else {
-      // Fallback: copy to clipboard
-      navigator.clipboard.writeText(window.location.href);
-      alert('Results link copied to clipboard!');
-    }
-  };
-
-  const getWinner = () => {
-    if (!results || !results.candidates) return null;
-    return results.candidates.reduce((prev, current) => 
-      (prev.vote_count > current.vote_count) ? prev : current
-    );
-  };
-
-  const getElectionStatus = () => {
-    if (!election) return 'unknown';
-    
-    const now = new Date();
-    const votingEnd = new Date(election.voting_end);
-    
-    if (now < votingEnd) return 'ongoing';
-    if (election.status === 'completed') return 'completed';
-    return 'processing';
+    navigate('/dashboard?tab=results');
   };
 
   if (loading) {
@@ -174,7 +92,6 @@ const ResultsPage = () => {
         <div className="text-center">
           <Spinner animation="border" variant="primary" size="lg" />
           <h4 className="mt-3">Loading Election Results...</h4>
-          <p>Please wait while we fetch the latest results</p>
         </div>
       </Container>
     );
@@ -190,66 +107,81 @@ const ResultsPage = () => {
         <div className="text-center mt-3">
           <Button variant="primary" onClick={handleBackToDashboard}>
             <FaArrowLeft className="me-2" />
-            Back to Dashboard
+            Back to Results
           </Button>
         </div>
       </Container>
     );
   }
 
+  const getWinner = () => {
+    if (!results || !results.candidates) return null;
+    return results.candidates.reduce((prev, current) => 
+      (prev.vote_count > current.vote_count) ? prev : current
+    );
+  };
+
   const winner = getWinner();
-  const electionStatus = getElectionStatus();
 
   return (
-    <Container className="py-4">
+    <Container fluid className="py-4">
       {/* Header */}
-      <div className="text-center mb-4">
-        <Button 
-          variant="outline-primary" 
-          onClick={handleBackToDashboard}
-          className="mb-3"
-        >
-          <FaArrowLeft className="me-2" />
-          Back to {isAdmin ? 'Admin Dashboard' : 'Dashboard'}
-        </Button>
-        
-        <h1 className="display-5 fw-bold text-primary">
-          <FaChartBar className="me-3" />
-          Election Results
-        </h1>
-        
-        {election && (
-          <div className="mt-3">
-            <h3 className="text-dark">{election.title}</h3>
-            <p className="lead text-muted">{election.description}</p>
+      <Card className="border-0 shadow-sm mb-4">
+        <Card.Body>
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <Button 
+              variant="outline-primary" 
+              onClick={handleBackToDashboard}
+              className="d-flex align-items-center"
+            >
+              <FaArrowLeft className="me-2" />
+              Back to Results
+            </Button>
             
-            <div className="d-flex justify-content-center gap-3 flex-wrap">
-              <Badge bg="primary" className="fs-6">
-                <FaLandmark className="me-1" />
-                {election.election_type}
-              </Badge>
-              <Badge bg="info" className="fs-6">
-                <FaUsers className="me-1" />
-                {election.constituency}
-              </Badge>
-              <Badge bg={
-                electionStatus === 'completed' ? 'success' : 
-                electionStatus === 'ongoing' ? 'warning' : 'secondary'
-              } className="fs-6">
-                <FaClock className="me-1" />
-                {electionStatus === 'completed' ? 'Results Finalized' : 
-                 electionStatus === 'ongoing' ? 'Voting Ongoing' : 'Processing Results'}
-              </Badge>
-              <Badge bg="secondary" className="fs-6">
-                Total Votes: {results?.total_votes || 0}
-              </Badge>
+            <div className="d-flex gap-2">
+              <Button variant="outline-primary" onClick={() => window.print()}>
+                <FaPrint className="me-2" />
+                Print
+              </Button>
             </div>
           </div>
-        )}
-      </div>
+          
+          <div className="text-center">
+            <h1 className="display-6 fw-bold text-primary">
+              <FaChartBar className="me-3" />
+              Election Results
+            </h1>
+            
+            {election && (
+              <div className="mt-3">
+                <h3 className="text-dark">{election.title}</h3>
+                <p className="lead text-muted">{election.description}</p>
+                
+                <div className="d-flex justify-content-center gap-3 flex-wrap">
+                  <Badge bg="primary" className="fs-6 px-3 py-2">
+                    <FaLandmark className="me-1" />
+                    {election.election_type}
+                  </Badge>
+                  <Badge bg="info" className="fs-6 px-3 py-2">
+                    <FaUsers className="me-1" />
+                    {election.constituency}
+                  </Badge>
+                  <Badge bg="success" className="fs-6 px-3 py-2">
+                    <FaClock className="me-1" />
+                    Results Finalized
+                  </Badge>
+                  <Badge bg="secondary" className="fs-6 px-3 py-2">
+                    Total Votes: {results?.total_votes || 0}
+                  </Badge>
+                </div>
+              </div>
+            )}
+          </div>
+        </Card.Body>
+      </Card>
 
       {/* Winner Announcement */}
-      {winner && electionStatus === 'completed' && (
+      {winner && (
         <Card className="mb-4 border-success bg-success bg-opacity-10">
           <Card.Body className="text-center py-4">
             <FaTrophy className="text-warning fa-3x mb-3" />
@@ -272,31 +204,6 @@ const ResultsPage = () => {
         </Card>
       )}
 
-      {/* Action Buttons */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h4 className="mb-0">Detailed Results</h4>
-        <div className="d-flex gap-2">
-          <Button variant="outline-primary" onClick={handleShareResults}>
-            <FaShare className="me-1" />
-            Share
-          </Button>
-          <Button 
-            variant="outline-success" 
-            onClick={() => setShowExportModal(true)}
-            disabled={exporting}
-          >
-            <FaDownload className="me-1" />
-            Export
-          </Button>
-          {isAdmin && (
-            <Button variant="outline-info">
-              <FaPrint className="me-1" />
-              Print
-            </Button>
-          )}
-        </div>
-      </div>
-
       {/* Results Tabs */}
       <Tabs activeKey={activeTab} onSelect={setActiveTab} className="mb-4">
         <Tab eventKey="results" title={
@@ -305,11 +212,7 @@ const ResultsPage = () => {
             Results Summary
           </span>
         }>
-          <ResultsSummary 
-            results={results} 
-            election={election}
-            isAdmin={isAdmin}
-          />
+          <ResultsSummary results={results} election={election} />
         </Tab>
         
         <Tab eventKey="candidates" title={
@@ -318,10 +221,7 @@ const ResultsPage = () => {
             Candidates Details
           </span>
         }>
-          <CandidatesDetails 
-            candidates={results?.candidates} 
-            isAdmin={isAdmin}
-          />
+          <CandidatesDetails candidates={results?.candidates} />
         </Tab>
         
         <Tab eventKey="analytics" title={
@@ -330,70 +230,15 @@ const ResultsPage = () => {
             Analytics
           </span>
         }>
-          <ResultsAnalytics 
-            results={results}
-            election={election}
-            isAdmin={isAdmin}
-          />
+          <ResultsAnalytics results={results} election={election} />
         </Tab>
-
-        {isAdmin && (
-          <Tab eventKey="admin" title={
-            <span>
-              <FaEye className="me-1" />
-              Admin View
-            </span>
-          }>
-            <AdminResultsView 
-              election={election}
-              results={results}
-              onRefresh={loadResults}
-            />
-          </Tab>
-        )}
       </Tabs>
-
-      {/* Export Modal */}
-      <Modal show={showExportModal} onHide={() => setShowExportModal(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>Export Results</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <p>Select export format:</p>
-          <div className="d-grid gap-2">
-            <Button 
-              variant="outline-primary" 
-              onClick={() => handleExportResults('pdf')}
-              disabled={exporting}
-            >
-              <FaFileExport className="me-2" />
-              Export as PDF
-            </Button>
-            <Button 
-              variant="outline-success" 
-              onClick={() => handleExportResults('csv')}
-              disabled={exporting}
-            >
-              <FaFileExport className="me-2" />
-              Export as CSV
-            </Button>
-            <Button 
-              variant="outline-info" 
-              onClick={() => handleExportResults('json')}
-              disabled={exporting}
-            >
-              <FaFileExport className="me-2" />
-              Export as JSON
-            </Button>
-          </div>
-        </Modal.Body>
-      </Modal>
     </Container>
   );
 };
 
 // Results Summary Component
-const ResultsSummary = ({ results, election, isAdmin }) => {
+const ResultsSummary = ({ results, election }) => {
   if (!results || !results.candidates) {
     return (
       <Alert variant="info">
@@ -481,7 +326,7 @@ const ResultsSummary = ({ results, election, isAdmin }) => {
 };
 
 // Candidates Details Component
-const CandidatesDetails = ({ candidates, isAdmin }) => {
+const CandidatesDetails = ({ candidates }) => {
   if (!candidates || candidates.length === 0) {
     return (
       <Alert variant="info">
@@ -508,7 +353,6 @@ const CandidatesDetails = ({ candidates, isAdmin }) => {
               <th>Votes</th>
               <th>Percentage</th>
               <th>Status</th>
-              {isAdmin && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -570,20 +414,10 @@ const CandidatesDetails = ({ candidates, isAdmin }) => {
                   </div>
                 </td>
                 <td>
-                  <Badge bg={
-                    index === 0 ? 'success' : 'secondary'
-                  }>
+                  <Badge bg={index === 0 ? 'success' : 'secondary'}>
                     {index === 0 ? 'Winner' : 'Contested'}
                   </Badge>
                 </td>
-                {isAdmin && (
-                  <td>
-                    <Button variant="outline-primary" size="sm">
-                      <FaEye className="me-1" />
-                      Details
-                    </Button>
-                  </td>
-                )}
               </tr>
             ))}
           </tbody>
@@ -594,7 +428,7 @@ const CandidatesDetails = ({ candidates, isAdmin }) => {
 };
 
 // Results Analytics Component
-const ResultsAnalytics = ({ results, election, isAdmin }) => {
+const ResultsAnalytics = ({ results, election }) => {
   if (!results) {
     return (
       <Alert variant="info">
@@ -612,7 +446,6 @@ const ResultsAnalytics = ({ results, election, isAdmin }) => {
             <h6 className="mb-0">Vote Distribution</h6>
           </Card.Header>
           <Card.Body>
-            {/* Simple pie chart representation */}
             {results.candidates?.slice(0, 5).map((candidate, index) => (
               <div key={candidate.candidate_id} className="mb-2">
                 <div className="d-flex justify-content-between">
@@ -657,130 +490,6 @@ const ResultsAnalytics = ({ results, election, isAdmin }) => {
                   `${(results.candidates[0].percentage - results.candidates[1].percentage).toFixed(2)}%` : 
                   'N/A'
                 }
-              </div>
-            </div>
-          </Card.Body>
-        </Card>
-      </Col>
-    </Row>
-  );
-};
-
-// Admin Results View Component
-const AdminResultsView = ({ election, results, onRefresh }) => {
-  const [publishing, setPublishing] = useState(false);
-
-  const handlePublishResults = async () => {
-    try {
-      setPublishing(true);
-      const response = await adminAPI.publishResults(election.election_id);
-      if (response.success) {
-        alert('Results published successfully!');
-        onRefresh();
-      } else {
-        alert('Failed to publish results: ' + response.message);
-      }
-    } catch (error) {
-      alert('Error publishing results');
-    } finally {
-      setPublishing(false);
-    }
-  };
-
-  const handleUnpublishResults = async () => {
-    try {
-      setPublishing(true);
-      const response = await adminAPI.unpublishResults(election.election_id);
-      if (response.success) {
-        alert('Results unpublished successfully!');
-        onRefresh();
-      } else {
-        alert('Failed to unpublish results: ' + response.message);
-      }
-    } catch (error) {
-      alert('Error unpublishing results');
-    } finally {
-      setPublishing(false);
-    }
-  };
-
-  return (
-    <Row>
-      <Col md={6}>
-        <Card>
-          <Card.Header>
-            <h5 className="mb-0">Results Management</h5>
-          </Card.Header>
-          <Card.Body>
-            <div className="mb-3">
-              <strong>Current Status:</strong>
-              <Badge bg={election.results_published ? 'success' : 'warning'} className="ms-2">
-                {election.results_published ? 'Published' : 'Draft'}
-              </Badge>
-            </div>
-            
-            <div className="mb-3">
-              <strong>Last Updated:</strong>
-              <div>{new Date(election.updated_at).toLocaleString()}</div>
-            </div>
-            
-            <div className="d-grid gap-2">
-              {!election.results_published ? (
-                <Button 
-                  variant="success" 
-                  onClick={handlePublishResults}
-                  disabled={publishing}
-                >
-                  <FaCheckCircle className="me-2" />
-                  {publishing ? 'Publishing...' : 'Publish Results'}
-                </Button>
-              ) : (
-                <Button 
-                  variant="warning" 
-                  onClick={handleUnpublishResults}
-                  disabled={publishing}
-                >
-                  <FaExclamationTriangle className="me-2" />
-                  {publishing ? 'Unpublishing...' : 'Unpublish Results'}
-                </Button>
-              )}
-              
-              <Button variant="outline-primary" onClick={onRefresh}>
-                <FaChartBar className="me-2" />
-                Refresh Results
-              </Button>
-            </div>
-          </Card.Body>
-        </Card>
-      </Col>
-      
-      <Col md={6}>
-        <Card>
-          <Card.Header>
-            <h5 className="mb-0">Audit Information</h5>
-          </Card.Header>
-          <Card.Body>
-            <div className="mb-2">
-              <small className="text-muted">Results Calculated At</small>
-              <div>{results?.calculated_at ? new Date(results.calculated_at).toLocaleString() : 'N/A'}</div>
-            </div>
-            
-            <div className="mb-2">
-              <small className="text-muted">Total Votes Verified</small>
-              <div>{results?.total_votes || 0}</div>
-            </div>
-            
-            <div className="mb-2">
-              <small className="text-muted">Vote Integrity</small>
-              <div>
-                <Badge bg="success">Verified</Badge>
-              </div>
-            </div>
-            
-            <div className="mb-2">
-              <small className="text-muted">Hash Verification</small>
-              <div>
-                <Badge bg="success">Valid</Badge>
               </div>
             </div>
           </Card.Body>
