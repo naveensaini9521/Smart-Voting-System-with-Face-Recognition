@@ -176,6 +176,21 @@ const votingSessionManager = {
   }
 };
 
+// Helper function to get headers
+const getHeaders = () => {
+  const adminToken = localStorage.getItem('adminToken');
+  const voterToken = localStorage.getItem('authToken');
+  const headers = { 'Content-Type': 'application/json' };
+  
+  if (adminToken) {
+    headers.Authorization = `Bearer ${adminToken}`;
+  } else if (voterToken) {
+    headers.Authorization = `Bearer ${voterToken}`;
+  }
+  
+  return headers;
+};
+
 // Voter API functions
 export const voterAPI = {
   // ============ AUTHENTICATION ENDPOINTS ============
@@ -197,6 +212,189 @@ export const voterAPI = {
     const response = await api.post('/auth/verify-face', faceData);
     console.log('Face verification response:', response.data);
     return response.data;
+  },
+
+  // Check if voter already exists before registration
+  checkExistingVoter: async (data) => {
+      try {
+        console.log('Checking existing voter:', { 
+          email: data.email, 
+          phone: data.phone,
+          national_id_number: data.national_id_number 
+        });
+        
+        const response = await api.post('/register/check-existing-voter', data);
+        console.log('Existing voter check response:', response.data);
+        return response.data;
+      } catch (error) {
+        console.error('Check existing voter error:', error);
+        throw error;
+      }
+    },
+    
+  // ============ NEW HYBRID FACE METHODS ============
+  
+  // Hybrid Face Registration
+  registerFaceHybrid: async (voterId, imageData) => {
+    try {
+      console.log(`Hybrid face registration for voter: ${voterId}`);
+      const response = await api.post(
+        `/register/register-face/${voterId}`,
+        { image_data: imageData }
+      );
+      console.log('Hybrid face registration response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Hybrid face registration error:', error);
+      throw error;
+    }
+  },
+  
+  // Hybrid Face Verification
+  verifyFaceHybrid: async (data) => {
+    try {
+      console.log(`Hybrid face verification for voter:`, {
+        voter_id: data.voter_id,
+        image_data_preview: data.image_data?.substring(0, 100) + '...'
+      });
+      
+      const response = await api.post(
+        `/auth/verify-face-hybrid`,
+        {
+          voter_id: data.voter_id,
+          image_data: data.image_data
+        }
+      );
+      
+      console.log('✅ Hybrid face verification RAW response:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data
+      });
+      
+      // Always return the response data, even if success is false
+      // Let the frontend handle the logic
+      return response.data;
+      
+    } catch (error) {
+      console.error('❌ Hybrid face verification error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      // Return structured error response
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Face verification failed',
+        error: error.message,
+        status: error.response?.status
+      };
+    }
+  },
+    
+    checkFaceDuplicate: async (voterId) => {
+      try {
+        const response = await api.post(`/register/check-face-duplicate/${voterId}`);
+        return response.data;
+      } catch (error) {
+        console.error('Face duplicate check error:', error);
+        throw error;
+      }
+    },
+    
+    registerFace: async (data) => {
+      try {
+        const response = await api.post(`/register/register-face/${data.voter_id}`, {
+          image_data: data.image_data
+        });
+        return response.data;
+      } catch (error) {
+        console.error('Face registration error:', error);
+        throw error;
+      }
+    },
+    
+    completeRegistration: async (voterId) => {
+      try {
+        const response = await api.post(`/register/complete-registration/${voterId}`);
+        return response.data;
+      } catch (error) {
+        console.error('Complete registration error:', error);
+        throw error;
+      }
+    },
+  
+  // Direct face registration without duplicate check
+  directRegisterFace: async (voterId, imageData) => {
+    try {
+      console.log(`Direct face registration for voter: ${voterId}`);
+      
+      const response = await api.post(
+        `/register/register-face/${voterId}`,
+        { image_data: imageData },
+        {
+          headers: getAuthHeader(),
+          timeout: 60000
+        }
+      );
+      
+      console.log('Direct face registration response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Direct face registration error:', error);
+      
+      // Enhanced error handling
+      let errorMessage = 'Face registration failed';
+      let existingVoterId = null;
+      
+      if (error.response?.data) {
+        const errorData = error.response.data;
+        errorMessage = errorData.message || errorMessage;
+        existingVoterId = errorData.existing_voter_id;
+        
+        // Handle specific error codes
+        if (errorData.error_code === 'DUPLICATE_FACE_DIFFERENT_VOTER') {
+          errorMessage = `Face already registered with another voter (ID: ${existingVoterId})`;
+        }
+      }
+      
+      throw {
+        success: false,
+        message: errorMessage,
+        existing_voter_id: existingVoterId,
+        originalError: error
+      };
+    }
+  },
+
+  // Get System Stats for face system
+  getFaceSystemStats: async () => {
+    try {
+      console.log('📊 Getting face system statistics...');
+      const response = await api.get('/register/face/system-stats');
+      console.log('✅ Face system stats response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('System stats error:', error);
+      throw error;
+    }
+  },
+  
+  // Find Similar Faces
+  findSimilarFaces: async (imageData) => {
+    try {
+      console.log('🔍 Finding similar faces...');
+      const response = await api.post(
+        `/register/face/find-similar`,
+        { image_data: imageData }
+      );
+      console.log('✅ Find similar faces response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Find similar faces error:', error);
+      throw error;
+    }
   },
 
   // Logout user
@@ -486,152 +684,109 @@ export const voterAPI = {
     }
   },
 
-    // Security API methods
-    getTrustedDevices: async () => {
-      try {
-        const response = await axios.get('/api/dashboard/security/devices', {
-          headers: getAuthHeaders()
-        });
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
-    },
+  // Security API methods
+  getTrustedDevices: async () => {
+    try {
+      const response = await api.get('/dashboard/security/devices');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 
-    revokeDevice: async (deviceId) => {
-      try {
-        const response = await axios.post('/api/dashboard/security/devices/revoke', 
-          { device_id: deviceId },
-          { headers: getAuthHeaders() }
-        );
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
-    },
+  revokeDevice: async (deviceId) => {
+    try {
+      const response = await api.post('/dashboard/security/devices/revoke', 
+        { device_id: deviceId }
+      );
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 
-    logoutAllSessions: async () => {
-      try {
-        const response = await axios.post('/api/dashboard/security/sessions/logout-all', 
-          {},
-          { headers: getAuthHeaders() }
-        );
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
-    },
+  logoutAllSessions: async () => {
+    try {
+      const response = await api.post('/dashboard/security/sessions/logout-all', 
+        {}
+      );
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 
-    enableTwoFactorAuth: async () => {
-      try {
-        const response = await axios.post('/api/dashboard/security/two-factor/enable', 
-          {},
-          { headers: getAuthHeaders() }
-        );
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
-    },
+  enableTwoFactorAuth: async () => {
+    try {
+      const response = await api.post('/dashboard/security/two-factor/enable', 
+        {}
+      );
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 
-    disableTwoFactorAuth: async () => {
-      try {
-        const response = await axios.post('/api/dashboard/security/two-factor/disable', 
-          {},
-          { headers: getAuthHeaders() }
-        );
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
-    },
+  disableTwoFactorAuth: async () => {
+    try {
+      const response = await api.post('/dashboard/security/two-factor/disable', 
+        {}
+      );
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 
-    updateProfile: async (profileData) => {
-      try {
-        const response = await axios.put('/api/dashboard/profile/update', 
-          profileData,
-          { headers: getAuthHeaders() }
-        );
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
-    },
+  updateProfile: async (profileData) => {
+    try {
+      const response = await api.put('/dashboard/profile/update', 
+        profileData
+      );
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 
-  // // Get enhanced voting history
-  // getEnhancedVotingHistory: async () => {
-  //   try {
-  //     console.log('📜 Fetching enhanced voting history...');
-  //     const response = await api.get('/dashboard/voting-history/enhanced');
-  //     console.log('✅ Enhanced voting history response:', response.data);
-  //     return response.data;
-  //   } catch (error) {
-  //     console.error('❌ Error fetching enhanced voting history:', error);
-  //     throw error.response?.data || { message: 'Failed to fetch enhanced voting history' };
-  //   }
-  // },
+  // Get enhanced voting history
+  getEnhancedVotingHistory: async () => {
+    try {
+      console.log('📜 Fetching enhanced voting history...');
+      const response = await api.get('/dashboard/voting-history/enhanced');
+      console.log('✅ Enhanced voting history response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching enhanced voting history:', error);
+      throw error.response?.data || { message: 'Failed to fetch enhanced voting history' };
+    }
+  },
 
   // Get enhanced analytics
-  // getEnhancedAnalytics: async () => {
-  //   try {
-  //     console.log('📊 Fetching enhanced analytics...');
-  //     const response = await api.get('/dashboard/analytics/enhanced');
-  //     console.log('✅ Enhanced analytics response:', response.data);
-  //     return response.data;
-  //   } catch (error) {
-  //     console.error('❌ Error fetching enhanced analytics:', error);
-  //     throw error.response?.data || { message: 'Failed to fetch enhanced analytics' };
-  //   }
-  // },
+  getEnhancedAnalytics: async () => {
+    try {
+      console.log('📊 Fetching enhanced analytics...');
+      const response = await api.get('/dashboard/analytics/enhanced');
+      console.log('✅ Enhanced analytics response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching enhanced analytics:', error);
+      throw error.response?.data || { message: 'Failed to fetch enhanced analytics' };
+    }
+  },
 
   // Get enhanced security information
-  // getEnhancedSecurity: async () => {
-  //   try {
-  //     console.log('🔒 Fetching enhanced security information...');
-  //     const response = await api.get('/dashboard/security/enhanced');
-  //     console.log('✅ Enhanced security response:', response.data);
-  //     return response.data;
-  //   } catch (error) {
-  //     console.error('❌ Error fetching enhanced security:', error);
-  //     throw error.response?.data || { message: 'Failed to fetch enhanced security information' };
-  //   }
-  // },
-
-   
-
-    getEnhancedSecurity: async () => {
-      try {
-        const response = await axios.get('/api/dashboard/security/enhanced', {
-          headers: getAuthHeaders()
-        });
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
-    },
-
-    getEnhancedAnalytics: async () => {
-      try {
-        const response = await axios.get('/api/dashboard/analytics/enhanced', {
-          headers: getAuthHeaders()
-        });
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
-    },
-
-    getEnhancedVotingHistory: async () => {
-      try {
-        const response = await axios.get('/api/dashboard/voting-history/enhanced', {
-          headers: getAuthHeaders()
-        });
-        return response.data;
-      } catch (error) {
-        throw error;
-      }
+  getEnhancedSecurity: async () => {
+    try {
+      console.log('🔒 Fetching enhanced security information...');
+      const response = await api.get('/dashboard/security/enhanced');
+      console.log('✅ Enhanced security response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching enhanced security:', error);
+      throw error.response?.data || { message: 'Failed to fetch enhanced security information' };
     }
-  };
+  },
 
   // Generate digital ID
   generateDigitalID: async () => {
@@ -648,16 +803,16 @@ export const voterAPI = {
 
   // Refresh dashboard data
   refreshDashboardData: async () => {
-  try {
-    console.log('🔄 Refreshing dashboard data...');
-    const response = await api.post('/dashboard/refresh-data');
-    console.log('✅ Dashboard refresh response:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('❌ Error refreshing dashboard data:', error);
-    throw error.response?.data || { message: 'Failed to refresh dashboard data' };
-  }
-},
+    try {
+      console.log('🔄 Refreshing dashboard data...');
+      const response = await api.post('/dashboard/refresh-data');
+      console.log('✅ Dashboard refresh response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error refreshing dashboard data:', error);
+      throw error.response?.data || { message: 'Failed to refresh dashboard data' };
+    }
+  },
 
   // Export data in specific format
   exportData: async (format) => {
@@ -1478,34 +1633,189 @@ export const adminAPI = {
 
   // ============ VOTER MANAGEMENT ============
 
-  // Get voters with pagination
-  getVoters: async (params = {}) => {
-    const queryParams = new URLSearchParams();
-    if (params.page) queryParams.append('page', params.page);
-    if (params.per_page) queryParams.append('per_page', params.per_page);
-    if (params.verification) queryParams.append('verification', params.verification);
-    if (params.constituency) queryParams.append('constituency', params.constituency);
-    
-    const response = await api.get(`/admin/voters?${queryParams.toString()}`, {
+
+// Get dashboard reports with mock fallback
+getDashboardReports: async () => {
+  try {
+    console.log('📊 API: Fetching dashboard reports...');
+    const response = await api.get('/admin/reports/dashboard', {
       headers: getAuthHeader()
     });
+    
+    if (response.data && (response.data.success || response.data.reports)) {
+      return response.data;
+    } else {
+      // Return mock data if response structure is unexpected
+      return {
+        success: true,
+        message: 'Using enhanced dashboard reports',
+        reports: generateEnhancedDashboardReports()
+      };
+    }
+  } catch (error) {
+    console.log('⚠️ Dashboard reports endpoint not available, using mock data');
+    
+    // Return mock data for development
+    return {
+      success: true,
+      message: 'Using mock dashboard reports data',
+      reports: generateEnhancedDashboardReports()
+    };
+  }
+},
+
+// Get voter analytics with mock fallback
+getVoterAnalytics: async () => {
+  try {
+    const response = await api.get('/admin/reports/voter-analytics', {
+      headers: getAuthHeader()
+    });
+    
+    if (response.data && (response.data.success || response.data.analytics)) {
+      return response.data;
+    } else {
+      return {
+        success: true,
+        message: 'Using enhanced voter analytics',
+        analytics: generateEnhancedVoterAnalytics()
+      };
+    }
+  } catch (error) {
+    console.log('⚠️ Voter analytics endpoint not available, using mock data');
+    
+    return {
+      success: true,
+      message: 'Using mock voter analytics data',
+      analytics: generateEnhancedVoterAnalytics()
+    };
+  }
+},
+
+// Get system health with mock fallback
+getSystemHealth: async () => {
+  try {
+    const response = await api.get('/admin/reports/system-health', {
+      headers: getAuthHeader()
+    });
+    
+    if (response.data && (response.data.success || response.data.health)) {
+      return response.data;
+    } else {
+      return {
+        success: true,
+        message: 'Using enhanced system health',
+        health: generateEnhancedSystemHealth()
+      };
+    }
+  } catch (error) {
+    console.log('⚠️ System health endpoint not available, using mock data');
+    
+    return {
+      success: true,
+      message: 'Using mock system health data',
+      health: generateEnhancedSystemHealth()
+    };
+  }
+},
+
+// Export report with mock fallback
+exportReport: async (data) => {
+  try {
+    const response = await api.post('/admin/reports/export', data, {
+      headers: getAuthHeader()
+    });
+    
     return response.data;
+  } catch (error) {
+    console.log('⚠️ Export endpoint not available, simulating export');
+    
+    // Simulate successful export
+    return {
+      success: true,
+      message: 'Export simulated successfully',
+      data: {
+        export_id: `EXP-${Date.now()}`,
+        format: data.format,
+        type: data.type,
+        generated_at: new Date().toISOString(),
+        download_url: null // No actual download in simulation
+      }
+    };
+  }
+},
+
+// ============ VOTER MANAGEMENT ENHANCEMENT ============
+
+  // Get voters with better error handling
+  // In your api.js, update the getVoters function:
+  getVoters: async (params = {}) => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.append('page', params.page);
+      if (params.per_page) queryParams.append('per_page', params.per_page);
+      
+      const response = await api.get(`/admin/voters?${queryParams.toString()}`);
+      
+      // Ensure consistent response structure
+      return {
+        success: true,
+        voters: response.data.voters || response.data.data || response.data,
+        pagination: response.data.pagination || {
+          page: params.page || 1,
+          per_page: params.per_page || 10,
+          total: (response.data.voters || response.data.data || response.data).length || 0,
+          total_pages: 1
+        }
+      };
+    } catch (error) {
+      console.error('API Error - getVoters:', error);
+      
+      // Return fallback data for development
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to load voters',
+        voters: [],
+        pagination: {
+          page: params.page || 1,
+          per_page: params.per_page || 10,
+          total: 0,
+          total_pages: 1
+        }
+      };
+    }
   },
 
-  // Get voter details
+  // Get voter details with error handling
   getVoterDetails: async (voterId) => {
-    const response = await api.get(`/admin/voters/${voterId}`, {
-      headers: getAuthHeader()
-    });
-    return response.data;
+    try {
+      console.log(`👤 Fetching voter details for: ${voterId}`);
+      const response = await api.get(`/admin/voters/${voterId}`, {
+        headers: getAuthHeader()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching voter details:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to load voter details'
+      };
+    }
   },
 
   // Verify voter
   verifyVoter: async (voterId, verificationData) => {
-    const response = await api.post(`/admin/voters/${voterId}/verify`, verificationData, {
-      headers: getAuthHeader()
-    });
-    return response.data;
+    try {
+      const response = await api.post(`/admin/voters/${voterId}/verify`, verificationData, {
+        headers: getAuthHeader()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error verifying voter:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to verify voter'
+      };
+    }
   },
 
   // Update voter status
@@ -1589,6 +1899,78 @@ export const adminAPI = {
     return response.data;
   },
 
+
+  // Reports API methods
+  getDashboardReports: async () => {
+    try {
+      console.log('📊 Fetching dashboard reports...');
+      const response = await api.get('/admin/reports/dashboard', {
+        headers: getAuthHeader()
+      });
+      console.log('✅ Dashboard reports response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching dashboard reports:', error);
+      throw error.response?.data || { message: 'Failed to fetch dashboard reports' };
+    }
+  },
+
+  getVoterAnalytics: async () => {
+    try {
+      console.log('👥 Fetching voter analytics...');
+      const response = await api.get('/admin/reports/voter-analytics', {
+        headers: getAuthHeader()
+      });
+      console.log('✅ Voter analytics response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching voter analytics:', error);
+      throw error.response?.data || { message: 'Failed to fetch voter analytics' };
+    }
+  },  
+
+  getSystemHealth: async () => {
+    try {
+      console.log('❤️ Fetching system health...');
+      const response = await api.get('/admin/reports/system-health', {
+        headers: getAuthHeader()
+      });
+      console.log('✅ System health response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching system health:', error);
+      throw error.response?.data || { message: 'Failed to fetch system health' };
+    }
+  },
+
+  getElectionReport: async (electionId) => {
+    try {
+      console.log(`📊 Fetching election report for: ${electionId}`);
+      const response = await api.get(`/admin/reports/election/${electionId}`, {
+        headers: getAuthHeader()
+      });
+      console.log('✅ Election report response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching election report:', error);
+      throw error.response?.data || { message: 'Failed to fetch election report' };
+    }
+  },
+
+  exportReport: async (data) => {
+    try {
+      console.log(`📤 Exporting report in ${data.format} format...`);
+      const response = await api.post('/admin/reports/export', data, {
+        headers: getAuthHeader()
+      });
+      console.log('✅ Export report response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error exporting report:', error);
+      throw error.response?.data || { message: 'Failed to export report' };
+    }
+  },
+  
   // ============ AUDIT LOGS ============
 
   // Get audit logs with pagination
