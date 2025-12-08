@@ -536,15 +536,51 @@ export const voterAPI = {
   // ============ VOTING & ELECTIONS ENDPOINTS ============
 
   // Get active elections for voting
+// Get active elections for voting - ENHANCED
   getActiveElections: async () => {
     try {
       console.log('🔄 Fetching active elections...');
       const response = await api.get('/election/elections/active');
       console.log('✅ Active elections response:', response.data);
-      return response.data;
+      
+      // Ensure consistent response structure
+      const result = {
+        success: response.data.success !== false,
+        elections: response.data.elections || [],
+        total: response.data.total || 0,
+        message: response.data.message || 'Active elections loaded successfully'
+      };
+      
+      // Validate each election's structure
+      result.elections = result.elections.map(election => ({
+        election_id: election.election_id || election.id || '',
+        title: election.title || 'Unknown Election',
+        description: election.description || '',
+        election_type: election.election_type || 'general',
+        status: election.status || 'active',
+        voting_start: election.voting_start,
+        voting_end: election.voting_end,
+        constituency: election.constituency || 'General',
+        has_voted: election.has_voted || false,
+        is_eligible: election.is_eligible !== false,
+        can_vote: election.can_vote !== false && !election.has_voted,
+        candidates_count: election.candidates_count || 0,
+        total_votes: election.total_votes || 0,
+        voter_turnout: election.voter_turnout || 0,
+        require_face_verification: election.require_face_verification !== false
+      }));
+      
+      return result;
     } catch (error) {
       console.error('❌ Error fetching active elections:', error);
-      throw error.response?.data || { message: 'Failed to fetch active elections' };
+      
+      // Return fallback structure
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to fetch active elections',
+        elections: [],
+        total: 0
+      };
     }
   },
 
