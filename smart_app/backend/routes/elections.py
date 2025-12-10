@@ -834,6 +834,107 @@ def get_election_results_for_voter(election_id):
         logger.error(f"Election results error: {str(e)}")
         return jsonify({'success': False, 'message': 'Failed to load results'}), 500
 
+@election_bp.route('/elections/<election_id>/details', methods=['GET'])
+@cross_origin()
+@voter_required
+def get_election_details(election_id):
+    """Get detailed election information for voters who have already voted"""
+    try:
+        voter = request.voter
+        
+        # Get election
+        election = Election.find_by_election_id(election_id)
+        if not election:
+            return jsonify({
+                'success': False,
+                'message': 'Election not found'
+            }), 404
+        
+        # Check if voter has voted
+        vote_record = Vote.find_by_election_and_voter(election_id, voter['voter_id'])
+        has_voted = vote_record is not None
+        
+        # Get candidates with basic info
+        candidates = Candidate.find_all({
+            "election_id": election_id,
+            "is_active": True,
+            "is_approved": True
+        })
+        
+        candidates_data = []
+        for candidate in candidates:
+            candidates_data.append({
+                'candidate_id': candidate.get('candidate_id'),
+                'full_name': candidate.get('full_name'),
+                'party': candidate.get('party', 'Independent'),
+                'photo': candidate.get('photo'),
+                'candidate_number': candidate.get('candidate_number'),
+                'symbol_name': candidate.get('symbol_name', '')
+            })
+        
+        # Get vote details if voter has voted
+        vote_details = None
+        if has_voted and vote_record:
+            candidate = Candidate.find_by_candidate_id(vote_record.get('candidate_id'))
+            if candidate:
+                vote_details = {
+                    'candidate_name': candidate.get('full_name'),
+                    'candidate_party': candidate.get('party', 'Independent'),
+                    'vote_timestamp': vote_record.get('vote_timestamp'),
+                    'vote_id': vote_record.get('vote_id'),
+                    'confirmed': vote_record.get('is_verified', False)
+                }
+        
+        # Get election statistics
+        total_votes = Vote.count({"election_id": election_id})
+        total_candidates = len(candidates_data)
+        
+        # Calculate voter turnout if total voters is available
+        voter_turnout = 0
+        total_voters = election.get('total_voters', 0)
+        if total_voters > 0:
+            voter_turnout = round((total_votes / total_voters) * 100, 2)
+        
+        # Prepare response data
+        election_data = {
+            'election_id': election.get('election_id'),
+            'title': election.get('title', 'Unknown Election'),
+            'description': election.get('description', ''),
+            'election_type': election.get('election_type', 'general'),
+            'status': election.get('status', 'completed'),
+            'voting_start': election.get('voting_start'),
+            'voting_end': election.get('voting_end'),
+            'constituency': election.get('constituency', 'General Constituency'),
+            'total_voters': total_voters,
+            'total_votes': total_votes,
+            'voter_turnout': voter_turnout,
+            'total_candidates': total_candidates,
+            'candidates': candidates_data,
+            'results_available': election.get('results_published', False),
+            'results_publish_date': election.get('results_publish'),
+            'election_rules': election.get('election_rules', []),
+            'important_dates': {
+                'voting_start': election.get('voting_start'),
+                'voting_end': election.get('voting_end'),
+                'results_publish': election.get('results_publish')
+            }
+        }
+        
+        return jsonify({
+            'success': True,
+            'election_data': election_data,
+            'has_voted': has_voted,
+            'vote_details': vote_details,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Election details error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': 'Failed to load election details'
+        }), 500
+        
 def get_election_results_data(election_id):
     """Get comprehensive election results data"""
     try:
