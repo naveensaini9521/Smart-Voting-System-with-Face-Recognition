@@ -29,35 +29,6 @@ A full-stack web application for secure and efficient voting, featuring face rec
 
 ---
 
-## 📁 Project Structure
-
-Smart-Voting-System-with-Face-Recognition/
-│── data/ # Dataset used for training/testing
-│── instance/ # Instance-specific configs (Flask)
-│── known_faces/ # Stored face encodings
-│── migrations/ # Database migration files
-│── public/ # Public assets
-│── scripts/ # Utility scripts
-│
-│── smart_app/ # Main application
-│ │── backend/ # Flask backend logic (routes, models, APIs)
-│ │── frontend/ # React + Vite frontend
-│ │── **init**.py # App initialization
-│ │── gunicorn.conf.py # Deployment config
-│
-│── tests/ # Unit & integration tests
-│── uploads/ # Uploaded images/videos
-│── venv/ # Virtual environment (ignored in Git)
-│
-│── .env # Environment variables
-│── config.py # App configuration
-│── create_admin.py # Script to create admin user
-│── libstdc++.so.6 # Dependency file
-│── mongo_setup.py # MongoDB setup script
-│── requirements.txt # Python dependencies
-│── run.py # Entry point for Flask app
-│── README.md # Project documentation
-
 ## 🚀 Setup Instructions
 
 ### 1. Clone the repository
