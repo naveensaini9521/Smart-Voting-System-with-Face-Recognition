@@ -14,3 +14,5 @@ venv/
 *.dat
 __pycache__/
 *.pyc
+
+private.pem
